@@ -42,15 +42,23 @@ async def webhook_ghl_form(request: Request):
             status_code=422, detail="corpo della richiesta non è un oggetto JSON"
         )
 
-    submission_id = body.get("submission_id")
+    custom = body.get("customData")
+    if not isinstance(custom, dict):
+        custom = {}
+
+    def campo(nome):
+        return custom.get(nome) if custom.get(nome) is not None else body.get(nome)
+
+    submission_id = campo("submission_id") or body.get("contact_id")
     if not submission_id:
         logger.warning(
-            "form.submitted senza submission_id, campi ricevuti: %s",
+            "form.submitted senza submission_id, campi radice: %s, campi customData: %s",
             sorted(body.keys()),
+            sorted(custom.keys()) if custom else [],
         )
         raise HTTPException(status_code=422, detail="submission_id mancante")
 
-    host_code = (body.get("host_code") or "").strip().upper()
+    host_code = (campo("host_code") or "").strip().upper()
     if not host_code:
         logger.warning("form.submitted host_code non valido: motivo=vuoto")
         raise HTTPException(status_code=422, detail="host_code mancante o vuoto")
@@ -76,8 +84,8 @@ async def webhook_ghl_form(request: Request):
         {
             "submission_id": submission_id,
             "host_code": host_code,
-            "email": body.get("email"),
-            "name": body.get("name"),
+            "email": campo("email"),
+            "name": campo("name"),
         }
     )
     dedup_key = f"ghl:{submission_id}"
