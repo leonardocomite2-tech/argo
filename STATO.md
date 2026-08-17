@@ -8,27 +8,28 @@
 - Git init + primo commit. Claude Code 2.1.233 + CLAUDE.md + subagent guardrail-review
 
 ## In corso
-(step 4 chiuso: worker/loop.py, poll ogni 5s con FOR UPDATE SKIP LOCKED, registro
-@handler, retry max 2 tentativi poi failed, recovery job orfani all'avvio)
-- Step 5: poster.py + coordinate
+(step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
+font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
+events.payload->>'host_code' e genera /app/out/poster_<CODE>.png; volume posters
+condiviso api+worker in docker-compose)
+- Step 6: invio email
 
 ## Prossimi step (cantiere 1 — poster)
-5. poster.py + coordinate
 6. invio email                 7. Telegram                8. workflow GHL
 
+## DECISIONI CHIUSE
+- **QR e attribuzione** (era bloccante prima dello step 5): QR statico, uguale per
+  tutti gli host, confermato testato e funzionante. L'attribuzione all'host non
+  passa dal QR/URL ma dal codice sconto che il cliente digita sul sito — quindi
+  nessun ?ref=CODICE necessario.
+
 ## DECISIONI APERTE — bloccano
-- **QR e attribuzione**: il QR punta a narra-tours.com/rome-en, uguale per tutti.
-  Come si sa da quale host arriva il visitatore? Se serve attribuzione → QR
-  generato per host con ?ref=CODICE (libreria qrcode, deterministico).
-  Se esistono più pagine per citta/lingua, il QR statico unico non basta.
-  → DA DECIDERE PRIMA DELLO STEP 5
 - Provider caselle Instantly + casella pulita (serve al cantiere 2)
 - Tono delle risposte: tu o lei, quanto sintetico (serve al drafter)
 
 ## DATI MANCANTI
-- poster_base.png (senza testo codice, QR incluso) — da esportare da Canva
-- poster_con_codice.png (stesse dimensioni, con codice esempio)
-- nome del font usato nel Canva
+- poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
+  visivo, non serve alla generazione
 
 ## Note operative
 - DNS: narratour-review.com → zona su HOSTINGER

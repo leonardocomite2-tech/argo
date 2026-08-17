@@ -13,6 +13,8 @@ services:
     build: .
     env_file: .env
     depends_on: [db]
+    volumes:
+      - posters:/app/out
     restart: unless-stopped
 
   worker:
@@ -20,6 +22,8 @@ services:
     command: python -m worker.loop
     env_file: .env
     depends_on: [db]
+    volumes:
+      - posters:/app/out
     restart: unless-stopped
 
   caddy:
@@ -33,3 +37,4 @@ services:
 volumes:
   pgdata:
   caddydata:
+  posters:

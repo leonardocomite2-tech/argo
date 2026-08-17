@@ -4,6 +4,8 @@ import time
 
 import psycopg
 
+from media.poster import genera_poster as genera_poster_immagine
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
 
@@ -110,7 +112,28 @@ def process_next_job():
 
 @handler("genera_poster")
 def genera_poster(payload):
-    logger.info("genera_poster: event_id=%s", payload.get("event_id"))
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("genera_poster: event_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'host_code' FROM events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"genera_poster: evento {event_id} non trovato")
+    host_code = row[0]
+    if not host_code:
+        raise ValueError(f"genera_poster: host_code mancante per evento {event_id}")
+
+    os.makedirs("/app/out", exist_ok=True)
+    out_path = f"/app/out/poster_{host_code}.png"
+    genera_poster_immagine(host_code, out_path)
+    logger.info("genera_poster: evento %s -> %s", event_id, out_path)
 
 
 def recover_orphaned_jobs():
