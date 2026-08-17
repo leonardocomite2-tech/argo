@@ -34,3 +34,13 @@
 - DNS: narratour-review.com → zona su HOSTINGER
         narra-tours.com     → zona su CLOUDFLARE
 - Segreti in /root/argo/.env (mai committato)
+
+## Codice non valido — comportamento deciso (17/08)
+Codice > 10 caratteri o con caratteri fuori da [A-Z0-9]:
+- NESSUN poster generato (mai stampare un codice che non esiste nel sistema)
+- Email automatica all'host: codice non valido, spiegazione, invito a
+  rispondere con un codice valido
+- Alert Telegram a Leonardo
+Motivo: un poster con codice sbagliato sembra giusto, l'host lo stampa e
+lo appende. Il danno emerge settimane dopo, dai clienti.
+Da implementare allo step 6 (email) e step 7 (Telegram).
