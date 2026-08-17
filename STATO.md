@@ -2,17 +2,18 @@
 
 ## Fatto
 - VPS Hostinger KVM1, Ubuntu 24.04, Docker + Compose
-- 3 container: caddy (HTTPS ok) · api (FastAPI, /health) · db (Postgres)
+- 4 container: caddy (HTTPS ok) · api (FastAPI, /health) · worker (poll jobs 5s) · db (Postgres)
 - argo.narratour-review.com → certificato Let's Encrypt valido
 - Schema DB: contacts, identities, events, messages, approvals, jobs
 - Git init + primo commit. Claude Code 2.1.233 + CLAUDE.md + subagent guardrail-review
 
 ## In corso
-(step 3 chiuso: webhook idempotente, 4/4 test ok)
-- Step 4: worker + registro handler
+(step 4 chiuso: worker/loop.py, poll ogni 5s con FOR UPDATE SKIP LOCKED, registro
+@handler, retry max 2 tentativi poi failed, recovery job orfani all'avvio)
+- Step 5: poster.py + coordinate
 
 ## Prossimi step (cantiere 1 — poster)
-4. worker + registro handler   5. poster.py + coordinate
+5. poster.py + coordinate
 6. invio email                 7. Telegram                8. workflow GHL
 
 ## DECISIONI APERTE — bloccano
