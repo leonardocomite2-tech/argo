@@ -8,7 +8,8 @@
 - Git init + primo commit. Claude Code 2.1.233 + CLAUDE.md + subagent guardrail-review
 
 ## In corso
-- Step 3: endpoint POST /webhook/ghl/form idempotente
+(step 3 chiuso: webhook idempotente, 4/4 test ok)
+- Step 4: worker + registro handler
 
 ## Prossimi step (cantiere 1 — poster)
 4. worker + registro handler   5. poster.py + coordinate
