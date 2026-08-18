@@ -1,10 +1,15 @@
 import logging
 import os
 import time
+from pathlib import Path
 
 import psycopg
 
-from media.poster import genera_poster as genera_poster_immagine
+from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
+from connectors.mailer import invia_email
+from connectors.testi import OGGETTO_POSTER, CORPO_POSTER
+
+POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
@@ -119,21 +124,57 @@ def genera_poster(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT payload->>'host_code' FROM events WHERE id = %s",
+                "SELECT payload->>'host_code', payload->>'email', "
+                "payload->>'name', contact_id FROM events WHERE id = %s",
                 (event_id,),
             )
             row = cur.fetchone()
 
     if row is None:
         raise ValueError(f"genera_poster: evento {event_id} non trovato")
-    host_code = row[0]
+    host_code, email, name, contact_id = row
     if not host_code:
         raise ValueError(f"genera_poster: host_code mancante per evento {event_id}")
+    if not email:
+        raise ValueError(f"genera_poster: email mancante per evento {event_id}")
 
     os.makedirs("/app/out", exist_ok=True)
     out_path = f"/app/out/poster_{host_code}.png"
     genera_poster_immagine(host_code, out_path)
     logger.info("genera_poster: evento %s -> %s", event_id, out_path)
+
+    thread_id = str(event_id)
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM messages WHERE thread_id = %s "
+                "AND canale = 'email' AND direzione = 'out'",
+                (thread_id,),
+            )
+            gia_inviata = cur.fetchone() is not None
+
+            if not gia_inviata:
+                nome = f"{name.split()[0]}, " if name and name.split() else ""
+                corpo = CORPO_POSTER.format(nome=nome, codice=host_code)
+                if not nome:
+                    corpo = corpo.replace("<p>è un piacere", "<p>È un piacere", 1)
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (%s, 'email', 'out', %s, %s)",
+                    (contact_id, thread_id, corpo),
+                )
+
+    if gia_inviata:
+        logger.info("genera_poster: email già inviata per evento %s, salto", event_id)
+        return
+
+    oggetto = OGGETTO_POSTER.format(codice=host_code)
+    allegati = [
+        (f"poster-sconto-{host_code}.png", Path(out_path).read_bytes()),
+        ("poster-assistente-ai.png", POSTER_AI_PATH.read_bytes()),
+    ]
+    invia_email(email, oggetto, corpo, allegati)
+    logger.info("genera_poster: email inviata a %s per evento %s", email, event_id)
 
 
 def recover_orphaned_jobs():

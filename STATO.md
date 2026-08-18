@@ -12,7 +12,9 @@
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
 events.payload->>'host_code' e genera /app/out/poster_<CODE>.png; volume posters
 condiviso api+worker in docker-compose)
-- Step 6: invio email
+- Step 6: invio email con poster allegato implementato (host valido).
+  Manca ancora: email di richiesta per host_code non valido (oggi il webhook
+  risponde 422 prima di creare evento/job — da riconciliare).
 
 ## Prossimi step (cantiere 1 — poster)
 6. invio email                 7. Telegram                8. workflow GHL
