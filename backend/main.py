@@ -61,10 +61,11 @@ async def webhook_ghl_form(request: Request):
         raise HTTPException(status_code=422, detail="submission_id mancante")
 
     host_code = (campo("host_code") or "").strip().upper()
+    motivo_invalido = None
     if not host_code:
         logger.warning("form.submitted host_code non valido: motivo=vuoto")
-        raise HTTPException(status_code=422, detail="host_code mancante o vuoto")
-    if not HOST_CODE_RE.match(host_code):
+        motivo_invalido = "vuoto"
+    elif not HOST_CODE_RE.match(host_code):
         logger.warning(
             "form.submitted host_code non valido: motivo=caratteri_non_validi"
         )
@@ -73,11 +74,8 @@ async def webhook_ghl_form(request: Request):
             "(motivo=caratteri_non_validi) — il JS di sanificazione del form "
             "potrebbe non funzionare più."
         )
-        raise HTTPException(
-            status_code=422,
-            detail="host_code contiene caratteri non validi (ammessi solo A-Z0-9)",
-        )
-    if len(host_code) > HOST_CODE_MAX_LEN:
+        motivo_invalido = "caratteri_non_validi"
+    elif len(host_code) > HOST_CODE_MAX_LEN:
         logger.warning(
             "form.submitted host_code non valido: motivo=troppo_lungo lunghezza=%d",
             len(host_code),
@@ -87,10 +85,45 @@ async def webhook_ghl_form(request: Request):
             "(motivo=troppo_lungo) — il JS di sanificazione del form "
             "potrebbe non funzionare più."
         )
-        raise HTTPException(
-            status_code=422,
-            detail=f"host_code troppo lungo (max {HOST_CODE_MAX_LEN} caratteri)",
+        motivo_invalido = "troppo_lungo"
+
+    if motivo_invalido:
+        payload = json.dumps(
+            {
+                "submission_id": submission_id,
+                "host_code": host_code,
+                "email": campo("email"),
+                "name": campo("name"),
+                "motivo": motivo_invalido,
+            }
         )
+        dedup_key = f"ghl:{submission_id}:{host_code}"
+
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO events (tipo, dedup_key, payload)
+                    VALUES ('form.codice_invalido', %s, %s)
+                    ON CONFLICT (dedup_key) DO NOTHING
+                    RETURNING id
+                    """,
+                    (dedup_key, payload),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return {"ok": True, "duplicato": True}
+                event_id = row[0]
+
+                cur.execute(
+                    """
+                    INSERT INTO jobs (tipo, payload)
+                    VALUES ('avvisa_codice_invalido', %s)
+                    """,
+                    (json.dumps({"event_id": event_id}),),
+                )
+
+        return {"ok": True}
 
     payload = json.dumps(
         {
@@ -100,7 +133,7 @@ async def webhook_ghl_form(request: Request):
             "name": campo("name"),
         }
     )
-    dedup_key = f"ghl:{submission_id}"
+    dedup_key = f"ghl:{submission_id}:{host_code}"
 
     with db_connect() as conn:
         with conn.cursor() as cur:

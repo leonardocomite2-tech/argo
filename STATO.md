@@ -19,6 +19,9 @@ condiviso api+worker in docker-compose)
   mai solleva eccezioni). Collegata in tre punti: poster inviato con successo,
   job passato a failed, webhook 422 per host_code non valido (caratteri non validi
   o troppo lungo — entrambi i casi, mai il valore grezzo nel testo dell'alert).
+  Significato cambiato dal 18/08: da "l'host è rimasto a mani vuote, intervieni"
+  a "il form potrebbe essere rotto, ma l'host è già stato avvisato in automatico"
+  — resta utile per capire che il JS non funziona, non è più urgente.
 
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL
@@ -50,5 +53,19 @@ Codice > 10 caratteri o con caratteri fuori da [A-Z0-9]:
 - Alert Telegram a Leonardo
 Motivo: un poster con codice sbagliato sembra giusto, l'host lo stampa e
 lo appende. Il danno emerge settimane dopo, dai clienti.
-Alert Telegram implementato (step 7). Manca ancora l'email di richiesta
-all'host per host_code non valido (parte residua dello step 6, vedi sopra).
+Alert Telegram implementato (step 7). Email di richiesta implementata (18/08):
+webhook non risponde più 422 per host_code vuoto/caratteri non validi/troppo
+lungo, registra evento 'form.codice_invalido' + job 'avvisa_codice_invalido',
+risponde 200. Restano 422 solo submission_id mancante e body non-dict.
+
+### dedup_key include host_code (18/08)
+GHL non espone un id di submission stabile: `submission_id` è sempre
+`{{contact.id}}`, identico ad ogni ricompilazione dello stesso contatto.
+Con `dedup_key = f"ghl:{submission_id}"` un secondo tentativo (anche con
+codice corretto) veniva scartato dall'ON CONFLICT e il poster non arrivava
+mai. Corretto: `dedup_key = f"ghl:{submission_id}:{host_code}"` per entrambi
+gli eventi (form.submitted e form.codice_invalido).
+Conseguenza voluta: un host che invia più codici validi diversi riceve un
+poster per ciascuno (l'invariante "un poster per host" diventa "un poster
+per host+codice"). Stesso contatto che rimanda lo stesso codice (valido o
+vuoto) → scartato come prima, nessuna email duplicata.

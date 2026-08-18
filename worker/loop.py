@@ -8,7 +8,12 @@ import psycopg
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
 from connectors.mailer import invia_email
 from connectors.telegram import notifica
-from connectors.testi import OGGETTO_POSTER, CORPO_POSTER
+from connectors.testi import (
+    OGGETTO_POSTER,
+    CORPO_POSTER,
+    OGGETTO_CODICE_INVALIDO,
+    CORPO_CODICE_INVALIDO,
+)
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
 
@@ -178,6 +183,56 @@ def genera_poster(payload):
     invia_email(email, oggetto, corpo, allegati)
     logger.info("genera_poster: email inviata a %s per evento %s", email, event_id)
     notifica(f"Poster inviato — codice {host_code}, {name or '(senza nome)'} <{email}>")
+
+
+@handler("avvisa_codice_invalido")
+def avvisa_codice_invalido(payload):
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("avvisa_codice_invalido: event_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'email', payload->>'name', contact_id "
+                "FROM events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"avvisa_codice_invalido: evento {event_id} non trovato")
+    email, name, contact_id = row
+    if not email:
+        raise ValueError(f"avvisa_codice_invalido: email mancante per evento {event_id}")
+
+    thread_id = str(event_id)
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM messages WHERE thread_id = %s "
+                "AND canale = 'email' AND direzione = 'out'",
+                (thread_id,),
+            )
+            gia_inviata = cur.fetchone() is not None
+
+            if not gia_inviata:
+                nome = f"{name.split()[0]}, " if name and name.split() else ""
+                corpo = CORPO_CODICE_INVALIDO.format(nome=nome)
+                if not nome:
+                    corpo = corpo.replace("<p>grazie", "<p>Grazie", 1)
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (%s, 'email', 'out', %s, %s)",
+                    (contact_id, thread_id, corpo),
+                )
+
+    if gia_inviata:
+        logger.info("avvisa_codice_invalido: email già inviata per evento %s, salto", event_id)
+        return
+
+    invia_email(email, OGGETTO_CODICE_INVALIDO, corpo, [])
+    logger.info("avvisa_codice_invalido: email inviata a %s per evento %s", email, event_id)
 
 
 def recover_orphaned_jobs():

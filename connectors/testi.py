@@ -22,3 +22,19 @@ Oltre alle copie A4 da appendere, ne stampi qualcuna in formato ridotto — due 
 
 <p><strong>NarraTours</strong></p>
 """
+
+OGGETTO_CODICE_INVALIDO = "NarraTours — serve un piccolo aggiustamento al suo codice"
+
+CORPO_CODICE_INVALIDO = """
+<p>{nome}grazie per essersi registrato al programma host di NarraTours.</p>
+
+<p>C'è solo un dettaglio da sistemare prima di poterle mandare i poster: <strong>il codice sconto che ha inserito non è utilizzabile</strong>.</p>
+
+<p>Il codice deve contenere <strong>solo lettere e numeri</strong> (niente spazi, trattini o accenti) ed essere lungo <strong>al massimo 10 caratteri</strong>. Per esempio: <em>CASAROMA1</em>, <em>VILLA2026</em>, <em>SOGGIORNO7</em>.</p>
+
+<p><strong>Risponda a questa email indicando il codice che preferisce</strong> e le mandiamo i poster subito, pronti da stampare.</p>
+
+<p>Ci vuole meno di un minuto, e da lì è tutto automatico.</p>
+
+<p><strong>NarraTours</strong></p>
+"""
