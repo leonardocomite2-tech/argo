@@ -15,9 +15,13 @@ condiviso api+worker in docker-compose)
 - Step 6: invio email con poster allegato implementato (host valido).
   Manca ancora: email di richiesta per host_code non valido (oggi il webhook
   risponde 422 prima di creare evento/job — da riconciliare).
+- Step 7: notifiche Telegram (connectors/telegram.py, notifica() via urllib stdlib,
+  mai solleva eccezioni). Collegata in tre punti: poster inviato con successo,
+  job passato a failed, webhook 422 per host_code non valido (caratteri non validi
+  o troppo lungo — entrambi i casi, mai il valore grezzo nel testo dell'alert).
 
 ## Prossimi step (cantiere 1 — poster)
-6. invio email                 7. Telegram                8. workflow GHL
+8. workflow GHL
 
 ## DECISIONI CHIUSE
 - **QR e attribuzione** (era bloccante prima dello step 5): QR statico, uguale per
@@ -46,4 +50,5 @@ Codice > 10 caratteri o con caratteri fuori da [A-Z0-9]:
 - Alert Telegram a Leonardo
 Motivo: un poster con codice sbagliato sembra giusto, l'host lo stampa e
 lo appende. Il danno emerge settimane dopo, dai clienti.
-Da implementare allo step 6 (email) e step 7 (Telegram).
+Alert Telegram implementato (step 7). Manca ancora l'email di richiesta
+all'host per host_code non valido (parte residua dello step 6, vedi sopra).

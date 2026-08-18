@@ -7,6 +7,7 @@ import psycopg
 
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
 from connectors.mailer import invia_email
+from connectors.telegram import notifica
 from connectors.testi import OGGETTO_POSTER, CORPO_POSTER
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
@@ -82,13 +83,14 @@ def retry_job(job_id, errore):
             )
 
 
-def fail_job(job_id, errore):
+def fail_job(job_id, tipo, errore):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE jobs SET stato = 'failed', ultimo_errore = %s WHERE id = %s",
                 (errore, job_id),
             )
+    notifica(f"Job fallito — tipo={tipo} id={job_id} errore={errore}")
 
 
 def process_next_job():
@@ -100,7 +102,7 @@ def process_next_job():
     fn = HANDLERS.get(tipo)
     if fn is None:
         logger.error("job %s: handler sconosciuto per tipo '%s'", job_id, tipo)
-        fail_job(job_id, f"handler sconosciuto per tipo '{tipo}'")
+        fail_job(job_id, tipo, f"handler sconosciuto per tipo '{tipo}'")
         return
 
     try:
@@ -110,7 +112,7 @@ def process_next_job():
         if tentativi < 2:
             retry_job(job_id, str(e))
         else:
-            fail_job(job_id, str(e))
+            fail_job(job_id, tipo, str(e))
     else:
         complete_job(job_id)
 
@@ -175,6 +177,7 @@ def genera_poster(payload):
     ]
     invia_email(email, oggetto, corpo, allegati)
     logger.info("genera_poster: email inviata a %s per evento %s", email, event_id)
+    notifica(f"Poster inviato — codice {host_code}, {name or '(senza nome)'} <{email}>")
 
 
 def recover_orphaned_jobs():

@@ -6,6 +6,8 @@ import re
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 
+from connectors.telegram import notifica
+
 app = FastAPI(title="Argo")
 logger = logging.getLogger("argo")
 
@@ -66,6 +68,11 @@ async def webhook_ghl_form(request: Request):
         logger.warning(
             "form.submitted host_code non valido: motivo=caratteri_non_validi"
         )
+        notifica(
+            "ALERT: webhook GHL ha ricevuto un host_code non ammesso "
+            "(motivo=caratteri_non_validi) — il JS di sanificazione del form "
+            "potrebbe non funzionare più."
+        )
         raise HTTPException(
             status_code=422,
             detail="host_code contiene caratteri non validi (ammessi solo A-Z0-9)",
@@ -74,6 +81,11 @@ async def webhook_ghl_form(request: Request):
         logger.warning(
             "form.submitted host_code non valido: motivo=troppo_lungo lunghezza=%d",
             len(host_code),
+        )
+        notifica(
+            "ALERT: webhook GHL ha ricevuto un host_code non ammesso "
+            "(motivo=troppo_lungo) — il JS di sanificazione del form "
+            "potrebbe non funzionare più."
         )
         raise HTTPException(
             status_code=422,
