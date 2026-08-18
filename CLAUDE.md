@@ -21,3 +21,11 @@ Quando manca un dato, chiedilo. Non riempirlo con un'assunzione plausibile.
 
 ## Stato del progetto
 Leggi sempre STATO.md all'inizio della sessione.
+
+## Tono delle comunicazioni verso host e prospect (deciso 18/08)
+Si dà del **lei**, ma senza formalismi da ufficio.
+- Sì: "Buongiorno", "in allegato trova", "risponda pure a questa email"
+- No: "Gentile Signore", "La preghiamo di voler cortesemente", "Distinti saluti"
+Regola pratica: come si scriverebbe a un cliente che si stima ma non si conosce
+ancora. Cordiale, diretto, mai rigido.
+Vale per email, SMS e ogni messaggio in uscita, su tutti i canali.
