@@ -62,7 +62,7 @@ condiviso api+worker in docker-compose)
   connettore IMAP è provider-agnostico, basta configurare `IMAP_HOST`/
   `MAILBOX_N_USER/PASS` in `.env`), resta aperta solo la scelta operativa di
   quale casella usare in produzione.
-- Tono delle risposte: tu o lei, quanto sintetico (serve al drafter, non a
+- (chiusa 18/08) Tono: lei cordiale, definito in CLAUDE.md
   questo step — `classifica_messaggio` per ora è solo uno stub)
 
 ## DATI MANCANTI
