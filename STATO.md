@@ -33,11 +33,20 @@ condiviso api+worker in docker-compose)
   un fallimento a metà non duplica la catena sui retry; logga a INFO quante
   email legge ad ogni giro) inserisce evento `email.reply` per messaggio
   (`dedup_key='imap:'+message_id`, o `imap-sint:`+hash se manca il
-  Message-ID) e accoda `classifica_messaggio` (per ora solo uno stub che
-  logga event_id+oggetto — zero LLM). `garantisci_leggi_email()` riaccoda il
+  Message-ID) e accoda `notifica_risposta`. `garantisci_leggi_email()` riaccoda il
   job se la catena si spezza (nessun `leggi_email` pending/running), sia
   all'avvio sia ad ogni giro del loop worker — protegge dal caso in cui
   l'handler vada in `failed` dopo i retry.
+- Lo stub `classifica_messaggio` è stato sostituito da `notifica_risposta`:
+  legge mittente/destinatario/oggetto/testo dall'evento e manda una notifica
+  Telegram formattata (oggetto assente -> "(senza oggetto)", testo troncato a
+  400 caratteri con "[...]"). Guardia di idempotenza come gli altri handler:
+  riga in `messages` (canale='email', direzione='in', thread_id=str(event_id),
+  contact_id NULL) scritta prima della notifica. `migra_job_notifica_risposta()`,
+  chiamata una volta all'avvio, converte eventuali job `classifica_messaggio`
+  ancora pending (accodati prima del rename) al nuovo tipo. La classificazione
+  LLM (enum chiuso di categorie) e la stesura di bozze restano da fare — questo
+  handler resta solo notifica, zero LLM.
 
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL

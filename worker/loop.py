@@ -293,7 +293,7 @@ def leggi_email(payload):
                 event_id = row[0]
 
                 cur.execute(
-                    "INSERT INTO jobs (tipo, payload) VALUES ('classifica_messaggio', %s)",
+                    "INSERT INTO jobs (tipo, payload) VALUES ('notifica_risposta', %s)",
                     (json.dumps({"event_id": event_id}),),
                 )
 
@@ -305,26 +305,57 @@ def leggi_email(payload):
             )
 
 
-@handler("classifica_messaggio")
-def classifica_messaggio(payload):
+@handler("notifica_risposta")
+def notifica_risposta(payload):
     event_id = payload.get("event_id")
     if not event_id:
-        raise ValueError("classifica_messaggio: event_id mancante nel payload del job")
+        raise ValueError("notifica_risposta: event_id mancante nel payload del job")
 
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT payload->>'oggetto' FROM events WHERE id = %s",
+                "SELECT payload->>'mittente', payload->>'destinatario', "
+                "payload->>'oggetto', payload->>'testo' FROM events WHERE id = %s",
                 (event_id,),
             )
             row = cur.fetchone()
 
     if row is None:
-        raise ValueError(f"classifica_messaggio: evento {event_id} non trovato")
-    oggetto = row[0]
-    logger.info(
-        "classifica_messaggio: evento %s oggetto=%r (stub, zero LLM)", event_id, oggetto
+        raise ValueError(f"notifica_risposta: evento {event_id} non trovato")
+    mittente, destinatario, oggetto, testo = row
+    testo = (testo or "").strip()
+
+    thread_id = str(event_id)
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM messages WHERE thread_id = %s "
+                "AND canale = 'email' AND direzione = 'in'",
+                (thread_id,),
+            )
+            gia_notificata = cur.fetchone() is not None
+
+            if not gia_notificata:
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (NULL, 'email', 'in', %s, %s)",
+                    (thread_id, testo),
+                )
+
+    if gia_notificata:
+        logger.info("notifica_risposta: già notificata per evento %s, salto", event_id)
+        return
+
+    anteprima = testo[:400] + ("[...]" if len(testo) > 400 else "")
+    testo_notifica = (
+        f"📧 Nuova risposta\n"
+        f"Da: {mittente}\n"
+        f"A: {destinatario}\n"
+        f"Oggetto: {oggetto or '(senza oggetto)'}\n\n"
+        f"{anteprima}"
     )
+    notifica(testo_notifica)
+    logger.info("notifica_risposta: evento %s oggetto=%r notificato", event_id, oggetto)
 
 
 def garantisci_leggi_email():
@@ -336,6 +367,18 @@ def garantisci_leggi_email():
             if cur.fetchone() is None:
                 cur.execute("INSERT INTO jobs (tipo, payload) VALUES ('leggi_email', '{}')")
                 logger.warning("garantisci_leggi_email: catena leggi_email interrotta, riaccodato")
+
+
+def migra_job_notifica_risposta():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET tipo = 'notifica_risposta' "
+                "WHERE tipo = 'classifica_messaggio' AND stato = 'pending'"
+            )
+            n = cur.rowcount
+    if n:
+        logger.warning("migra_job_notifica_risposta: %d job migrati da classifica_messaggio", n)
 
 
 def recover_orphaned_jobs():
@@ -353,6 +396,7 @@ def recover_orphaned_jobs():
 def main():
     logger.info("worker avviato")
     recover_orphaned_jobs()
+    migra_job_notifica_risposta()
     garantisci_leggi_email()
     while True:
         try:
