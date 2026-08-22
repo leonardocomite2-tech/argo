@@ -23,6 +23,22 @@ condiviso api+worker in docker-compose)
   a "il form potrebbe essere rotto, ma l'host è già stato avvisato in automatico"
   — resta utile per capire che il JS non funziona, non è più urgente.
 
+- Cantiere 2 — email: `connectors/imap_reader.py` (`leggi_nuove()`, stdlib
+  puro: `imaplib`+`email`+`html.parser`) legge INBOX non letta su ogni casella
+  configurata (`MAILBOX_N_USER/PASS`, N=1,2,... finché esistono) via
+  `BODY.PEEK[]` (mai marca come letto). Casella rotta → log + alert Telegram
+  (solo indirizzo + tipo eccezione, mai la password) e si prosegue con le altre.
+  Nel worker: handler `leggi_email` (self-chaining, riaccoda il prossimo giro
+  a +2 minuti solo dopo aver processato con successo tutti i messaggi — così
+  un fallimento a metà non duplica la catena sui retry; logga a INFO quante
+  email legge ad ogni giro) inserisce evento `email.reply` per messaggio
+  (`dedup_key='imap:'+message_id`, o `imap-sint:`+hash se manca il
+  Message-ID) e accoda `classifica_messaggio` (per ora solo uno stub che
+  logga event_id+oggetto — zero LLM). `garantisci_leggi_email()` riaccoda il
+  job se la catena si spezza (nessun `leggi_email` pending/running), sia
+  all'avvio sia ad ogni giro del loop worker — protegge dal caso in cui
+  l'handler vada in `failed` dopo i retry.
+
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL
 
@@ -33,8 +49,12 @@ condiviso api+worker in docker-compose)
   nessun ?ref=CODICE necessario.
 
 ## DECISIONI APERTE — bloccano
-- Provider caselle Instantly + casella pulita (serve al cantiere 2)
-- Tono delle risposte: tu o lei, quanto sintetico (serve al drafter)
+- Provider caselle Instantly + casella pulita: non blocca più il codice (il
+  connettore IMAP è provider-agnostico, basta configurare `IMAP_HOST`/
+  `MAILBOX_N_USER/PASS` in `.env`), resta aperta solo la scelta operativa di
+  quale casella usare in produzione.
+- Tono delle risposte: tu o lei, quanto sintetico (serve al drafter, non a
+  questo step — `classifica_messaggio` per ora è solo uno stub)
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto

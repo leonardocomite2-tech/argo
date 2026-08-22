@@ -1,7 +1,9 @@
 # Argo
 
 Servizio a eventi su VPS. FastAPI + Postgres + worker + Caddy in Docker Compose.
-Cantiere attivo: 1 — poster. **Zero LLM.** Se serve un modello, fermati e chiedi.
+Cantiere attivo: 2 — email. L'LLM è ammesso solo per classificare (enum chiuso
+di categorie) e per redigere bozze. Mai per decidere se inviare, mai per
+eseguire azioni. Ogni bozza passa da approvals. Nel dubbio, fermati e chiedi.
 
 ## Invarianti (non violare mai)
 - Ogni evento entrante ha una `dedup_key`. Ogni handler deve poter girare due volte senza danni.

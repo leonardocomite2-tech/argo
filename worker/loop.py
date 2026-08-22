@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 import time
@@ -6,6 +8,7 @@ from pathlib import Path
 import psycopg
 
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
+from connectors.imap_reader import leggi_nuove
 from connectors.mailer import invia_email
 from connectors.telegram import notifica
 from connectors.testi import (
@@ -16,6 +19,7 @@ from connectors.testi import (
 )
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
+TESTO_MAX_LEN = 20000
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
@@ -235,6 +239,105 @@ def avvisa_codice_invalido(payload):
     logger.info("avvisa_codice_invalido: email inviata a %s per evento %s", email, event_id)
 
 
+@handler("leggi_email")
+def leggi_email(payload):
+    messaggi = leggi_nuove()
+    logger.info("leggi_email: %d messaggi letti in questo giro", len(messaggi))
+
+    for m in messaggi:
+        message_id = m.get("message_id")
+        if message_id:
+            dedup_key = f"imap:{message_id}"
+        else:
+            testo = m.get("testo") or ""
+            materiale = "|".join([
+                m.get("destinatario") or "",
+                m.get("mittente") or "",
+                m.get("data") or "",
+                m.get("oggetto") or "",
+                testo[:200],
+            ])
+            hash_sint = hashlib.sha256(materiale.encode("utf-8")).hexdigest()
+            dedup_key = f"imap-sint:{hash_sint}"
+            logger.warning("leggi_email: Message-ID mancante, dedup_key sintetica %s", dedup_key)
+
+        testo = m.get("testo") or ""
+        troncato = len(testo) > TESTO_MAX_LEN
+        evento_payload = json.dumps({
+            "message_id": message_id,
+            "mittente": m.get("mittente"),
+            "destinatario": m.get("destinatario"),
+            "oggetto": m.get("oggetto"),
+            "testo": testo[:TESTO_MAX_LEN] if troncato else testo,
+            "testo_troncato": troncato,
+            "lunghezza_testo_originale": len(testo),
+            "data": m.get("data"),
+            "in_reply_to": m.get("in_reply_to"),
+            "references": m.get("references"),
+        })
+
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO events (tipo, dedup_key, payload)
+                    VALUES ('email.reply', %s, %s)
+                    ON CONFLICT (dedup_key) DO NOTHING
+                    RETURNING id
+                    """,
+                    (dedup_key, evento_payload),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    continue
+                event_id = row[0]
+
+                cur.execute(
+                    "INSERT INTO jobs (tipo, payload) VALUES ('classifica_messaggio', %s)",
+                    (json.dumps({"event_id": event_id}),),
+                )
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload, run_after) "
+                "VALUES ('leggi_email', '{}', now() + interval '2 minutes')"
+            )
+
+
+@handler("classifica_messaggio")
+def classifica_messaggio(payload):
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("classifica_messaggio: event_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'oggetto' FROM events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"classifica_messaggio: evento {event_id} non trovato")
+    oggetto = row[0]
+    logger.info(
+        "classifica_messaggio: evento %s oggetto=%r (stub, zero LLM)", event_id, oggetto
+    )
+
+
+def garantisci_leggi_email():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'leggi_email' AND stato IN ('pending', 'running')"
+            )
+            if cur.fetchone() is None:
+                cur.execute("INSERT INTO jobs (tipo, payload) VALUES ('leggi_email', '{}')")
+                logger.warning("garantisci_leggi_email: catena leggi_email interrotta, riaccodato")
+
+
 def recover_orphaned_jobs():
     # Sicuro perché c'è un solo worker: se stato='running' all'avvio, per forza
     # il processo precedente è morto a metà. Con più worker concorrenti questa
@@ -250,8 +353,10 @@ def recover_orphaned_jobs():
 def main():
     logger.info("worker avviato")
     recover_orphaned_jobs()
+    garantisci_leggi_email()
     while True:
         try:
+            garantisci_leggi_email()
             process_next_job()
         except Exception:
             logger.exception("errore imprevisto nel loop worker")
