@@ -72,6 +72,14 @@ condiviso api+worker in docker-compose)
   tutti gli host, confermato testato e funzionante. L'attribuzione all'host non
   passa dal QR/URL ma dal codice sconto che il cliente digita sul sito — quindi
   nessun ?ref=CODICE necessario.
+- **Guardia di idempotenza SELECT+INSERT su messages** (23/08): risolta con
+  indice unico parziale `messages_thread_canale_direzione_uniq` su
+  `(thread_id, canale, direzione) WHERE thread_id IS NOT NULL`
+  (`db/migrations/001_messages_unique.sql` + `db/schema.sql`) e sostituendo,
+  in `genera_poster`, `avvisa_codice_invalido`, `notifica_risposta` e
+  `invia_risposta`, il SELECT+INSERT separato con un unico
+  `INSERT ... ON CONFLICT (...) DO NOTHING RETURNING id`: la guardia ora è
+  atomica a livello DB, niente più finestra tra verifica e scrittura.
 
 ## DECISIONI APERTE — bloccano
 - Provider caselle Instantly + casella pulita: non blocca più il codice (il
@@ -80,12 +88,6 @@ condiviso api+worker in docker-compose)
   quale casella usare in produzione.
 - (chiusa 18/08) Tono: lei cordiale, definito in CLAUDE.md
   questo step — `classifica_messaggio` per ora è solo uno stub)
-- Guardia di idempotenza SELECT+INSERT in genera_poster, avvisa_codice_invalido
-  e invia_risposta: non è atomica, un crash tra insert e invio può causare un
-  doppio invio reale. Soluzione: UNIQUE(thread_id, canale, direzione) su
-  messages + ON CONFLICT DO NOTHING negli handler. Da fare prima che il
-  volume cresca — con invia_risposta il rischio è un'email doppia a un
-  prospect.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto

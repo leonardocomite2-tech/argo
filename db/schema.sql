@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS messages_thread_canale_direzione_uniq
+ON messages (thread_id, canale, direzione)
+WHERE thread_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS approvals (
   id            SERIAL PRIMARY KEY,
   message_id    INT REFERENCES messages(id),

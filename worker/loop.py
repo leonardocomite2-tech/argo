@@ -156,25 +156,20 @@ def genera_poster(payload):
     logger.info("genera_poster: evento %s -> %s", event_id, out_path)
 
     thread_id = str(event_id)
+    nome = f"{name.split()[0]}, " if name and name.split() else ""
+    corpo = CORPO_POSTER.format(nome=nome, codice=host_code)
+    if not nome:
+        corpo = corpo.replace("<p>è un piacere", "<p>È un piacere", 1)
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM messages WHERE thread_id = %s "
-                "AND canale = 'email' AND direzione = 'out'",
-                (thread_id,),
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (%s, 'email', 'out', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (contact_id, thread_id, corpo),
             )
-            gia_inviata = cur.fetchone() is not None
-
-            if not gia_inviata:
-                nome = f"{name.split()[0]}, " if name and name.split() else ""
-                corpo = CORPO_POSTER.format(nome=nome, codice=host_code)
-                if not nome:
-                    corpo = corpo.replace("<p>è un piacere", "<p>È un piacere", 1)
-                cur.execute(
-                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
-                    "VALUES (%s, 'email', 'out', %s, %s)",
-                    (contact_id, thread_id, corpo),
-                )
+            gia_inviata = cur.fetchone() is None
 
     if gia_inviata:
         logger.info("genera_poster: email già inviata per evento %s, salto", event_id)
@@ -212,25 +207,20 @@ def avvisa_codice_invalido(payload):
         raise ValueError(f"avvisa_codice_invalido: email mancante per evento {event_id}")
 
     thread_id = str(event_id)
+    nome = f"{name.split()[0]}, " if name and name.split() else ""
+    corpo = CORPO_CODICE_INVALIDO.format(nome=nome)
+    if not nome:
+        corpo = corpo.replace("<p>grazie", "<p>Grazie", 1)
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM messages WHERE thread_id = %s "
-                "AND canale = 'email' AND direzione = 'out'",
-                (thread_id,),
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (%s, 'email', 'out', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (contact_id, thread_id, corpo),
             )
-            gia_inviata = cur.fetchone() is not None
-
-            if not gia_inviata:
-                nome = f"{name.split()[0]}, " if name and name.split() else ""
-                corpo = CORPO_CODICE_INVALIDO.format(nome=nome)
-                if not nome:
-                    corpo = corpo.replace("<p>grazie", "<p>Grazie", 1)
-                cur.execute(
-                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
-                    "VALUES (%s, 'email', 'out', %s, %s)",
-                    (contact_id, thread_id, corpo),
-                )
+            gia_inviata = cur.fetchone() is None
 
     if gia_inviata:
         logger.info("avvisa_codice_invalido: email già inviata per evento %s, salto", event_id)
@@ -330,18 +320,13 @@ def notifica_risposta(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM messages WHERE thread_id = %s "
-                "AND canale = 'email' AND direzione = 'in'",
-                (thread_id,),
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (NULL, 'email', 'in', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (thread_id, testo),
             )
-            gia_notificata = cur.fetchone() is not None
-
-            if not gia_notificata:
-                cur.execute(
-                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
-                    "VALUES (NULL, 'email', 'in', %s, %s)",
-                    (thread_id, testo),
-                )
+            gia_notificata = cur.fetchone() is None
 
     if gia_notificata:
         logger.info("notifica_risposta: già notificata per evento %s, salto", event_id)
@@ -413,22 +398,17 @@ def invia_risposta(payload):
         )
     thread_id, mittente, oggetto, testo_originale, message_id_originale, references_orig = riga
 
+    corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM messages WHERE thread_id = %s "
-                "AND canale = 'email' AND direzione = 'out'",
-                (thread_id,),
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (NULL, 'email', 'out', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (thread_id, corpo),
             )
-            gia_inviata = cur.fetchone() is not None
-
-            if not gia_inviata:
-                corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
-                cur.execute(
-                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
-                    "VALUES (NULL, 'email', 'out', %s, %s)",
-                    (thread_id, corpo),
-                )
+            gia_inviata = cur.fetchone() is None
 
     if gia_inviata:
         logger.info("invia_risposta: già inviata per approvazione %s, salto", approval_id)
