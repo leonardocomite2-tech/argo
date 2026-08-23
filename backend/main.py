@@ -6,7 +6,7 @@ import re
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 
-from connectors.telegram import notifica
+from connectors.telegram import notifica, rispondi_callback, chiedi_testo_corretto
 
 app = FastAPI(title="Argo")
 logger = logging.getLogger("argo")
@@ -158,5 +158,152 @@ async def webhook_ghl_form(request: Request):
                 """,
                 (json.dumps({"event_id": event_id}),),
             )
+
+    return {"ok": True}
+
+
+def _accoda_invia_risposta(cur, approval_id):
+    cur.execute(
+        "INSERT INTO jobs (tipo, payload) VALUES ('invia_risposta', %s)",
+        (json.dumps({"approval_id": approval_id}),),
+    )
+
+
+def _gestisci_callback_telegram(callback_query):
+    callback_query_id = callback_query.get("id")
+    callback_data = callback_query.get("data") or ""
+    azione, _, resto = callback_data.partition(":")
+
+    if azione not in ("appr", "modif", "rifiu") or not resto.isdigit():
+        logger.warning("webhook_telegram: callback_data non riconosciuta: %r", callback_data)
+        rispondi_callback(callback_query_id, "richiesta non riconosciuta")
+        return
+
+    approval_id = int(resto)
+
+    if azione == "appr":
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE approvals SET stato = 'approvata', testo_finale = bozza, decided_at = now()
+                    WHERE id = %s AND stato = 'in_attesa'
+                    RETURNING id
+                    """,
+                    (approval_id,),
+                )
+                trovata = cur.fetchone() is not None
+                if trovata:
+                    _accoda_invia_risposta(cur, approval_id)
+        rispondi_callback(callback_query_id, "Approvata ✅" if trovata else "già gestita")
+        return
+
+    if azione == "rifiu":
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE approvals SET stato = 'rifiutata', decided_at = now()
+                    WHERE id = %s AND stato = 'in_attesa'
+                    RETURNING id
+                    """,
+                    (approval_id,),
+                )
+                trovata = cur.fetchone() is not None
+                if trovata:
+                    _accoda_invia_risposta(cur, approval_id)
+        rispondi_callback(callback_query_id, "Rifiutata ❌" if trovata else "già gestita")
+        return
+
+    # azione == "modif": claim atomico con lo stato transitorio 'in_modifica',
+    # stessa guardia di idempotenza di appr/rifiu. Qui non basta filtrare su
+    # "in_attesa" nella UPDATE finale come per gli altri due rami perché questo
+    # ramo non decide l'approvazione — serve uno stato intermedio da poter
+    # confrontare per evitare che un doppio callback (Telegram consegna due
+    # volte, o click doppio) mandi due force-reply e sovrascriva due volte
+    # tg_message_id.
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE approvals SET stato = 'in_modifica'
+                WHERE id = %s AND stato = 'in_attesa'
+                RETURNING id
+                """,
+                (approval_id,),
+            )
+            trovata = cur.fetchone() is not None
+
+    if not trovata:
+        rispondi_callback(callback_query_id, "già gestita")
+        return
+
+    try:
+        message_id = chiedi_testo_corretto(
+            f"✏️ Approvazione #{approval_id} — risponda a questo messaggio con il testo corretto:"
+        )
+    except Exception:
+        logger.exception(
+            "webhook_telegram: invio richiesta di modifica fallito per approvazione %s", approval_id
+        )
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE approvals SET stato = 'in_attesa' WHERE id = %s AND stato = 'in_modifica'",
+                    (approval_id,),
+                )
+        rispondi_callback(callback_query_id, "errore, riprovi")
+        return
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE approvals SET tg_message_id = %s WHERE id = %s",
+                (message_id, approval_id),
+            )
+    rispondi_callback(callback_query_id, "In attesa del testo corretto")
+
+
+def _gestisci_modifica_telegram(message):
+    reply_to = message.get("reply_to_message") or {}
+    reply_to_id = reply_to.get("message_id")
+    testo_corretto = message.get("text")
+
+    if not reply_to_id:
+        return
+    if not testo_corretto:
+        logger.warning("webhook_telegram: reply senza testo, ignorata (message_id=%s)", reply_to_id)
+        return
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE approvals SET testo_finale = %s, stato = 'modificata', decided_at = now()
+                WHERE tg_message_id = %s AND stato = 'in_modifica'
+                RETURNING id
+                """,
+                (testo_corretto, reply_to_id),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                _accoda_invia_risposta(cur, row[0])
+
+
+@app.post("/webhook/telegram")
+async def webhook_telegram(request: Request):
+    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != os.environ["TELEGRAM_WEBHOOK_SECRET"]:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+
+    try:
+        if isinstance(body, dict) and body.get("callback_query"):
+            _gestisci_callback_telegram(body["callback_query"])
+        elif isinstance(body, dict) and (body.get("message") or {}).get("reply_to_message"):
+            _gestisci_modifica_telegram(body["message"])
+    except Exception as e:
+        logger.exception("webhook_telegram: errore nel processare l'update")
+        notifica(f"ALERT: webhook Telegram, errore nel processare un update ({type(e).__name__})")
 
     return {"ok": True}

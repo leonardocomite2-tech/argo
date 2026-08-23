@@ -10,7 +10,7 @@ import psycopg
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
 from connectors.imap_reader import leggi_nuove
 from connectors.mailer import invia_email
-from connectors.telegram import notifica
+from connectors.telegram import notifica, chiedi_approvazione
 from connectors.testi import (
     OGGETTO_POSTER,
     CORPO_POSTER,
@@ -356,6 +356,69 @@ def notifica_risposta(payload):
     )
     notifica(testo_notifica)
     logger.info("notifica_risposta: evento %s oggetto=%r notificato", event_id, oggetto)
+
+
+# Stati di approvals.stato: 'in_attesa' (default, in attesa di un tocco su
+# Telegram) -> 'approvata' | 'rifiutata' | 'in_modifica' (transitorio, claimato
+# dal webhook mentre aspetta la reply con il testo corretto) -> 'modificata'.
+# 'in_modifica' non è uno stato finale: se la reply non arriva mai resta lì,
+# non torna visibile come "in_attesa" (comportamento accettato per ora, non
+# c'è ancora un timeout/retry su questo ramo).
+@handler("invia_risposta")
+def invia_risposta(payload):
+    approval_id = payload.get("approval_id")
+    if not approval_id:
+        raise ValueError("invia_risposta: approval_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT stato, testo_finale FROM approvals WHERE id = %s",
+                (approval_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"invia_risposta: approvazione {approval_id} non trovata")
+    stato, testo_finale = row
+
+    if stato == "rifiutata":
+        logger.info("invia_risposta: approvazione %s rifiutata, nessun invio", approval_id)
+        return
+
+    logger.info(
+        "invia_risposta: (stub) invierei per approvazione %s (stato=%s): %r",
+        approval_id, stato, testo_finale,
+    )
+
+
+@handler("test_approvazione")
+def test_approvazione(payload):
+    # Manuale, per collaudare il giro Approva/Modifica/Rifiuta su Telegram senza
+    # classificatore. Premendo "Modifica" l'approvazione passa per lo stato
+    # transitorio 'in_modifica' prima di arrivare a 'modificata' (vedi il
+    # commento sopra invia_risposta per la mappa completa degli stati).
+    bozza = "Bozza di prova: grazie per il messaggio, le rispondiamo al più presto."
+    contesto = {"mittente": "test@example.com", "oggetto": "Test approvazione Telegram"}
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO approvals (bozza) VALUES (%s) RETURNING id", (bozza,))
+            approval_id = cur.fetchone()[0]
+
+    message_id = chiedi_approvazione(approval_id, bozza, contesto)
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE approvals SET tg_message_id = %s WHERE id = %s",
+                (message_id, approval_id),
+            )
+
+    logger.info(
+        "test_approvazione: approvazione %s creata, messaggio Telegram %s",
+        approval_id, message_id,
+    )
 
 
 def garantisci_leggi_email():

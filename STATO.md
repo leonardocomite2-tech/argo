@@ -37,6 +37,22 @@ condiviso api+worker in docker-compose)
   job se la catena si spezza (nessun `leggi_email` pending/running), sia
   all'avvio sia ad ogni giro del loop worker — protegge dal caso in cui
   l'handler vada in `failed` dopo i retry.
+- Approvazione bozze via Telegram (`connectors/telegram.py`:
+  `chiedi_approvazione()` manda bozza+contesto con tre bottoni inline
+  (Approva/Modifica/Rifiuta, callback_data `appr:<id>`/`modif:<id>`/`rifiu:<id>`),
+  `chiedi_testo_corretto()` manda un force_reply, `rispondi_callback()` chiude
+  lo spinner del bottone con `answerCallbackQuery`. `POST /webhook/telegram` in
+  `backend/main.py` verifica `X-Telegram-Bot-Api-Secret-Token` (401 se non
+  combacia), poi gestisce `callback_query` e `message.reply_to_message`,
+  risponde sempre 200 altrimenti. `approvals.stato`: `in_attesa` (default) ->
+  `approvata` | `rifiutata` | `in_modifica` (transitorio, claimato mentre si
+  aspetta la reply col testo corretto) -> `modificata`. Ogni transizione passa
+  da un `UPDATE ... WHERE stato='<stato atteso>' RETURNING id` come guardia
+  atomica di idempotenza (Telegram può consegnare lo stesso update due volte).
+  Approva/Rifiuta/Modificata accodano il job `invia_risposta` (worker, ancora
+  uno stub: se `rifiutata` non fa nulla, altrimenti logga il testo che
+  invierebbe — l'invio vero arriva col drafter). Handler manuale
+  `test_approvazione` per collaudare il giro senza classificatore.
 - Lo stub `classifica_messaggio` è stato sostituito da `notifica_risposta`:
   legge mittente/destinatario/oggetto/testo dall'evento e manda una notifica
   Telegram formattata (oggetto assente -> "(senza oggetto)", testo troncato a
