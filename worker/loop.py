@@ -410,15 +410,22 @@ def digest_serale(payload):
     testo = componi_digest_serale(
         eventi, poster_generati, poster_inviati, risposte_inviate, job_falliti, approvazioni
     )
-    notifica(testo)
-    logger.info("digest_serale: inviato")
 
+    # Riaccodato PRIMA dell'invio: se notifica() venisse chiamata prima e poi
+    # questo INSERT fallisse, il job andrebbe in retry e reinvierebbe l'intero
+    # digest da capo (notifica() non solleva mai eccezioni, quindi un retry
+    # dopo un invio già avvenuto duplicherebbe il messaggio). Con l'INSERT
+    # prima, un suo fallimento impedisce l'invio nello stesso tentativo; il
+    # retry rifà l'INSERT (idempotente quanto quello di leggi_email) e poi invia.
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO jobs (tipo, payload, run_after) VALUES ('digest_serale', '{}', %s)",
                 (prossimo_orario_digest(),),
             )
+
+    notifica(testo)
+    logger.info("digest_serale: inviato")
 
 
 @handler("notifica_risposta")
@@ -646,16 +653,19 @@ def garantisci_digest_serale():
                     # le 22:00 di oggi sono già passate senza un digest riuscito
                     # (es. il job precedente è finito 'failed'): recupera subito
                     # invece di aspettare domani, meglio un digest in ritardo che
-                    # nessun digest.
+                    # nessun digest. Unico caso in cui run_after NON è le 22:00 fisse.
                     run_after = adesso_roma
+                    motivo = "recupero in ritardo (22:00 di oggi già passate)"
                 else:
                     run_after = prossimo_orario_digest()
+                    motivo = "programmazione regolare alle 22:00"
                 cur.execute(
                     "INSERT INTO jobs (tipo, payload, run_after) VALUES ('digest_serale', '{}', %s)",
                     (run_after,),
                 )
                 logger.warning(
-                    "garantisci_digest_serale: catena interrotta, riaccodato per %s", run_after
+                    "garantisci_digest_serale: catena interrotta, riaccodato per %s (%s)",
+                    run_after, motivo,
                 )
 
 
