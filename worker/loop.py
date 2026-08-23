@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from datetime import datetime, time as dtime, timedelta
+from email.utils import parseaddr
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -311,49 +312,151 @@ def leggi_email(payload):
             )
 
 
-def componi_digest_serale(eventi, poster_generati, poster_inviati, risposte_inviate, job_falliti, approvazioni):
+MOTIVO_CODICE_INVALIDO_LABEL = {
+    "vuoto": "vuoto",
+    "caratteri_non_validi": "caratteri non validi",
+    "troppo_lungo": "troppo lungo",
+}
+
+
+def _nome_da_mittente(mittente):
+    nome, indirizzo = parseaddr(mittente or "")
+    return nome or indirizzo or "(mittente sconosciuto)"
+
+
+def _tronca(testo, n=40):
+    testo = testo or "(senza oggetto)"
+    return testo if len(testo) <= n else testo[: n - 1].rstrip() + "…"
+
+
+def _lista_con_taglio(righe, max_elementi=5):
+    """Non fa assunzioni sull'ordinamento: chi chiama decide coi propri ORDER BY
+    se i primi max_elementi mostrati sono i più recenti o i più vecchi."""
+    if len(righe) <= max_elementi:
+        return righe, 0
+    return righe[:max_elementi], len(righe) - max_elementi
+
+
+def componi_digest_serale(
+    approvazioni, job_falliti, risposte_ricevute, risposte_inviate, poster, codici_rifiutati, posta
+):
     titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
 
-    conteggio_approvazioni = sum(n for _, n, _ in approvazioni)
-    piu_vecchia = min((m for _, _, m in approvazioni), default=None)
-    eta_ore = None
-    if piu_vecchia is not None:
+    if not approvazioni:
+        sezione_approvazioni = "✅ nessuna approvazione in attesa"
+    else:
+        n = len(approvazioni)
+        piu_vecchia = approvazioni[0][1]
         eta_ore = (datetime.now(FUSO_ROMA) - piu_vecchia).total_seconds() / 3600
-    dettaglio_approvazioni = ", ".join(f"{stato}: {n}" for stato, n, _ in approvazioni)
-    approvazioni_vecchie = eta_ore is not None and eta_ore > 12
+        plurale = "e" if n == 1 else "i"
+        if eta_ore > 12:
+            intestazione = f"⚠️ {n} approvazion{plurale} in attesa da 12h"
+        else:
+            intestazione = f"📋 {n} approvazion{plurale} in attesa"
+        righe = [
+            f"   #{id_} · {_nome_da_mittente(mittente)} — \"{_tronca(oggetto)}\""
+            for id_, _, mittente, oggetto in approvazioni
+        ]
+        mostrate, extra = _lista_con_taglio(righe)
+        if extra:
+            mostrate = mostrate + [f"   e altri {extra}"]
+        sezione_approvazioni = intestazione + "\n" + "\n".join(mostrate)
 
-    blocco_urgente = []
-    if job_falliti:
-        dettaglio_job = ", ".join(f"{tipo}: {n}" for tipo, n in job_falliti)
-        blocco_urgente.append(f"Job falliti: {dettaglio_job}")
-    if approvazioni_vecchie:
-        blocco_urgente.append(
-            f"Approvazioni sospese da più di 12h: {conteggio_approvazioni} "
-            f"({dettaglio_approvazioni}), più vecchia: {int(eta_ore)}h"
+    if not job_falliti:
+        sezione_job = "✅ nessun job fallito nelle ultime 24h"
+    else:
+        n = sum(c for _, c in job_falliti)
+        dettaglio = ", ".join(f"{tipo}: {c}" for tipo, c in job_falliti)
+        sezione_job = f"⚠️ {n} job fallit{'o' if n == 1 else 'i'}\n   {dettaglio}"
+
+    if not risposte_ricevute:
+        sezione_ricevute = "📬 nessuna risposta ricevuta"
+    else:
+        n = len(risposte_ricevute)
+        righe = [
+            f"   {_nome_da_mittente(mittente)} — {_tronca(oggetto)}"
+            for mittente, oggetto, _ in risposte_ricevute
+        ]
+        mostrate, extra = _lista_con_taglio(righe)
+        if extra:
+            mostrate = mostrate + [f"   e altri {extra}"]
+        genere = "a" if n == 1 else "e"
+        sezione_ricevute = f"📬 {n} rispost{genere} ricevut{genere}\n" + "\n".join(mostrate)
+
+    if not risposte_inviate:
+        sezione_inviate = "📤 nessuna risposta inviata"
+    else:
+        n = len(risposte_inviate)
+        nomi = [_nome_da_mittente(mittente) for mittente, _ in risposte_inviate]
+        mostrati, extra = _lista_con_taglio(nomi)
+        riga_nomi = "   → " + ", ".join(mostrati)
+        if extra:
+            riga_nomi += f" e altri {extra}"
+        genere = "a" if n == 1 else "e"
+        sezione_inviate = f"📤 {n} rispost{genere} inviat{genere}\n" + riga_nomi
+
+    if not poster:
+        sezione_poster = "🖼 nessun poster generato"
+    else:
+        generati = sum(1 for _, _, generato, _ in poster if generato)
+        inviati = sum(1 for _, _, _, inviato in poster if inviato)
+        righe = []
+        for codice, nome, generato, inviato in poster:
+            riga = f"   → {nome or codice} ({codice})"
+            if not generato:
+                riga += " — non ancora generato"
+            elif not inviato:
+                riga += " — non ancora inviato"
+            righe.append(riga)
+        mostrate, extra = _lista_con_taglio(righe)
+        if extra:
+            mostrate = mostrate + [f"   e altri {extra}"]
+        sezione_poster = (
+            f"🖼 {generati} generat{'o' if generati == 1 else 'i'}, "
+            f"{inviati} inviat{'o' if inviati == 1 else 'i'}\n" + "\n".join(mostrate)
         )
 
-    sezioni = []
-    if eventi:
-        righe_eventi = "\n".join(f"- {tipo}: {n}" for tipo, n in eventi)
-        sezioni.append(f"Eventi ultime 24h:\n{righe_eventi}")
-    if poster_generati or poster_inviati:
-        sezioni.append(f"Poster: {poster_generati} generati, {poster_inviati} inviati")
-    if risposte_inviate:
-        sezioni.append(f"Risposte inviate: {risposte_inviate}")
-    if approvazioni and not approvazioni_vecchie:
-        sezioni.append(
-            f"Approvazioni sospese: {conteggio_approvazioni} ({dettaglio_approvazioni}), "
-            f"più vecchia: {int(eta_ore)}h"
+    if not codici_rifiutati:
+        sezione_codici = "🚫 nessun codice rifiutato"
+    else:
+        n = len(codici_rifiutati)
+        righe = [
+            f"   → {nome or '(senza nome)'} ({codice}) — "
+            f"{MOTIVO_CODICE_INVALIDO_LABEL.get(motivo, motivo)}"
+            for nome, codice, motivo, _ in codici_rifiutati
+        ]
+        mostrate, extra = _lista_con_taglio(righe)
+        if extra:
+            mostrate = mostrate + [f"   e altri {extra}"]
+        sezione_codici = f"🚫 {n} codic{'e' if n == 1 else 'i'} rifiutat{'o' if n == 1 else 'i'}\n" + "\n".join(mostrate)
+
+    conteggio_posta, ultima_lettura = posta
+    if conteggio_posta:
+        orario = ultima_lettura.astimezone(FUSO_ROMA).strftime("%H:%M")
+        sezione_posta = (
+            f"🔄 Posta: {conteggio_posta} lettur{'a' if conteggio_posta == 1 else 'e'} "
+            f"nelle 24h, ultima alle {orario}"
         )
+    else:
+        sezione_posta = "🔄 Posta: 0 letture nelle 24h, ultima: mai"
 
-    if not blocco_urgente and not sezioni:
-        return f"{titolo}\n\nNessuna attività nelle ultime 24 ore."
+    testo = "\n\n".join(
+        [
+            titolo,
+            sezione_approvazioni,
+            sezione_job,
+            sezione_ricevute,
+            sezione_inviate,
+            sezione_poster,
+            sezione_codici,
+            sezione_posta,
+        ]
+    )
 
-    parti = [titolo]
-    if blocco_urgente:
-        parti.append("⚠️ Richiede attenzione\n" + "\n".join(blocco_urgente))
-    parti.extend(sezioni)
-    return "\n\n".join(parti)
+    if len(testo) > 3000:
+        testo = testo[:2950].rstrip() + "\n\n[digest troncato per lunghezza]"
+
+    return testo
 
 
 @handler("digest_serale")
@@ -361,36 +464,14 @@ def digest_serale(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT tipo, count(*) FROM events "
-                "WHERE created_at >= now() - interval '24 hours' "
-                "GROUP BY tipo ORDER BY tipo"
-            )
-            eventi = cur.fetchall()
-
-            cur.execute(
-                "SELECT count(*) FROM jobs "
-                "WHERE tipo = 'genera_poster' AND stato = 'done' "
-                "AND created_at >= now() - interval '24 hours'"
-            )
-            poster_generati = cur.fetchone()[0]
-
-            cur.execute(
-                "SELECT count(*) FROM messages m "
+                "SELECT a.id, a.created_at, e.payload->>'mittente', e.payload->>'oggetto' "
+                "FROM approvals a "
+                "JOIN messages m ON m.id = a.message_id "
                 "JOIN events e ON e.id = m.thread_id::int "
-                "WHERE m.canale = 'email' AND m.direzione = 'out' "
-                "AND e.tipo = 'form.submitted' "
-                "AND m.created_at >= now() - interval '24 hours'"
+                "WHERE a.stato IN ('in_attesa', 'in_modifica') "
+                "ORDER BY a.created_at ASC"
             )
-            poster_inviati = cur.fetchone()[0]
-
-            cur.execute(
-                "SELECT count(*) FROM messages m "
-                "JOIN events e ON e.id = m.thread_id::int "
-                "WHERE m.canale = 'email' AND m.direzione = 'out' "
-                "AND e.tipo = 'email.reply' "
-                "AND m.created_at >= now() - interval '24 hours'"
-            )
-            risposte_inviate = cur.fetchone()[0]
+            approvazioni = cur.fetchall()
 
             cur.execute(
                 "SELECT tipo, count(*) FROM jobs "
@@ -401,14 +482,54 @@ def digest_serale(payload):
             job_falliti = cur.fetchall()
 
             cur.execute(
-                "SELECT stato, count(*), min(created_at) FROM approvals "
-                "WHERE stato IN ('in_attesa', 'in_modifica') "
-                "GROUP BY stato"
+                "SELECT payload->>'mittente', payload->>'oggetto', created_at FROM events "
+                "WHERE tipo = 'email.reply' AND created_at >= now() - interval '24 hours' "
+                "ORDER BY created_at DESC"
             )
-            approvazioni = cur.fetchall()
+            risposte_ricevute = cur.fetchall()
+
+            cur.execute(
+                "SELECT e.payload->>'mittente', m.created_at "
+                "FROM messages m JOIN events e ON e.id = m.thread_id::int "
+                "WHERE m.canale = 'email' AND m.direzione = 'out' "
+                "AND e.tipo = 'email.reply' "
+                "AND m.created_at >= now() - interval '24 hours' "
+                "ORDER BY m.created_at DESC"
+            )
+            risposte_inviate = cur.fetchall()
+
+            cur.execute(
+                "SELECT e.payload->>'host_code', e.payload->>'name', "
+                "(COALESCE(j.stato, '') = 'done') AS generato, (m.id IS NOT NULL) AS inviato "
+                "FROM events e "
+                "LEFT JOIN jobs j ON j.tipo = 'genera_poster' "
+                "AND (j.payload->>'event_id')::int = e.id "
+                "LEFT JOIN messages m ON m.thread_id::int = e.id "
+                "AND m.canale = 'email' AND m.direzione = 'out' "
+                "WHERE e.tipo = 'form.submitted' "
+                "AND e.created_at >= now() - interval '24 hours' "
+                "ORDER BY e.created_at DESC"
+            )
+            poster = cur.fetchall()
+
+            cur.execute(
+                "SELECT payload->>'name', payload->>'host_code', payload->>'motivo', created_at "
+                "FROM events "
+                "WHERE tipo = 'form.codice_invalido' AND created_at >= now() - interval '24 hours' "
+                "ORDER BY created_at DESC"
+            )
+            codici_rifiutati = cur.fetchall()
+
+            cur.execute(
+                "SELECT count(*), max(created_at) FROM jobs "
+                "WHERE tipo = 'leggi_email' AND stato = 'done' "
+                "AND created_at >= now() - interval '24 hours'"
+            )
+            posta = cur.fetchone()
 
     testo = componi_digest_serale(
-        eventi, poster_generati, poster_inviati, risposte_inviate, job_falliti, approvazioni
+        approvazioni, job_falliti, risposte_ricevute, risposte_inviate,
+        poster, codici_rifiutati, posta,
     )
 
     # Riaccodato PRIMA dell'invio: se notifica() venisse chiamata prima e poi
