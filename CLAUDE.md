@@ -31,3 +31,8 @@ Si dà del **lei**, ma senza formalismi da ufficio.
 Regola pratica: come si scriverebbe a un cliente che si stima ma non si conosce
 ancora. Cordiale, diretto, mai rigido.
 Vale per email, SMS e ogni messaggio in uscita, su tutti i canali.
+
+## Formato dei piani
+Alla fine di ogni piano, aggiungi una sezione RIEPILOGO di massimo 15 righe:
+file toccati, decisioni chiave, assunzioni fatte e problemi trovati.
+Deve bastare da sola a capire il piano senza leggere il resto.

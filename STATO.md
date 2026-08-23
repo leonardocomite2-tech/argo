@@ -80,6 +80,12 @@ condiviso api+worker in docker-compose)
   quale casella usare in produzione.
 - (chiusa 18/08) Tono: lei cordiale, definito in CLAUDE.md
   questo step — `classifica_messaggio` per ora è solo uno stub)
+- Guardia di idempotenza SELECT+INSERT in genera_poster, avvisa_codice_invalido
+  e invia_risposta: non è atomica, un crash tra insert e invio può causare un
+  doppio invio reale. Soluzione: UNIQUE(thread_id, canale, direzione) su
+  messages + ON CONFLICT DO NOTHING negli handler. Da fare prima che il
+  volume cresca — con invia_risposta il rischio è un'email doppia a un
+  prospect.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto

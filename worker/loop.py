@@ -9,13 +9,14 @@ import psycopg
 
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
 from connectors.imap_reader import leggi_nuove
-from connectors.mailer import invia_email
+from connectors.mailer import invia_email, invia_risposta_email
 from connectors.telegram import notifica, chiedi_approvazione
 from connectors.testi import (
     OGGETTO_POSTER,
     CORPO_POSTER,
     OGGETTO_CODICE_INVALIDO,
     CORPO_CODICE_INVALIDO,
+    PREMESSA_CASELLA_DIVERSA,
 )
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
@@ -373,49 +374,135 @@ def invia_risposta(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT stato, testo_finale FROM approvals WHERE id = %s",
+                "SELECT stato, testo_finale, message_id FROM approvals WHERE id = %s",
                 (approval_id,),
             )
             row = cur.fetchone()
 
     if row is None:
         raise ValueError(f"invia_risposta: approvazione {approval_id} non trovata")
-    stato, testo_finale = row
+    stato, testo_finale, message_id = row
 
-    if stato == "rifiutata":
-        logger.info("invia_risposta: approvazione %s rifiutata, nessun invio", approval_id)
+    if stato not in ("approvata", "modificata"):
+        logger.info(
+            "invia_risposta: approvazione %s in stato '%s', nessun invio", approval_id, stato
+        )
         return
 
-    logger.info(
-        "invia_risposta: (stub) invierei per approvazione %s (stato=%s): %r",
-        approval_id, stato, testo_finale,
+    if message_id is None:
+        raise ValueError(f"invia_risposta: approvazione {approval_id} senza messaggio collegato")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.thread_id,
+                       e.payload->>'mittente', e.payload->>'oggetto', e.payload->>'testo',
+                       e.payload->>'message_id', e.payload->>'references'
+                FROM messages m JOIN events e ON e.id = m.thread_id::int
+                WHERE m.id = %s
+                """,
+                (message_id,),
+            )
+            riga = cur.fetchone()
+
+    if riga is None:
+        raise ValueError(
+            f"invia_risposta: approvazione {approval_id}, messaggio {message_id} "
+            "senza evento collegato"
+        )
+    thread_id, mittente, oggetto, testo_originale, message_id_originale, references_orig = riga
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM messages WHERE thread_id = %s "
+                "AND canale = 'email' AND direzione = 'out'",
+                (thread_id,),
+            )
+            gia_inviata = cur.fetchone() is not None
+
+            if not gia_inviata:
+                corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (NULL, 'email', 'out', %s, %s)",
+                    (thread_id, corpo),
+                )
+
+    if gia_inviata:
+        logger.info("invia_risposta: già inviata per approvazione %s, salto", approval_id)
+        return
+
+    references = references_orig
+    if message_id_originale:
+        references = f"{references_orig} {message_id_originale}" if references_orig else message_id_originale
+
+    reply_to = os.environ["REPLY_SMTP_USER"]
+    invia_risposta_email(
+        mittente, oggetto, corpo, testo_originale,
+        message_id_originale, references, reply_to,
     )
+    logger.info("invia_risposta: inviata per approvazione %s a %s", approval_id, mittente)
+    notifica(f"Risposta inviata — approvazione #{approval_id}, oggetto: {oggetto or '(senza oggetto)'}")
 
 
 @handler("test_approvazione")
 def test_approvazione(payload):
     # Manuale, per collaudare il giro Approva/Modifica/Rifiuta su Telegram senza
-    # classificatore. Premendo "Modifica" l'approvazione passa per lo stato
-    # transitorio 'in_modifica' prima di arrivare a 'modificata' (vedi il
-    # commento sopra invia_risposta per la mappa completa degli stati).
+    # classificatore. Costruisce la catena completa evento->messaggio in->approvazione
+    # (quella che in produzione creerà il drafter, non ancora scritto) così
+    # invia_risposta si può collaudare per intero, mittente sintetico =
+    # TEST_EMAIL_DEST perché la risposta vera arrivi a noi e non a un indirizzo finto.
+    # Premendo "Modifica" l'approvazione passa per lo stato transitorio
+    # 'in_modifica' prima di arrivare a 'modificata' (vedi il commento sopra
+    # invia_risposta per la mappa completa degli stati).
+    testo_ricevuto = (
+        "Buongiorno, ho ricevuto il poster con il codice sconto ma non ho capito "
+        "bene come funziona la commissione per me come host: viene calcolata su "
+        "ogni prenotazione che arriva con quel codice o solo sulla prima? E in "
+        "che percentuale? Vorrei anche sapere quando e come viene liquidata. "
+        "Grazie in anticipo, resto in attesa di un vostro riscontro."
+    )
     bozza = "Bozza di prova: grazie per il messaggio, le rispondiamo al più presto."
-    contesto = {
-        "mittente": "test@example.com",
-        "oggetto": "Domande sul codice sconto",
-        "testo_ricevuto": (
-            "Buongiorno, ho ricevuto il poster con il codice sconto ma non ho capito "
-            "bene come funziona la commissione per me come host: viene calcolata su "
-            "ogni prenotazione che arriva con quel codice o solo sulla prima? E in "
-            "che percentuale? Vorrei anche sapere quando e come viene liquidata. "
-            "Grazie in anticipo, resto in attesa di un vostro riscontro."
-        ),
-    }
+
+    mittente_test = os.environ["TEST_EMAIL_DEST"]
+    oggetto_test = "Domande sul codice sconto"
+    message_id_test = f"<test-{int(time.time() * 1000)}@test-approvazione>"
+    dedup_key = f"test-approvazione:{int(time.time() * 1000)}"
+
+    evento_payload = json.dumps({
+        "message_id": message_id_test,
+        "mittente": mittente_test,
+        "destinatario": os.environ.get("MAILBOX_1_USER", "campagna@example.com"),
+        "oggetto": oggetto_test,
+        "testo": testo_ricevuto,
+        "references": None,
+    })
 
     with db_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO approvals (bozza) VALUES (%s) RETURNING id", (bozza,))
+            cur.execute(
+                "INSERT INTO events (tipo, dedup_key, payload) VALUES ('email.reply', %s, %s) "
+                "RETURNING id",
+                (dedup_key, evento_payload),
+            )
+            event_id = cur.fetchone()[0]
+
+            cur.execute(
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (NULL, 'email', 'in', %s, %s) RETURNING id",
+                (str(event_id), testo_ricevuto),
+            )
+            db_message_id = cur.fetchone()[0]
+
+            cur.execute(
+                "INSERT INTO approvals (message_id, bozza) VALUES (%s, %s) RETURNING id",
+                (db_message_id, bozza),
+            )
             approval_id = cur.fetchone()[0]
 
+    contesto = {"mittente": mittente_test, "oggetto": oggetto_test, "testo_ricevuto": testo_ricevuto}
     message_id = chiedi_approvazione(approval_id, bozza, contesto)
 
     with db_connect() as conn:

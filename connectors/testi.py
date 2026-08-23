@@ -23,6 +23,11 @@ Oltre alle copie A4 da appendere, ne stampi qualcuna in formato ridotto — due 
 <p><strong>NarraTours</strong></p>
 """
 
+PREMESSA_CASELLA_DIVERSA = (
+    "Buongiorno, le scrivo dal mio indirizzo principale — sono io che le "
+    "avevo scritto riguardo a NarraTours."
+)
+
 OGGETTO_CODICE_INVALIDO = "NarraTours — serve un piccolo aggiustamento al suo codice"
 
 CORPO_CODICE_INVALIDO = """
