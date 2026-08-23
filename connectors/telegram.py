@@ -44,16 +44,38 @@ def _invia(metodo, corpo):
         raise RuntimeError(f"{metodo} fallita ({type(e).__name__}): {messaggio}") from None
 
 
+LIMITE_TELEGRAM = 4000  # Telegram rifiuta i messaggi oltre 4096 caratteri, teniamo un margine
+AVVISO_TRONCAMENTO = "\n[bozza troncata — testo completo nel database]"
+
+
 def chiedi_approvazione(approval_id, testo_bozza, contesto):
     """Manda la bozza con i tre bottoni di approvazione. Ritorna il message_id."""
     mittente = (contesto or {}).get("mittente") or "(mittente sconosciuto)"
     oggetto = (contesto or {}).get("oggetto") or "(senza oggetto)"
-    testo = (
-        f"📝 Bozza di risposta\n"
-        f"Da: {mittente}\n"
-        f"Oggetto: {oggetto}\n\n"
-        f"{testo_bozza}"
-    )
+    testo_ricevuto = (contesto or {}).get("testo_ricevuto") or "(testo non disponibile)"
+    if len(testo_ricevuto) > 500:
+        testo_ricevuto = testo_ricevuto[:500] + " [...]"
+
+    def componi(bozza):
+        return (
+            f"📩 Da: {mittente}\n"
+            f"Oggetto: {oggetto}\n\n"
+            f"{testo_ricevuto}\n\n"
+            f"─────────────────\n"
+            f"📝 Bozza di risposta\n\n"
+            f"{bozza}"
+        )
+
+    testo = componi(testo_bozza)
+    if len(testo) > LIMITE_TELEGRAM:
+        # Tronca la bozza (mai l'email in arrivo, già limitata sopra) così il
+        # messaggio di approvazione arriva comunque invece di fallire per
+        # superamento del limite di lunghezza dell'API Telegram.
+        spazio_bozza = max(
+            len(testo_bozza) - (len(testo) - LIMITE_TELEGRAM) - len(AVVISO_TRONCAMENTO), 0
+        )
+        testo = componi(testo_bozza[:spazio_bozza].rstrip() + AVVISO_TRONCAMENTO)
+
     reply_markup = {
         "inline_keyboard": [[
             {"text": "✅ Approva", "callback_data": f"appr:{approval_id}"},

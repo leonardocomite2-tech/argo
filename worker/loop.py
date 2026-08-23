@@ -399,7 +399,17 @@ def test_approvazione(payload):
     # transitorio 'in_modifica' prima di arrivare a 'modificata' (vedi il
     # commento sopra invia_risposta per la mappa completa degli stati).
     bozza = "Bozza di prova: grazie per il messaggio, le rispondiamo al più presto."
-    contesto = {"mittente": "test@example.com", "oggetto": "Test approvazione Telegram"}
+    contesto = {
+        "mittente": "test@example.com",
+        "oggetto": "Domande sul codice sconto",
+        "testo_ricevuto": (
+            "Buongiorno, ho ricevuto il poster con il codice sconto ma non ho capito "
+            "bene come funziona la commissione per me come host: viene calcolata su "
+            "ogni prenotazione che arriva con quel codice o solo sulla prima? E in "
+            "che percentuale? Vorrei anche sapere quando e come viene liquidata. "
+            "Grazie in anticipo, resto in attesa di un vostro riscontro."
+        ),
+    }
 
     with db_connect() as conn:
         with conn.cursor() as cur:
