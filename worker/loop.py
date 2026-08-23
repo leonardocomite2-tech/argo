@@ -3,7 +3,9 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg
 
@@ -21,6 +23,8 @@ from connectors.testi import (
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
 TESTO_MAX_LEN = 20000
+FUSO_ROMA = ZoneInfo("Europe/Rome")
+ORA_DIGEST = dtime(22, 0)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
@@ -33,6 +37,17 @@ def handler(tipo):
         HANDLERS[tipo] = fn
         return fn
     return deco
+
+
+def prossimo_orario_digest():
+    """Prossima occorrenza delle ORA_DIGEST in fuso Europe/Rome (oggi se non
+    ancora passata, altrimenti domani). ZoneInfo gestisce da sé il cambio ora
+    legale/solare."""
+    adesso_roma = datetime.now(FUSO_ROMA)
+    candidato = datetime.combine(adesso_roma.date(), ORA_DIGEST, tzinfo=FUSO_ROMA)
+    if candidato <= adesso_roma:
+        candidato += timedelta(days=1)
+    return candidato
 
 
 def db_connect():
@@ -296,6 +311,116 @@ def leggi_email(payload):
             )
 
 
+def componi_digest_serale(eventi, poster_generati, poster_inviati, risposte_inviate, job_falliti, approvazioni):
+    titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
+
+    conteggio_approvazioni = sum(n for _, n, _ in approvazioni)
+    piu_vecchia = min((m for _, _, m in approvazioni), default=None)
+    eta_ore = None
+    if piu_vecchia is not None:
+        eta_ore = (datetime.now(FUSO_ROMA) - piu_vecchia).total_seconds() / 3600
+    dettaglio_approvazioni = ", ".join(f"{stato}: {n}" for stato, n, _ in approvazioni)
+    approvazioni_vecchie = eta_ore is not None and eta_ore > 12
+
+    blocco_urgente = []
+    if job_falliti:
+        dettaglio_job = ", ".join(f"{tipo}: {n}" for tipo, n in job_falliti)
+        blocco_urgente.append(f"Job falliti: {dettaglio_job}")
+    if approvazioni_vecchie:
+        blocco_urgente.append(
+            f"Approvazioni sospese da più di 12h: {conteggio_approvazioni} "
+            f"({dettaglio_approvazioni}), più vecchia: {int(eta_ore)}h"
+        )
+
+    sezioni = []
+    if eventi:
+        righe_eventi = "\n".join(f"- {tipo}: {n}" for tipo, n in eventi)
+        sezioni.append(f"Eventi ultime 24h:\n{righe_eventi}")
+    if poster_generati or poster_inviati:
+        sezioni.append(f"Poster: {poster_generati} generati, {poster_inviati} inviati")
+    if risposte_inviate:
+        sezioni.append(f"Risposte inviate: {risposte_inviate}")
+    if approvazioni and not approvazioni_vecchie:
+        sezioni.append(
+            f"Approvazioni sospese: {conteggio_approvazioni} ({dettaglio_approvazioni}), "
+            f"più vecchia: {int(eta_ore)}h"
+        )
+
+    if not blocco_urgente and not sezioni:
+        return f"{titolo}\n\nNessuna attività nelle ultime 24 ore."
+
+    parti = [titolo]
+    if blocco_urgente:
+        parti.append("⚠️ Richiede attenzione\n" + "\n".join(blocco_urgente))
+    parti.extend(sezioni)
+    return "\n\n".join(parti)
+
+
+@handler("digest_serale")
+def digest_serale(payload):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT tipo, count(*) FROM events "
+                "WHERE created_at >= now() - interval '24 hours' "
+                "GROUP BY tipo ORDER BY tipo"
+            )
+            eventi = cur.fetchall()
+
+            cur.execute(
+                "SELECT count(*) FROM jobs "
+                "WHERE tipo = 'genera_poster' AND stato = 'done' "
+                "AND created_at >= now() - interval '24 hours'"
+            )
+            poster_generati = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM messages m "
+                "JOIN events e ON e.id = m.thread_id::int "
+                "WHERE m.canale = 'email' AND m.direzione = 'out' "
+                "AND e.tipo = 'form.submitted' "
+                "AND m.created_at >= now() - interval '24 hours'"
+            )
+            poster_inviati = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM messages m "
+                "JOIN events e ON e.id = m.thread_id::int "
+                "WHERE m.canale = 'email' AND m.direzione = 'out' "
+                "AND e.tipo = 'email.reply' "
+                "AND m.created_at >= now() - interval '24 hours'"
+            )
+            risposte_inviate = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT tipo, count(*) FROM jobs "
+                "WHERE stato = 'failed' AND tipo != 'test_approvazione' "
+                "AND created_at >= now() - interval '24 hours' "
+                "GROUP BY tipo ORDER BY count(*) DESC"
+            )
+            job_falliti = cur.fetchall()
+
+            cur.execute(
+                "SELECT stato, count(*), min(created_at) FROM approvals "
+                "WHERE stato IN ('in_attesa', 'in_modifica') "
+                "GROUP BY stato"
+            )
+            approvazioni = cur.fetchall()
+
+    testo = componi_digest_serale(
+        eventi, poster_generati, poster_inviati, risposte_inviate, job_falliti, approvazioni
+    )
+    notifica(testo)
+    logger.info("digest_serale: inviato")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload, run_after) VALUES ('digest_serale', '{}', %s)",
+                (prossimo_orario_digest(),),
+            )
+
+
 @handler("notifica_risposta")
 def notifica_risposta(payload):
     event_id = payload.get("event_id")
@@ -509,6 +634,31 @@ def garantisci_leggi_email():
                 logger.warning("garantisci_leggi_email: catena leggi_email interrotta, riaccodato")
 
 
+def garantisci_digest_serale():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'digest_serale' AND stato IN ('pending', 'running')"
+            )
+            if cur.fetchone() is None:
+                adesso_roma = datetime.now(FUSO_ROMA)
+                if adesso_roma.time() >= ORA_DIGEST:
+                    # le 22:00 di oggi sono già passate senza un digest riuscito
+                    # (es. il job precedente è finito 'failed'): recupera subito
+                    # invece di aspettare domani, meglio un digest in ritardo che
+                    # nessun digest.
+                    run_after = adesso_roma
+                else:
+                    run_after = prossimo_orario_digest()
+                cur.execute(
+                    "INSERT INTO jobs (tipo, payload, run_after) VALUES ('digest_serale', '{}', %s)",
+                    (run_after,),
+                )
+                logger.warning(
+                    "garantisci_digest_serale: catena interrotta, riaccodato per %s", run_after
+                )
+
+
 def migra_job_notifica_risposta():
     with db_connect() as conn:
         with conn.cursor() as cur:
@@ -538,9 +688,11 @@ def main():
     recover_orphaned_jobs()
     migra_job_notifica_risposta()
     garantisci_leggi_email()
+    garantisci_digest_serale()
     while True:
         try:
             garantisci_leggi_email()
+            garantisci_digest_serale()
             process_next_job()
         except Exception:
             logger.exception("errore imprevisto nel loop worker")
