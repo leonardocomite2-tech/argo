@@ -3,3 +3,4 @@
 __pycache__/
 out/
 backup/dumps/
+backup/dump.log

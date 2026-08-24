@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   testo_finale  TEXT,
   tg_message_id BIGINT,
   created_at    TIMESTAMPTZ DEFAULT now(),
+  updated_at    TIMESTAMPTZ DEFAULT now(),
   decided_at    TIMESTAMPTZ
 );
 
@@ -60,4 +61,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   ultimo_errore TEXT,
   run_after     TIMESTAMPTZ DEFAULT now(),
   created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS alert_inviati (
+  chiave      TEXT PRIMARY KEY,
+  created_at  TIMESTAMPTZ DEFAULT now()
 );

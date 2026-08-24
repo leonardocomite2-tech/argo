@@ -186,7 +186,8 @@ def _gestisci_callback_telegram(callback_query):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE approvals SET stato = 'approvata', testo_finale = bozza, decided_at = now()
+                    UPDATE approvals SET stato = 'approvata', testo_finale = bozza,
+                    decided_at = now(), updated_at = now()
                     WHERE id = %s AND stato = 'in_attesa'
                     RETURNING id
                     """,
@@ -203,7 +204,7 @@ def _gestisci_callback_telegram(callback_query):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    UPDATE approvals SET stato = 'rifiutata', decided_at = now()
+                    UPDATE approvals SET stato = 'rifiutata', decided_at = now(), updated_at = now()
                     WHERE id = %s AND stato = 'in_attesa'
                     RETURNING id
                     """,
@@ -226,7 +227,7 @@ def _gestisci_callback_telegram(callback_query):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                UPDATE approvals SET stato = 'in_modifica'
+                UPDATE approvals SET stato = 'in_modifica', updated_at = now()
                 WHERE id = %s AND stato = 'in_attesa'
                 RETURNING id
                 """,
@@ -249,7 +250,8 @@ def _gestisci_callback_telegram(callback_query):
         with db_connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE approvals SET stato = 'in_attesa' WHERE id = %s AND stato = 'in_modifica'",
+                    "UPDATE approvals SET stato = 'in_attesa', updated_at = now() "
+                    "WHERE id = %s AND stato = 'in_modifica'",
                     (approval_id,),
                 )
         rispondi_callback(callback_query_id, "errore, riprovi")
@@ -279,7 +281,8 @@ def _gestisci_modifica_telegram(message):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                UPDATE approvals SET testo_finale = %s, stato = 'modificata', decided_at = now()
+                UPDATE approvals SET testo_finale = %s, stato = 'modificata',
+                decided_at = now(), updated_at = now()
                 WHERE tg_message_id = %s AND stato = 'in_modifica'
                 RETURNING id
                 """,

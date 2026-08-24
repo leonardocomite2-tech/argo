@@ -53,6 +53,25 @@ condiviso api+worker in docker-compose)
   uno stub: se `rifiutata` non fa nulla, altrimenti logga il testo che
   invierebbe — l'invio vero arriva col drafter). Handler manuale
   `test_approvazione` per collaudare il giro senza classificatore.
+- Alert operativi (`worker/loop.py`, handler `controlli_periodici`,
+  self-chaining ogni 15 minuti + `garantisci_controlli_periodici()` come
+  gli altri due cicli): tre controlli, ciascuno in try/except proprio così
+  uno che fallisce non blocca gli altri né il self-chaining. Idempotenza per
+  caso specifico con tabella `alert_inviati` (`chiave TEXT PRIMARY KEY`) e
+  helper `_alert_una_volta()`, `INSERT ... ON CONFLICT DO NOTHING RETURNING`
+  — ogni alert parte una volta sola.
+  1. Approvazione bloccata: `in_attesa`/`in_modifica` da più di 6h, misurate
+     su `approvals.updated_at` (nuova colonna, non `created_at` che non si
+     muove dopo la creazione — altrimenti un Modifica tardivo falserebbe la
+     soglia). `updated_at` aggiornata in tutti i punti di `backend/main.py`
+     che cambiano `stato`. La sezione "approvazioni in attesa" del digest
+     serale è stata allineata sullo stesso campo, per non mostrare due età
+     diverse per lo stesso caso.
+  2. Registrazione senza poster: evento `form.submitted` più vecchio di 30
+     minuti senza riga `out` in `messages` sullo stesso `thread_id`.
+  3. Volume anomalo: più di 50 eventi in `events` nell'ultima ora (soglia
+     fissa, pensata per un loop di webhook — oggi non scatta mai).
+  Migrazione: `db/migrations/002_alert_inviati.sql`.
 - Lo stub `classifica_messaggio` è stato sostituito da `notifica_risposta`:
   legge mittente/destinatario/oggetto/testo dall'evento e manda una notifica
   Telegram formattata (oggetto assente -> "(senza oggetto)", testo troncato a

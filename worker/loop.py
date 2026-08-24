@@ -464,12 +464,12 @@ def digest_serale(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT a.id, a.created_at, e.payload->>'mittente', e.payload->>'oggetto' "
+                "SELECT a.id, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
                 "FROM approvals a "
                 "JOIN messages m ON m.id = a.message_id "
                 "JOIN events e ON e.id = m.thread_id::int "
                 "WHERE a.stato IN ('in_attesa', 'in_modifica') "
-                "ORDER BY a.created_at ASC"
+                "ORDER BY a.updated_at ASC"
             )
             approvazioni = cur.fetchall()
 
@@ -547,6 +547,118 @@ def digest_serale(payload):
 
     notifica(testo)
     logger.info("digest_serale: inviato")
+
+
+def _alert_una_volta(chiave, testo):
+    """Manda l'alert solo se non è già stato mandato per questa chiave
+    (INSERT ... ON CONFLICT DO NOTHING RETURNING come guardia atomica,
+    stesso pattern delle scritture idempotenti su `messages`)."""
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO alert_inviati (chiave) VALUES (%s) "
+                "ON CONFLICT DO NOTHING RETURNING chiave",
+                (chiave,),
+            )
+            gia_inviato = cur.fetchone() is None
+
+    if gia_inviato:
+        return
+    notifica(testo)
+
+
+def _controllo_approvazioni_bloccate():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.id, a.stato, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
+                "FROM approvals a "
+                "JOIN messages m ON m.id = a.message_id "
+                "JOIN events e ON e.id = m.thread_id::int "
+                "WHERE a.stato IN ('in_attesa', 'in_modifica') "
+                "AND a.updated_at < now() - interval '6 hours' "
+                "ORDER BY a.updated_at ASC"
+            )
+            righe = cur.fetchall()
+
+    for id_, stato, updated_at, mittente, oggetto in righe:
+        eta_ore = (datetime.now(FUSO_ROMA) - updated_at).total_seconds() / 3600
+        testo = (
+            f"⏰ Approvazione bloccata da {eta_ore:.0f}h — #{id_} · "
+            f"{_nome_da_mittente(mittente)} — \"{_tronca(oggetto)}\" · stato={stato}"
+        )
+        if stato == "in_modifica":
+            testo += "\n⚠️ in_modifica: ho premuto Modifica e non ho mai risposto col testo corretto"
+        _alert_una_volta(f"appr_bloccata:{id_}", testo)
+
+
+def _controllo_poster_mancante():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT e.id, e.payload->>'name', e.payload->>'host_code' "
+                "FROM events e "
+                "WHERE e.tipo = 'form.submitted' "
+                "AND e.created_at < now() - interval '30 minutes' "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM messages m "
+                "  WHERE m.thread_id::int = e.id AND m.direzione = 'out'"
+                ") "
+                "ORDER BY e.created_at ASC"
+            )
+            righe = cur.fetchall()
+
+    for event_id, nome, host_code in righe:
+        testo = (
+            f"📭 Registrazione senza poster — evento #{event_id}, "
+            f"{nome or '(senza nome)'} ({host_code or '(senza codice)'})"
+        )
+        _alert_una_volta(f"poster_mancante:{event_id}", testo)
+
+
+def _controllo_volume_anomalo():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM events WHERE created_at >= now() - interval '1 hour'"
+            )
+            conteggio = cur.fetchone()[0]
+
+            if conteggio <= 50:
+                return
+
+            cur.execute(
+                "SELECT tipo, count(*) FROM events "
+                "WHERE created_at >= now() - interval '1 hour' "
+                "GROUP BY tipo ORDER BY count(*) DESC LIMIT 5"
+            )
+            tipi_top = cur.fetchall()
+
+    adesso_roma = datetime.now(FUSO_ROMA)
+    chiave = f"volume:{adesso_roma.strftime('%Y-%m-%d_%H')}"
+    dettaglio = ", ".join(f"{tipo}: {c}" for tipo, c in tipi_top)
+    testo = f"🚨 Volume anomalo — {conteggio} eventi nell'ultima ora. Tipi più frequenti: {dettaglio}"
+    _alert_una_volta(chiave, testo)
+
+
+@handler("controlli_periodici")
+def controlli_periodici(payload):
+    for controllo in (
+        _controllo_approvazioni_bloccate,
+        _controllo_poster_mancante,
+        _controllo_volume_anomalo,
+    ):
+        try:
+            controllo()
+        except Exception:
+            logger.exception("controlli_periodici: %s fallito", controllo.__name__)
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload, run_after) "
+                "VALUES ('controlli_periodici', '{}', now() + interval '15 minutes')"
+            )
 
 
 @handler("notifica_risposta")
@@ -762,6 +874,17 @@ def garantisci_leggi_email():
                 logger.warning("garantisci_leggi_email: catena leggi_email interrotta, riaccodato")
 
 
+def garantisci_controlli_periodici():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'controlli_periodici' AND stato IN ('pending', 'running')"
+            )
+            if cur.fetchone() is None:
+                cur.execute("INSERT INTO jobs (tipo, payload) VALUES ('controlli_periodici', '{}')")
+                logger.warning("garantisci_controlli_periodici: catena interrotta, riaccodato")
+
+
 def garantisci_digest_serale():
     with db_connect() as conn:
         with conn.cursor() as cur:
@@ -820,10 +943,12 @@ def main():
     migra_job_notifica_risposta()
     garantisci_leggi_email()
     garantisci_digest_serale()
+    garantisci_controlli_periodici()
     while True:
         try:
             garantisci_leggi_email()
             garantisci_digest_serale()
+            garantisci_controlli_periodici()
             process_next_job()
         except Exception:
             logger.exception("errore imprevisto nel loop worker")
