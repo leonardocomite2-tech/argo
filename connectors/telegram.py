@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import urllib.request
+from datetime import datetime, timezone
 
 logger = logging.getLogger("argo.telegram")
 
@@ -46,10 +47,29 @@ def _invia(metodo, corpo):
 
 LIMITE_TELEGRAM = 4000  # Telegram rifiuta i messaggi oltre 4096 caratteri, teniamo un margine
 AVVISO_TRONCAMENTO = "\n[bozza troncata — testo completo nel database]"
+SOGLIA_URGENZA_SCADENZA_SEC = 2 * 3600
 
 
-def chiedi_approvazione(approval_id, testo_bozza, contesto):
-    """Manda la bozza con i tre bottoni di approvazione. Ritorna il message_id."""
+def _riga_scadenza(scadenza):
+    """Riga con il tempo rimanente prima della scadenza, o "" se scadenza è None
+    (caso email, nessun vincolo di finestra). Sotto le 2 ore mostra i minuti
+    (mai le ore troncate a "1h" quando in realtà sono 95 minuti) e passa a ⚠️;
+    troncamento per difetto, mai per eccesso, per non promettere più tempo di
+    quanto ne resti davvero."""
+    if scadenza is None:
+        return ""
+    rimane_sec = (scadenza - datetime.now(timezone.utc)).total_seconds()
+    if rimane_sec < SOGLIA_URGENZA_SCADENZA_SEC:
+        minuti = max(int(rimane_sec // 60), 0)
+        return f"⚠️ scade tra {minuti}min"
+    ore = int(rimane_sec // 3600)
+    return f"⏳ scade tra {ore}h"
+
+
+def chiedi_approvazione(approval_id, testo_bozza, contesto, scadenza=None):
+    """Manda la bozza con i tre bottoni di approvazione. Ritorna il message_id.
+    `scadenza` opzionale (TIMESTAMPTZ): se presente, aggiunge in cima una riga
+    col tempo rimanente (vedi _riga_scadenza). None = nessuna scadenza (email)."""
     mittente = (contesto or {}).get("mittente") or "(mittente sconosciuto)"
     oggetto = (contesto or {}).get("oggetto") or "(senza oggetto)"
     testo_ricevuto = (contesto or {}).get("testo_ricevuto") or "(testo non disponibile)"
@@ -57,7 +77,10 @@ def chiedi_approvazione(approval_id, testo_bozza, contesto):
         testo_ricevuto = testo_ricevuto[:500] + " [...]"
 
     def componi(bozza):
+        riga_scadenza = _riga_scadenza(scadenza)
+        intestazione = f"{riga_scadenza}\n\n" if riga_scadenza else ""
         return (
+            f"{intestazione}"
             f"📩 Da: {mittente}\n"
             f"Oggetto: {oggetto}\n\n"
             f"{testo_ricevuto}\n\n"

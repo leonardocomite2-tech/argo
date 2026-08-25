@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime, timedelta, timezone
 from email.utils import parseaddr
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -338,7 +338,8 @@ def _lista_con_taglio(righe, max_elementi=5):
 
 
 def componi_digest_serale(
-    approvazioni, job_falliti, risposte_ricevute, risposte_inviate, poster, codici_rifiutati, posta
+    approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
+    poster, codici_rifiutati, posta
 ):
     titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
 
@@ -361,6 +362,20 @@ def componi_digest_serale(
         if extra:
             mostrate = mostrate + [f"   e altri {extra}"]
         sezione_approvazioni = intestazione + "\n" + "\n".join(mostrate)
+
+    if not scadute:
+        sezione_scadute = "✅ nessuna approvazione scaduta"
+    else:
+        n = len(scadute)
+        righe = [
+            f"   #{id_} · {_nome_da_mittente(mittente)} — \"{_tronca(oggetto)}\""
+            for id_, _, mittente, oggetto in scadute
+        ]
+        mostrate, extra = _lista_con_taglio(righe)
+        if extra:
+            mostrate = mostrate + [f"   e altri {extra}"]
+        genere = "a" if n == 1 else "e"
+        sezione_scadute = f"⌛ {n} approvazion{genere} scadut{genere}\n" + "\n".join(mostrate)
 
     if not job_falliti:
         sezione_job = "✅ nessun job fallito nelle ultime 24h"
@@ -444,6 +459,7 @@ def componi_digest_serale(
         [
             titolo,
             sezione_approvazioni,
+            sezione_scadute,
             sezione_job,
             sezione_ricevute,
             sezione_inviate,
@@ -472,6 +488,16 @@ def digest_serale(payload):
                 "ORDER BY a.updated_at ASC"
             )
             approvazioni = cur.fetchall()
+
+            cur.execute(
+                "SELECT a.id, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
+                "FROM approvals a "
+                "JOIN messages m ON m.id = a.message_id "
+                "JOIN events e ON e.id = m.thread_id::int "
+                "WHERE a.stato = 'scaduta' AND a.updated_at >= now() - interval '24 hours' "
+                "ORDER BY a.updated_at DESC"
+            )
+            scadute = cur.fetchall()
 
             cur.execute(
                 "SELECT tipo, count(*) FROM jobs "
@@ -528,7 +554,7 @@ def digest_serale(payload):
             posta = cur.fetchone()
 
     testo = componi_digest_serale(
-        approvazioni, job_falliti, risposte_ricevute, risposte_inviate,
+        approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
         poster, codici_rifiutati, posta,
     )
 
@@ -641,12 +667,67 @@ def _controllo_volume_anomalo():
     _alert_una_volta(chiave, testo)
 
 
+def _controllo_scadenza_vicina():
+    """Solo per approvazioni con scadenza (DM Instagram/Facebook, non le
+    email): niente soglia delle 6h di _controllo_approvazioni_bloccate, qui
+    conta quanto manca alla scadenza, non da quanto è ferma."""
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT a.id, a.scadenza, e.payload->>'mittente', e.payload->>'oggetto' "
+                "FROM approvals a "
+                "JOIN messages m ON m.id = a.message_id "
+                "JOIN events e ON e.id = m.thread_id::int "
+                "WHERE a.stato IN ('in_attesa', 'in_modifica') "
+                "AND a.scadenza IS NOT NULL "
+                "AND a.scadenza <= now() + interval '2 hours' "
+                "ORDER BY a.scadenza ASC"
+            )
+            righe = cur.fetchall()
+
+    adesso = datetime.now(timezone.utc)
+    for id_, scadenza, mittente, oggetto in righe:
+        etichetta = f"#{id_} · {_nome_da_mittente(mittente)} — \"{_tronca(oggetto)}\""
+
+        if scadenza > adesso:
+            minuti = int((scadenza - adesso).total_seconds() // 60)
+            testo = f"⚠️ Approvazione in scadenza — {etichetta} · scade tra {minuti}min"
+            _alert_una_volta(f"scadenza_vicina:{id_}", testo)
+            continue
+
+        # Scadenza già passata e mai toccata: il sistema la chiude da sé
+        # invece di lasciarla visibile come ancora azionabile. Alert PRIMA
+        # della UPDATE, non dopo: una volta che la UPDATE va a buon fine la
+        # riga esce dal WHERE sopra e i cicli successivi non la rivedono più
+        # — se l'alert fosse dopo e il processo si fermasse in mezzo,
+        # l'alert non partirebbe mai. Mandandolo prima: se il processo si
+        # ferma fra le due istruzioni, il ciclo seguente la ritrova ancora
+        # 'in_attesa'/'in_modifica', l'alert fa no-op (chiave già presente)
+        # e la UPDATE viene ritentata finché non va a buon fine.
+        testo = (
+            f"⌛ Finestra chiusa senza risposta — {etichetta} · nessuno ha "
+            "approvato/rifiutato in tempo, chiusa automaticamente"
+        )
+        _alert_una_volta(f"scaduta_auto:{id_}", testo)
+
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE approvals SET stato = 'scaduta', updated_at = now()
+                    WHERE id = %s AND stato IN ('in_attesa', 'in_modifica')
+                    """,
+                    (id_,),
+                )
+
+
 @handler("controlli_periodici")
 def controlli_periodici(payload):
     for controllo in (
         _controllo_approvazioni_bloccate,
         _controllo_poster_mancante,
         _controllo_volume_anomalo,
+        _controllo_scadenza_vicina,
     ):
         try:
             controllo()
@@ -714,7 +795,14 @@ def notifica_risposta(payload):
 # dal webhook mentre aspetta la reply con il testo corretto) -> 'modificata'.
 # 'in_modifica' non è uno stato finale: se la reply non arriva mai resta lì,
 # non torna visibile come "in_attesa" (comportamento accettato per ora, non
-# c'è ancora un timeout/retry su questo ramo).
+# c'è ancora un timeout/retry su questo ramo) — a meno che l'approvazione
+# abbia una `scadenza` (DM Instagram/Facebook, non le email): in quel caso
+# _controllo_scadenza_vicina la chiude in 'scaduta' da sola quando la
+# scadenza passa senza risposta.
+# 'scaduta' è un ulteriore stato terminale, raggiungibile da due punti:
+# _controllo_scadenza_vicina (mai approvata/rifiutata/modificata in tempo) o
+# invia_risposta qui sotto (approvata/modificata ma la finestra si è chiusa
+# prima che l'invio partisse). Non si applica alle email (scadenza NULL).
 @handler("invia_risposta")
 def invia_risposta(payload):
     approval_id = payload.get("approval_id")
@@ -724,18 +812,45 @@ def invia_risposta(payload):
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT stato, testo_finale, message_id FROM approvals WHERE id = %s",
+                "SELECT stato, testo_finale, message_id, scadenza FROM approvals WHERE id = %s",
                 (approval_id,),
             )
             row = cur.fetchone()
 
     if row is None:
         raise ValueError(f"invia_risposta: approvazione {approval_id} non trovata")
-    stato, testo_finale, message_id = row
+    stato, testo_finale, message_id, scadenza = row
 
     if stato not in ("approvata", "modificata"):
         logger.info(
             "invia_risposta: approvazione %s in stato '%s', nessun invio", approval_id, stato
+        )
+        return
+
+    if scadenza is not None and scadenza < datetime.now(timezone.utc):
+        # Alert PRIMA della UPDATE, non dopo: se il processo muore fra le due
+        # istruzioni e il job va in retry, la SELECT in cima rilegge stato già
+        # 'scaduta' e il ramo "nessun invio" sopra esce subito — senza mai
+        # arrivare qui, quindi un alert successivo alla UPDATE rischierebbe di
+        # non partire mai. Mandandolo prima: _alert_una_volta fa no-op se la
+        # chiave è già presente (nessun doppio alert) e la UPDATE viene
+        # ritentata ad ogni retry finché non va a buon fine.
+        _alert_una_volta(
+            f"scaduta:{approval_id}",
+            f"⌛ Finestra di risposta chiusa — approvazione #{approval_id} approvata/modificata "
+            "ma non inviata in tempo: la finestra della piattaforma si è chiusa, va gestita a mano.",
+        )
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE approvals SET stato = 'scaduta', updated_at = now()
+                    WHERE id = %s AND stato IN ('approvata', 'modificata')
+                    """,
+                    (approval_id,),
+                )
+        logger.info(
+            "invia_risposta: approvazione %s scaduta prima dell'invio, nessun invio", approval_id
         )
         return
 

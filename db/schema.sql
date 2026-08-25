@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   tg_message_id BIGINT,
   created_at    TIMESTAMPTZ DEFAULT now(),
   updated_at    TIMESTAMPTZ DEFAULT now(),
-  decided_at    TIMESTAMPTZ
+  decided_at    TIMESTAMPTZ,
+  scadenza      TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
