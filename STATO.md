@@ -86,6 +86,17 @@ condiviso api+worker in docker-compose)
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL
 
+## Cantiere 3 — DM Instagram/Facebook (avviato 26/08)
+`POST /webhook/ghl/dm` in `backend/main.py`, per ora solo in modalità
+ricognizione: verifica `X-Argo-Secret` (401 se non combacia), 422 se il
+body non è un dict (stesso pattern di `/webhook/ghl/form`), poi logga a
+INFO solo i *nomi* dei campi ricevuti (`sorted(body.keys())` e, se
+`customData` è un dict, anche `sorted(customData.keys())` — mai i valori),
+risponde sempre 200 così GHL non ritenta. Nessuna scrittura su
+`events`/`jobs`: non conosciamo ancora la struttura del payload DM (diversa
+da quella dei form), prima si osservano i log poi si scrive il connettore
+vero.
+
 ## DECISIONI CHIUSE
 - **QR e attribuzione** (era bloccante prima dello step 5): QR statico, uguale per
   tutti gli host, confermato testato e funzionante. L'attribuzione all'host non

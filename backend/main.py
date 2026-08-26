@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from connectors.telegram import notifica, rispondi_callback, chiedi_testo_corretto
 
 app = FastAPI(title="Argo")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo")
 
 HOST_CODE_RE = re.compile(r"^[A-Z0-9]+$")
@@ -158,6 +159,31 @@ async def webhook_ghl_form(request: Request):
                 """,
                 (json.dumps({"event_id": event_id}),),
             )
+
+    return {"ok": True}
+
+
+@app.post("/webhook/ghl/dm")
+async def webhook_ghl_dm(request: Request):
+    if request.headers.get("X-Argo-Secret") != os.environ["GHL_WEBHOOK_SECRET"]:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    if not isinstance(body, dict):
+        logger.warning(
+            "dm.ricevuto body non è un oggetto JSON, tipo ricevuto: %s",
+            type(body).__name__,
+        )
+        raise HTTPException(
+            status_code=422, detail="corpo della richiesta non è un oggetto JSON"
+        )
+
+    custom = body.get("customData")
+    logger.info(
+        "webhook_ghl_dm: campi radice=%s, campi customData=%s",
+        sorted(body.keys()),
+        sorted(custom.keys()) if isinstance(custom, dict) else None,
+    )
 
     return {"ok": True}
 
