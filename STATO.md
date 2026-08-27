@@ -167,6 +167,18 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
         narra-tours.com     → zona su CLOUDFLARE
 - Segreti in /root/argo/.env (mai committato)
 
+## Backup (27/08)
+`backup/dump.sh` (cron giornaliero alle 3:00, già esistente) ora chiama in
+coda `backup/invia_backup.py`: spedisce l'ultimo dump via email
+all'operatore (`BACKUP_EMAIL_DEST`), allegato + conteggio righe delle
+tabelle principali nel corpo. Sopra i 15MB non tenta l'invio (margine sotto
+il limite allegati di Gmail) e alerta via Telegram invece; alert Telegram
+anche se non trova nessun dump o se l'invio fallisce. Email operativa verso
+l'operatore: non scritta in `messages` (eccezione documentata in
+CLAUDE.md — quella tabella traccia le conversazioni con host/prospect, non
+il traffico interno). Testato end-to-end il 27/08, email arrivata
+correttamente.
+
 ## Codice non valido — comportamento deciso (17/08)
 Codice > 10 caratteri o con caratteri fuori da [A-Z0-9]:
 - NESSUN poster generato (mai stampare un codice che non esiste nel sistema)

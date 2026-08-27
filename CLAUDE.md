@@ -7,7 +7,7 @@ eseguire azioni. Ogni bozza passa da approvals. Nel dubbio, fermati e chiedi.
 
 ## Invarianti (non violare mai)
 - Ogni evento entrante ha una `dedup_key`. Ogni handler deve poter girare due volte senza danni. Eccezione: i comandi dell'operatore (es. click sui bottoni Telegram) non sono eventi di dominio e non vanno in `events`. La loro idempotenza si ottiene con un claim atomico sulla riga che modificano — `UPDATE ... WHERE stato = <atteso> RETURNING id` — non con una `dedup_key`.
-- Ogni messaggio in uscita è scritto in `messages` PRIMA dell'invio.
+- Ogni messaggio in uscita è scritto in `messages` PRIMA dell'invio. Eccezione: le email operative verso l'operatore (backup, report di sistema) non vanno in `messages`. Quella tabella traccia le conversazioni con host e prospect, non il traffico interno del sistema.
 - Nessun invio automatico di messaggi redatti da un LLM: tutto passa da `approvals`. Eccezione: le email transazionali con testo fisso, verso chi ha appena richiesto qualcosa (es. conferma poster all'host), partono dirette — non c'è nulla da approvare e approvare 200 volte la stessa email identica non è controllo, è rumore. Restano comunque loggate in `messages` prima dell'invio.
 - Segreti solo da variabili d'ambiente. Mai nel codice, mai nei log.
 - Niente ORM, niente Alembic, niente astrazioni al primo uso. psycopg diretto.
