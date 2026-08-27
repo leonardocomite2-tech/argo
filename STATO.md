@@ -129,6 +129,24 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
 - Zero LLM. L'invio della risposta al DM non è in questo step: serve il
   `conversation_id` (assente nel payload) per rispondere via API — resta un
   passo a parte.
+- **Invio collegato (27/08)**: `invia_risposta` ora dirama per
+  `messages.canale` (letto tramite il JOIN già esistente con `events`, non
+  serve `messages.contact_id` che resta NULL). Canale `instagram`/`facebook`
+  → `connectors/ghl.invia_messaggio(contact_id, tipo, testo)`, con
+  `contact_id` letto da `events.payload->>'contact_id'` e `tipo` mappato
+  `instagram`→IG, `facebook`→FB. `conversationId`/`messageId` restituiti da
+  GHL salvati nella nuova colonna `messages.payload` (JSONB,
+  `db/migrations/004_messages_payload.sql`), per correlare i thread in
+  futuro. Notifica Telegram di conferma dice "consegnata a GHL", non
+  "inviata": il 200 di GHL significa solo "accettato", non conferma la
+  consegna su Meta — non lo sappiamo ancora. Stessa guardia di scadenza
+  (`approvals.scadenza`, già generica) e stessa guardia di idempotenza
+  (`INSERT ... ON CONFLICT ... RETURNING id` su `messages`) usate per email.
+  Canale non riconosciuto → `ValueError` (job failed + alert), mai un invio
+  silenzioso. Il drafter DM (che dovrebbe creare le righe `approvals` per i
+  DM in produzione) resta da scrivere — per ora il collaudo end-to-end passa
+  dal nuovo handler manuale `test_approvazione_dm(contact_id, canale)`, che
+  richiede un contatto GHL vero con la finestra ancora aperta.
 
 ## DECISIONI CHIUSE
 - **QR e attribuzione** (era bloccante prima dello step 5): QR statico, uguale per
@@ -151,6 +169,12 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   quale casella usare in produzione.
 - (chiusa 18/08) Tono: lei cordiale, definito in CLAUDE.md
   questo step — `classifica_messaggio` per ora è solo uno stub)
+- Guardia di idempotenza scritta prima dell'invio (email e DM): la riga in
+  `messages` che marca "già inviato" viene committata PRIMA della chiamata
+  SMTP/GHL. Se la chiamata fallisce dopo quel commit, un retry del job trova
+  la riga già presente e non reinvia più. Trade-off scelto: mai un doppio
+  invio, nel caso peggiore un messaggio registrato ma non partito davvero —
+  da gestire a mano se capita, non risolto nel codice.
 - Identity resolution mai implementata. Le tabelle contacts e identities
   esistono nello schema ma nessun flusso le popola: messages.contact_id è
   sempre NULL. Il §5.1 del contesto la elenca tra le tre cose da progettare

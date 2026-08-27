@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS messages (
   testo       TEXT,
   categoria   TEXT,
   confidence  REAL,
+  payload     JSONB,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 

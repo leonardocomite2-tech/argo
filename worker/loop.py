@@ -792,6 +792,7 @@ def notifica_risposta(payload):
 
 
 MARCATORE_CANALE_DM = {"instagram": "📷 IG", "facebook": "💬 FB"}
+TIPO_GHL_CANALE = {"instagram": "IG", "facebook": "FB"}
 
 
 @handler("notifica_dm")
@@ -919,9 +920,10 @@ def invia_risposta(payload):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT m.thread_id,
+                SELECT m.thread_id, m.canale,
                        e.payload->>'mittente', e.payload->>'oggetto', e.payload->>'testo',
-                       e.payload->>'message_id', e.payload->>'references'
+                       e.payload->>'message_id', e.payload->>'references',
+                       e.payload->>'contact_id'
                 FROM messages m JOIN events e ON e.id = m.thread_id::int
                 WHERE m.id = %s
                 """,
@@ -934,35 +936,98 @@ def invia_risposta(payload):
             f"invia_risposta: approvazione {approval_id}, messaggio {message_id} "
             "senza evento collegato"
         )
-    thread_id, mittente, oggetto, testo_originale, message_id_originale, references_orig = riga
+    (thread_id, canale, mittente, oggetto, testo_originale,
+     message_id_originale, references_orig, contact_id_ghl) = riga
 
-    corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
-    with db_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
-                "VALUES (NULL, 'email', 'out', %s, %s) "
-                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
-                "DO NOTHING RETURNING id",
-                (thread_id, corpo),
+    if canale == "email":
+        corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (NULL, 'email', 'out', %s, %s) "
+                    "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                    "DO NOTHING RETURNING id",
+                    (thread_id, corpo),
+                )
+                gia_inviata = cur.fetchone() is None
+
+        if gia_inviata:
+            logger.info("invia_risposta: già inviata per approvazione %s, salto", approval_id)
+            return
+
+        references = references_orig
+        if message_id_originale:
+            references = f"{references_orig} {message_id_originale}" if references_orig else message_id_originale
+
+        reply_to = os.environ["REPLY_SMTP_USER"]
+        invia_risposta_email(
+            mittente, oggetto, corpo, testo_originale,
+            message_id_originale, references, reply_to,
+        )
+        logger.info("invia_risposta: inviata per approvazione %s a %s", approval_id, mittente)
+        notifica(f"Risposta inviata — approvazione #{approval_id}, oggetto: {oggetto or '(senza oggetto)'}")
+
+    elif canale in ("instagram", "facebook"):
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                    "VALUES (NULL, %s, 'out', %s, %s) "
+                    "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                    "DO NOTHING RETURNING id",
+                    (canale, thread_id, testo_finale),
+                )
+                row_out = cur.fetchone()
+
+        if row_out is None:
+            logger.info("invia_risposta: già inviata per approvazione %s, salto", approval_id)
+            return
+        db_message_id_out = row_out[0]
+
+        tipo_ghl = TIPO_GHL_CANALE[canale]
+        conversation_id, message_id_ghl = invia_messaggio(contact_id_ghl, tipo_ghl, testo_finale)
+        logger.info(
+            "invia_risposta: risposta GHL per approvazione %s conversation_id=%s message_id=%s",
+            approval_id, conversation_id, message_id_ghl,
+        )
+
+        try:
+            with db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE messages SET payload = %s WHERE id = %s",
+                        (
+                            json.dumps({
+                                "ghl_conversation_id": conversation_id,
+                                "ghl_message_id": message_id_ghl,
+                            }),
+                            db_message_id_out,
+                        ),
+                    )
+        except Exception:
+            # Il messaggio è già stato consegnato a GHL (idempotenza intatta:
+            # non verrà rispedito), ma se questa UPDATE fallisce l'id di
+            # correlazione va perso senza che nessuno se ne accorga — a
+            # differenza del fallimento dell'invio stesso (documentato in
+            # STATO.md come trade-off accettato), qui l'invio È riuscito, va
+            # solo segnalato che manca il collegamento per il thread.
+            logger.exception(
+                "invia_risposta: invio a GHL riuscito ma salvataggio conversation_id/message_id "
+                "fallito per approvazione %s, messaggio %s", approval_id, db_message_id_out,
             )
-            gia_inviata = cur.fetchone() is None
+            notifica(
+                f"⚠️ Risposta consegnata a GHL ma id di correlazione non salvato — "
+                f"approvazione #{approval_id}, messaggio #{db_message_id_out} (verificare a mano)."
+            )
 
-    if gia_inviata:
-        logger.info("invia_risposta: già inviata per approvazione %s, salto", approval_id)
-        return
+        marcatore = MARCATORE_CANALE_DM.get(canale, canale)
+        logger.info("invia_risposta: consegnata a GHL per approvazione %s, canale=%s", approval_id, canale)
+        notifica(f"{marcatore} Risposta consegnata a GHL — approvazione #{approval_id} "
+                 "(200 accettato da GHL, non conferma ancora la consegna su Meta)")
 
-    references = references_orig
-    if message_id_originale:
-        references = f"{references_orig} {message_id_originale}" if references_orig else message_id_originale
-
-    reply_to = os.environ["REPLY_SMTP_USER"]
-    invia_risposta_email(
-        mittente, oggetto, corpo, testo_originale,
-        message_id_originale, references, reply_to,
-    )
-    logger.info("invia_risposta: inviata per approvazione %s a %s", approval_id, mittente)
-    notifica(f"Risposta inviata — approvazione #{approval_id}, oggetto: {oggetto or '(senza oggetto)'}")
+    else:
+        raise ValueError(f"invia_risposta: canale sconosciuto '{canale}' per approvazione {approval_id}")
 
 
 @handler("test_approvazione")
@@ -1036,12 +1101,83 @@ def test_approvazione(payload):
     )
 
 
+@handler("test_approvazione_dm")
+def test_approvazione_dm(payload):
+    # Manuale, per collaudare il giro Approva/Modifica/Rifiuta + invio via GHL
+    # senza aspettare il drafter DM (non ancora scritto). contact_id e canale
+    # sono parametri del job, non finti: contact_id deve essere un contatto
+    # GHL vero con la finestra dei 24h ancora aperta, altrimenti
+    # invia_messaggio fallisce e non si testa nulla.
+    contact_id = payload.get("contact_id")
+    if not contact_id:
+        raise ValueError("test_approvazione_dm: contact_id mancante nel payload del job")
+    canale = payload.get("canale")
+    if canale not in ("instagram", "facebook"):
+        raise ValueError("test_approvazione_dm: canale mancante o non valido (instagram/facebook)")
+
+    message_body_test = "Ciao! volevo sapere se il codice sconto è ancora valido, grazie mille!"
+    bozza = "Bozza di prova: sì, il codice è ancora valido, può usarlo quando vuole."
+    triggered_at_test = f"test-{int(time.time() * 1000)}"
+    dedup_key = f"test-approvazione-dm:{triggered_at_test}"
+    scadenza = datetime.now(timezone.utc) + timedelta(hours=23)
+
+    evento_payload = json.dumps({
+        "contact_id": contact_id,
+        "email": None,
+        "first_name": "Test",
+        "last_name": "Approvazione",
+        "message_body": message_body_test,
+        "reply_channel": canale,
+        "triggered_at": triggered_at_test,
+        "scadenza": scadenza.isoformat(),
+    })
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO events (tipo, dedup_key, payload) VALUES ('dm.received', %s, %s) "
+                "RETURNING id",
+                (dedup_key, evento_payload),
+            )
+            event_id = cur.fetchone()[0]
+
+            cur.execute(
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (NULL, %s, 'in', %s, %s) RETURNING id",
+                (canale, str(event_id), message_body_test),
+            )
+            db_message_id = cur.fetchone()[0]
+
+            cur.execute(
+                "INSERT INTO approvals (message_id, bozza, scadenza) VALUES (%s, %s, %s) RETURNING id",
+                (db_message_id, bozza, scadenza),
+            )
+            approval_id = cur.fetchone()[0]
+
+    contesto = {
+        "mittente": f"contact_id {contact_id} ({canale})",
+        "testo_ricevuto": message_body_test,
+    }
+    tg_message_id = chiedi_approvazione(approval_id, bozza, contesto, scadenza)
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE approvals SET tg_message_id = %s WHERE id = %s",
+                (tg_message_id, approval_id),
+            )
+
+    logger.info(
+        "test_approvazione_dm: approvazione %s creata (contact_id=%s canale=%s), messaggio Telegram %s",
+        approval_id, contact_id, canale, tg_message_id,
+    )
+
+
 @handler("test_invio_dm")
 def test_invio_dm(payload):
     # Manuale, per collaudare il connettore GHL in isolamento — a differenza
-    # di test_approvazione qui non si tocca events/messages/approvals, solo
-    # la chiamata HTTP. Non collegato a invia_risposta né al flusso DM
-    # esistente (notifica_dm): prima vediamo cosa risponde l'API GHL.
+    # di test_approvazione/test_approvazione_dm qui non si tocca
+    # events/messages/approvals, solo la chiamata HTTP diretta.
     contact_id = payload.get("contact_id")
     if not contact_id:
         raise ValueError("test_invio_dm: contact_id mancante nel payload del job")
