@@ -13,7 +13,7 @@ import psycopg
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
 from connectors.imap_reader import leggi_nuove
 from connectors.mailer import invia_email, invia_risposta_email
-from connectors.telegram import notifica, chiedi_approvazione
+from connectors.telegram import notifica, chiedi_approvazione, riga_scadenza
 from connectors.testi import (
     OGGETTO_POSTER,
     CORPO_POSTER,
@@ -788,6 +788,63 @@ def notifica_risposta(payload):
     )
     notifica(testo_notifica)
     logger.info("notifica_risposta: evento %s oggetto=%r notificato", event_id, oggetto)
+
+
+MARCATORE_CANALE_DM = {"instagram": "📷 IG", "facebook": "💬 FB"}
+
+
+@handler("notifica_dm")
+def notifica_dm(payload):
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("notifica_dm: event_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'reply_channel', payload->>'message_body', "
+                "payload->>'first_name', payload->>'last_name', payload->>'email', "
+                "payload->>'scadenza' FROM events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"notifica_dm: evento {event_id} non trovato")
+    canale, message_body, first_name, last_name, email, scadenza_raw = row
+    message_body = message_body or ""
+    scadenza = datetime.fromisoformat(scadenza_raw)
+
+    thread_id = str(event_id)
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            # contact_id NULL come negli altri handler email: il contact_id nel
+            # payload è l'id esterno di GHL (stringa), non una riga di `contacts`
+            # (nessuna risoluzione contatto/identities ancora implementata).
+            cur.execute(
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (NULL, %s, 'in', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (canale, thread_id, message_body),
+            )
+            gia_notificata = cur.fetchone() is None
+
+    if gia_notificata:
+        logger.info("notifica_dm: già notificata per evento %s, salto", event_id)
+        return
+
+    marcatore = MARCATORE_CANALE_DM.get(canale, canale)
+    mittente = " ".join(filter(None, [first_name, last_name])) or email or "(mittente sconosciuto)"
+    anteprima = message_body[:400] + ("[...]" if len(message_body) > 400 else "")
+    testo_notifica = (
+        f"{marcatore} Nuovo DM\n"
+        f"Da: {mittente}\n"
+        f"{riga_scadenza(scadenza)}\n\n"
+        f"{anteprima}"
+    )
+    notifica(testo_notifica)
+    logger.info("notifica_dm: evento %s canale=%s notificato", event_id, canale)
 
 
 # Stati di approvals.stato: 'in_attesa' (default, in attesa di un tocco su

@@ -50,7 +50,7 @@ AVVISO_TRONCAMENTO = "\n[bozza troncata — testo completo nel database]"
 SOGLIA_URGENZA_SCADENZA_SEC = 2 * 3600
 
 
-def _riga_scadenza(scadenza):
+def riga_scadenza(scadenza):
     """Riga con il tempo rimanente prima della scadenza, o "" se scadenza è None
     (caso email, nessun vincolo di finestra). Sotto le 2 ore mostra i minuti
     (mai le ore troncate a "1h" quando in realtà sono 95 minuti) e passa a ⚠️;
@@ -69,7 +69,7 @@ def _riga_scadenza(scadenza):
 def chiedi_approvazione(approval_id, testo_bozza, contesto, scadenza=None):
     """Manda la bozza con i tre bottoni di approvazione. Ritorna il message_id.
     `scadenza` opzionale (TIMESTAMPTZ): se presente, aggiunge in cima una riga
-    col tempo rimanente (vedi _riga_scadenza). None = nessuna scadenza (email)."""
+    col tempo rimanente (vedi riga_scadenza). None = nessuna scadenza (email)."""
     mittente = (contesto or {}).get("mittente") or "(mittente sconosciuto)"
     oggetto = (contesto or {}).get("oggetto") or "(senza oggetto)"
     testo_ricevuto = (contesto or {}).get("testo_ricevuto") or "(testo non disponibile)"
@@ -77,8 +77,8 @@ def chiedi_approvazione(approval_id, testo_bozza, contesto, scadenza=None):
         testo_ricevuto = testo_ricevuto[:500] + " [...]"
 
     def componi(bozza):
-        riga_scadenza = _riga_scadenza(scadenza)
-        intestazione = f"{riga_scadenza}\n\n" if riga_scadenza else ""
+        riga = riga_scadenza(scadenza)
+        intestazione = f"{riga}\n\n" if riga else ""
         return (
             f"{intestazione}"
             f"📩 Da: {mittente}\n"

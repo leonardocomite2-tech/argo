@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
@@ -14,6 +15,19 @@ logger = logging.getLogger("argo")
 
 HOST_CODE_RE = re.compile(r"^[A-Z0-9]+$")
 HOST_CODE_MAX_LEN = 10
+FINESTRA_META = timedelta(hours=24)
+
+
+def _normalizza_canale_dm(reply_channel):
+    """reply_channel è un valore statico scritto a mano nel workflow GHL
+    ("Instagram DM" / "Facebook messenger"), non deriva dal canale reale del
+    messaggio — vedi nota in STATO.md. Match per sottostringa, case-insensitive."""
+    valore = (reply_channel or "").strip().lower()
+    if "instagram" in valore:
+        return "instagram"
+    if "facebook" in valore or "messenger" in valore:
+        return "facebook"
+    return None
 
 
 def db_connect():
@@ -168,6 +182,7 @@ async def webhook_ghl_dm(request: Request):
     if request.headers.get("X-Argo-Secret") != os.environ["GHL_WEBHOOK_SECRET"]:
         raise HTTPException(status_code=401)
 
+    adesso = datetime.now(timezone.utc)
     body = await request.json()
     if not isinstance(body, dict):
         logger.warning(
@@ -179,11 +194,81 @@ async def webhook_ghl_dm(request: Request):
         )
 
     custom = body.get("customData")
+    if not isinstance(custom, dict):
+        custom = {}
+
+    # Log diagnostico permanente: non esiste ancora un id univoco di messaggio/
+    # conversazione nel payload GHL. `message` alla radice potrebbe contenere
+    # qualcosa di più ricco di `message_body` in customData (incluso un id) —
+    # va osservato su traffico reale prima di cambiare la dedup_key sotto.
+    message_radice = body.get("message")
     logger.info(
-        "webhook_ghl_dm: campi radice=%s, campi customData=%s",
-        sorted(body.keys()),
-        sorted(custom.keys()) if isinstance(custom, dict) else None,
+        "webhook_ghl_dm: tipo di message alla radice=%s, campi=%s",
+        type(message_radice).__name__,
+        sorted(message_radice.keys()) if isinstance(message_radice, dict) else None,
     )
+
+    contact_id = body.get("contact_id")
+    email = body.get("email")
+    first_name = body.get("first_name")
+    last_name = body.get("last_name")
+    message_body = custom.get("message_body")
+    reply_channel = custom.get("reply_channel")
+    triggered_at = custom.get("triggered_at")
+
+    if not contact_id:
+        logger.warning(
+            "webhook_ghl_dm senza contact_id, campi radice: %s, campi customData: %s",
+            sorted(body.keys()),
+            sorted(custom.keys()),
+        )
+        raise HTTPException(status_code=422, detail="contact_id mancante")
+
+    if not message_body:
+        logger.info("webhook_ghl_dm: message_body vuoto (notifica di sistema, non un messaggio)")
+        return {"ok": True}
+
+    canale = _normalizza_canale_dm(reply_channel)
+    if canale is None:
+        logger.warning("webhook_ghl_dm: reply_channel non riconosciuto, evento scartato")
+        return {"ok": True}
+
+    scadenza = adesso + FINESTRA_META
+    dedup_key = f"ghl-dm:{contact_id}:{triggered_at}"
+
+    payload = json.dumps(
+        {
+            "contact_id": contact_id,
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "message_body": message_body,
+            "reply_channel": canale,
+            "triggered_at": triggered_at,
+            "scadenza": scadenza.isoformat(),
+        }
+    )
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO events (tipo, dedup_key, payload)
+                VALUES ('dm.received', %s, %s)
+                ON CONFLICT (dedup_key) DO NOTHING
+                RETURNING id
+                """,
+                (dedup_key, payload),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {"ok": True, "duplicato": True}
+            event_id = row[0]
+
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload) VALUES ('notifica_dm', %s)",
+                (json.dumps({"event_id": event_id}),),
+            )
 
     return {"ok": True}
 

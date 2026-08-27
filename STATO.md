@@ -86,16 +86,49 @@ condiviso api+worker in docker-compose)
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL
 
-## Cantiere 3 — DM Instagram/Facebook (avviato 26/08)
-`POST /webhook/ghl/dm` in `backend/main.py`, per ora solo in modalità
-ricognizione: verifica `X-Argo-Secret` (401 se non combacia), 422 se il
-body non è un dict (stesso pattern di `/webhook/ghl/form`), poi logga a
-INFO solo i *nomi* dei campi ricevuti (`sorted(body.keys())` e, se
-`customData` è un dict, anche `sorted(customData.keys())` — mai i valori),
-risponde sempre 200 così GHL non ritenta. Nessuna scrittura su
-`events`/`jobs`: non conosciamo ancora la struttura del payload DM (diversa
-da quella dei form), prima si osservano i log poi si scrive il connettore
-vero.
+## Cantiere 3 — DM Instagram/Facebook (avviato 26/08, connettore vero 27/08)
+`POST /webhook/ghl/dm` in `backend/main.py` non è più ricognizione: scrive
+evento `dm.received` + job `notifica_dm`. Campi affidabili (verificati con un
+DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
+`customData`; `contact_id`, `email`, `first_name`, `last_name` alla radice.
+- `message_body` vuoto/mancante → 200 + log INFO, nessun evento (notifiche di
+  sistema di GHL, non messaggi veri).
+- `reply_channel` è un **valore statico** scritto a mano nel workflow GHL
+  (`"Instagram DM"` / `"Facebook messenger"`), non deriva dal canale reale del
+  messaggio. Normalizzato per sottostringa case-insensitive
+  (`_normalizza_canale_dm`); valore non riconosciuto → 200 + log WARNING
+  (solo categoria, mai il valore grezzo), evento scartato.
+  **Fragilità nota da costruzione**: se il filtro del workflow GHL cambia
+  senza aggiornare la custom data statica, un DM Facebook potrebbe arrivare
+  etichettato Instagram senza che nessuno se ne accorga.
+- `triggered_at` (verificato su traffico reale il 27/08) **non** è né ISO
+  8601 né epoch: fuso del sub-account GHL (Europe/Madrid), mese non
+  zero-padded. Il parsing (`datetime.fromisoformat` + sostituzione `Z`)
+  funzionava solo per caso e scartava eventi validi quando falliva — tolto.
+  `scadenza` ora si calcola da `now()` al momento in cui il webhook arriva
+  + 24h (finestra di risposta Meta), non più da `triggered_at`: la
+  ricezione è un dato certo, il formato di `triggered_at` no.
+  `triggered_at` resta nel payload dell'evento **grezzo, senza parsing** —
+  dato diagnostico, utile in futuro per capire se GHL accumula ritardo, non
+  per calcolare scadenze.
+- **Non esiste un `conversation_id` né un id univoco di messaggio** nel
+  payload GHL. `dedup_key = 'ghl-dm:' + contact_id + ':' + triggered_at`
+  (valore **grezzo**, stringa non interpretata — serve solo a distinguere
+  due messaggi, non a dire un'ora) per ora. Il webhook logga sempre a INFO
+  tipo (e, se dict, campi) del campo
+  `message` alla radice — potrebbe contenere qualcosa di più ricco di
+  `message_body`, incluso un id di messaggio, ma va ancora osservato su
+  traffico reale: **da rivedere la dedup_key** una volta letti quei log.
+- Worker: handler `notifica_dm` (one-shot, non self-chaining). Guardia di
+  idempotenza standard (`INSERT ... ON CONFLICT (thread_id, canale, direzione)
+  ... DO NOTHING RETURNING id` su `messages`, direzione `in`). Notifica
+  Telegram con marcatore canale (📷 IG / 💬 FB), mittente, countdown alla
+  scadenza (riusa `riga_scadenza` — rinominata da `_riga_scadenza` perché ora
+  condivisa tra `chiedi_approvazione` e questo handler) e anteprima testo
+  troncata a 400 caratteri.
+- Zero LLM. L'invio della risposta al DM non è in questo step: serve il
+  `conversation_id` (assente nel payload) per rispondere via API — resta un
+  passo a parte.
 
 ## DECISIONI CHIUSE
 - **QR e attribuzione** (era bloccante prima dello step 5): QR statico, uguale per
@@ -118,6 +151,12 @@ vero.
   quale casella usare in produzione.
 - (chiusa 18/08) Tono: lei cordiale, definito in CLAUDE.md
   questo step — `classifica_messaggio` per ora è solo uno stub)
+- Identity resolution mai implementata. Le tabelle contacts e identities
+  esistono nello schema ma nessun flusso le popola: messages.contact_id è
+  sempre NULL. Il §5.1 del contesto la elenca tra le tre cose da progettare
+  bene subito, perché ritrofittarla è doloroso. Oggi non blocca nulla — ogni
+  canale lavora isolato — ma appena lo stesso prospect scriverà via email e
+  via DM, non avremo modo di sapere che è la stessa persona.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
