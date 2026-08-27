@@ -85,6 +85,11 @@ def _parsa_data(valore):
         return valore
 
 
+WARMUP_TAG = os.environ.get("WARMUP_TAG", "").strip()
+if not WARMUP_TAG:
+    logger.info("imap_reader: WARMUP_TAG non impostata, filtro warmup disattivo")
+
+
 def _mailboxes():
     n = 1
     while True:
@@ -141,4 +146,17 @@ def leggi_nuove():
             notifica(
                 f"ALERT: casella IMAP {user} non raggiungibile (errore={type(e).__name__})"
             )
-    return tutti
+
+    if not WARMUP_TAG:
+        return tutti
+
+    risultato = []
+    scartati = 0
+    for m in tutti:
+        oggetto = m.get("oggetto") or ""
+        if WARMUP_TAG.lower() in oggetto.lower():
+            scartati += 1
+        else:
+            risultato.append(m)
+    logger.info("leggi_nuove: %d messaggi scartati come warmup", scartati)
+    return risultato
