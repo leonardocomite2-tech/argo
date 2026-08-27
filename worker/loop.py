@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import psycopg
 
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
+from connectors.ghl import invia_messaggio
 from connectors.imap_reader import leggi_nuove
 from connectors.mailer import invia_email, invia_risposta_email
 from connectors.telegram import notifica, chiedi_approvazione, riga_scadenza
@@ -1032,6 +1033,27 @@ def test_approvazione(payload):
     logger.info(
         "test_approvazione: approvazione %s creata, messaggio Telegram %s",
         approval_id, message_id,
+    )
+
+
+@handler("test_invio_dm")
+def test_invio_dm(payload):
+    # Manuale, per collaudare il connettore GHL in isolamento — a differenza
+    # di test_approvazione qui non si tocca events/messages/approvals, solo
+    # la chiamata HTTP. Non collegato a invia_risposta né al flusso DM
+    # esistente (notifica_dm): prima vediamo cosa risponde l'API GHL.
+    contact_id = payload.get("contact_id")
+    if not contact_id:
+        raise ValueError("test_invio_dm: contact_id mancante nel payload del job")
+    tipo = payload.get("tipo")
+    if not tipo:
+        raise ValueError("test_invio_dm: tipo mancante nel payload del job")
+
+    testo_prova = "Messaggio di prova da Argo — collaudo connettore GHL, ignorare."
+    conversation_id, message_id = invia_messaggio(contact_id, tipo, testo_prova)
+    logger.info(
+        "test_invio_dm: inviato a contact_id=%s tipo=%s, conversation_id=%s message_id=%s",
+        contact_id, tipo, conversation_id, message_id,
     )
 
 

@@ -19,7 +19,10 @@ def notifica(testo):
     url = f"{API_BASE}/bot{token}/sendMessage"
     data = json.dumps({"chat_id": chat_id, "text": testo}).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "User-Agent": "Argo/1.0"},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -35,7 +38,10 @@ def _invia(metodo, corpo):
     url = f"{API_BASE}/bot{token}/{metodo}"
     data = json.dumps(corpo).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "User-Agent": "Argo/1.0"},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -133,7 +139,10 @@ def rispondi_callback(callback_query_id, testo):
     url = f"{API_BASE}/bot{token}/answerCallbackQuery"
     data = json.dumps({"callback_query_id": callback_query_id, "text": testo}).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "User-Agent": "Argo/1.0"},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
