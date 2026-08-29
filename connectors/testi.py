@@ -44,16 +44,25 @@ CORPO_CODICE_INVALIDO = """
 <p><strong>NarraTours</strong></p>
 """
 
-OGGETTO_DEPLIANT = "Il depliant personalizzabile per i suoi ospiti"
+OGGETTO_DEPLIANT = "Il suo depliant digitale da inviare agli ospiti"
 
 CORPO_DEPLIANT = """
-<p>{nome}come promesso, ecco il depliant che può lasciare in camera o consegnare agli ospiti all'arrivo.</p>
+<p>{nome}come promesso, ecco il suo depliant digitale.</p>
 
-<p><a href="https://canva.link/0sb5i8btg5f7wfb">Apra il depliant su Canva</a> — può personalizzarlo con i suoi dati e stamparlo quando vuole. È gratuito e non serve un account a pagamento.</p>
+<p>Lo può personalizzare come vuole seguendo le linee guida. L'unica cosa da non dimenticare: <strong>scriva il suo codice {codice}</strong> al posto del codice di esempio.</p>
 
-<p><strong>Un controllo veloce:</strong> ieri le abbiamo mandato i suoi due poster con il codice <strong>{codice}</strong>. Se non li trova in posta in arrivo, dia un'occhiata nella posta indesiderata — capita che le email con allegati finiscano lì. Se ce li trova, basta segnalarli come "non spam".</p>
+<p>Poi potrà inviarlo ai suoi ospiti quando arrivano in struttura — via WhatsApp, email o nel messaggio di benvenuto.</p>
 
-<p>Per qualsiasi cosa, risponda pure a questa email.</p>
+<p style="margin:24px 0">
+<a href="https://canva.link/0sb5i8btg5f7wfb"
+   style="background:#1a1a1a;color:#ffffff;padding:14px 28px;
+          text-decoration:none;border-radius:6px;font-size:16px;
+          font-weight:bold;display:inline-block">
+  Apri il depliant su Canva
+</a>
+</p>
+
+<p><strong>Ha ricevuto i due poster che le abbiamo mandato ieri?</strong> Se non li trova in posta in arrivo, <strong>controlli la posta indesiderata</strong>: le email con allegati a volte finiscono lì. Sono i poster con il suo codice {codice}, quelli che aveva richiesto registrandosi.</p>
 
 <p><strong>NarraTours</strong></p>
 """
