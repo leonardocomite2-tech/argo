@@ -5,12 +5,11 @@ import os
 import time
 from datetime import datetime, time as dtime, timedelta, timezone
 from email.utils import parseaddr
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
 
-from media.poster import BASE_DIR, genera_poster as genera_poster_immagine
+from media.poster import BASE_DIR, genera_poster as genera_poster_immagine, jpeg_per_invio
 from connectors.ghl import invia_messaggio
 from connectors.imap_reader import leggi_nuove
 from connectors.mailer import invia_email, invia_risposta_email
@@ -194,9 +193,10 @@ def genera_poster(payload):
 
     oggetto = OGGETTO_POSTER.format(codice=host_code)
     allegati = [
-        (f"poster-sconto-{host_code}.png", Path(out_path).read_bytes()),
-        ("poster-assistente-ai.png", POSTER_AI_PATH.read_bytes()),
+        (f"poster-sconto-{host_code}.jpg", jpeg_per_invio(out_path)),
+        ("poster-assistente-ai.jpg", jpeg_per_invio(POSTER_AI_PATH)),
     ]
+    logger.info("genera_poster: allegati %d byte totali", sum(len(b) for _, b in allegati))
     invia_email(email, oggetto, corpo, allegati)
     logger.info("genera_poster: email inviata a %s per evento %s", email, event_id)
     notifica(f"Poster inviato — codice {host_code}, {name or '(senza nome)'} <{email}>")

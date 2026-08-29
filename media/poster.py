@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -37,3 +38,14 @@ def genera_poster(host_code, out_path):
 
     draw.text(CENTRO, host_code, font=font, fill="black", anchor="mm")
     img.save(out_path, "PNG", dpi=(300, 300))
+
+
+def jpeg_per_invio(path):
+    """Converte un PNG in JPEG (qualità 92) in memoria, per allegati email
+    più leggeri. Il file sorgente non viene toccato."""
+    img = Image.open(path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=92, optimize=True, dpi=(300, 300))
+    return buf.getvalue()
