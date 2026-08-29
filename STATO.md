@@ -82,6 +82,21 @@ condiviso api+worker in docker-compose)
   ancora pending (accodati prima del rename) al nuovo tipo. La classificazione
   LLM (enum chiuso di categorie) e la stesura di bozze restano da fare — questo
   handler resta solo notifica, zero LLM.
+- **Email del depliant (29/08)**: `genera_poster`, dopo l'invio riuscito dei
+  poster, accoda il job `invia_depliant` con `run_after = now() + interval
+  '24 hours'` e `event_id` nel payload. Nuovo handler `invia_depliant`
+  (one-shot, non self-chaining): legge email/nome/host_code dall'evento e
+  manda un'email senza allegati dalla casella `REPLY_SMTP_*`
+  (narratours.info@gmail.com, non quella dei poster — reputazione separata,
+  messaggio leggero) con `connectors/mailer.invia_email_reply_box` (nuova
+  funzione: stessa casella di `invia_risposta_email` ma senza quoting/
+  In-Reply-To, è un messaggio nuovo non una risposta). Guardia di
+  idempotenza standard su `messages`, ma `thread_id = f"{event_id}:depliant"`
+  invece di `str(event_id)`: quel thread ha già una riga `out`/`email` per il
+  poster, e l'indice unico è su `(thread_id, canale, direzione)` — con lo
+  stesso thread_id la riga del depliant verrebbe scartata come "già inviata"
+  senza mai partire. Notifica Telegram a invio riuscito. Testo in
+  `connectors/testi.py`: `OGGETTO_DEPLIANT`/`CORPO_DEPLIANT`.
 
 ## Prossimi step (cantiere 1 — poster)
 8. workflow GHL
@@ -175,6 +190,11 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   la riga già presente e non reinvia più. Trade-off scelto: mai un doppio
   invio, nel caso peggiore un messaggio registrato ma non partito davvero —
   da gestire a mano se capita, non risolto nel codice.
+  Stesso trade-off, variante: in `genera_poster` l'INSERT del job
+  `invia_depliant` avviene dopo che la guardia su `messages` per il poster è
+  già stata scritta. Se il processo muore fra l'invio del poster e quel
+  INSERT, un retry rilegge `gia_inviata=True` ed esce prima di riaccodare —
+  il depliant non partirebbe mai. Non risolto, stessa categoria di rischio.
 - Identity resolution mai implementata. Le tabelle contacts e identities
   esistono nello schema ma nessun flusso le popola: messages.contact_id è
   sempre NULL. Il §5.1 del contesto la elenca tra le tre cose da progettare

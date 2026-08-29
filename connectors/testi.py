@@ -43,3 +43,17 @@ CORPO_CODICE_INVALIDO = """
 
 <p><strong>NarraTours</strong></p>
 """
+
+OGGETTO_DEPLIANT = "Il depliant personalizzabile per i suoi ospiti"
+
+CORPO_DEPLIANT = """
+<p>{nome}come promesso, ecco il depliant che può lasciare in camera o consegnare agli ospiti all'arrivo.</p>
+
+<p><a href="https://canva.link/0sb5i8btg5f7wfb">Apra il depliant su Canva</a> — può personalizzarlo con i suoi dati e stamparlo quando vuole. È gratuito e non serve un account a pagamento.</p>
+
+<p><strong>Un controllo veloce:</strong> ieri le abbiamo mandato i suoi due poster con il codice <strong>{codice}</strong>. Se non li trova in posta in arrivo, dia un'occhiata nella posta indesiderata — capita che le email con allegati finiscano lì. Se ce li trova, basta segnalarli come "non spam".</p>
+
+<p>Per qualsiasi cosa, risponda pure a questa email.</p>
+
+<p><strong>NarraTours</strong></p>
+"""

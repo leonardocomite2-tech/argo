@@ -12,7 +12,7 @@ import psycopg
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine, jpeg_per_invio
 from connectors.ghl import invia_messaggio
 from connectors.imap_reader import leggi_nuove
-from connectors.mailer import invia_email, invia_risposta_email
+from connectors.mailer import invia_email, invia_risposta_email, invia_email_reply_box
 from connectors.telegram import notifica, chiedi_approvazione, riga_scadenza
 from connectors.testi import (
     OGGETTO_POSTER,
@@ -20,6 +20,8 @@ from connectors.testi import (
     OGGETTO_CODICE_INVALIDO,
     CORPO_CODICE_INVALIDO,
     PREMESSA_CASELLA_DIVERSA,
+    OGGETTO_DEPLIANT,
+    CORPO_DEPLIANT,
 )
 
 POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
@@ -199,6 +201,15 @@ def genera_poster(payload):
     logger.info("genera_poster: allegati %d byte totali", sum(len(b) for _, b in allegati))
     invia_email(email, oggetto, corpo, allegati)
     logger.info("genera_poster: email inviata a %s per evento %s", email, event_id)
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload, run_after) "
+                "VALUES ('invia_depliant', %s, now() + interval '24 hours')",
+                (json.dumps({"event_id": event_id}),),
+            )
+
     notifica(f"Poster inviato — codice {host_code}, {name or '(senza nome)'} <{email}>")
 
 
@@ -245,6 +256,56 @@ def avvisa_codice_invalido(payload):
 
     invia_email(email, OGGETTO_CODICE_INVALIDO, corpo, [])
     logger.info("avvisa_codice_invalido: email inviata a %s per evento %s", email, event_id)
+
+
+@handler("invia_depliant")
+def invia_depliant(payload):
+    event_id = payload.get("event_id")
+    if not event_id:
+        raise ValueError("invia_depliant: event_id mancante nel payload del job")
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT payload->>'host_code', payload->>'email', "
+                "payload->>'name', contact_id FROM events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"invia_depliant: evento {event_id} non trovato")
+    host_code, email, name, contact_id = row
+    if not email:
+        raise ValueError(f"invia_depliant: email mancante per evento {event_id}")
+
+    # Thread distinto da quello del poster (stesso event_id): l'indice unico
+    # è su (thread_id, canale, direzione) e la riga 'out'/'email' del poster
+    # occupa già str(event_id) — con lo stesso thread_id qui sotto verrebbe
+    # scartata come "già inviata" senza che l'email parta mai.
+    thread_id = f"{event_id}:depliant"
+    nome = f"{name.split()[0]}, " if name and name.split() else ""
+    corpo = CORPO_DEPLIANT.format(nome=nome, codice=host_code)
+    if not nome:
+        corpo = corpo.replace("<p>come promesso", "<p>Come promesso", 1)
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
+                "VALUES (%s, 'email', 'out', %s, %s) "
+                "ON CONFLICT (thread_id, canale, direzione) WHERE thread_id IS NOT NULL "
+                "DO NOTHING RETURNING id",
+                (contact_id, thread_id, corpo),
+            )
+            gia_inviata = cur.fetchone() is None
+
+    if gia_inviata:
+        logger.info("invia_depliant: email già inviata per evento %s, salto", event_id)
+        return
+
+    invia_email_reply_box(email, OGGETTO_DEPLIANT, corpo)
+    logger.info("invia_depliant: email inviata a %s per evento %s", email, event_id)
+    notifica(f"Depliant inviato — {name or '(senza nome)'} <{email}>")
 
 
 @handler("leggi_email")

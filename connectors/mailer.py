@@ -24,6 +24,21 @@ def invia_email(destinatario, oggetto, corpo_html, allegati):
     logger.info("invia_email: inviata a %s (oggetto=%s)", destinatario, oggetto)
 
 
+def invia_email_reply_box(destinatario, oggetto, corpo_html):
+    msg = EmailMessage()
+    msg["Subject"] = oggetto
+    msg["From"] = f'{os.environ["REPLY_FROM_NAME"]} <{os.environ["REPLY_SMTP_USER"]}>'
+    msg["To"] = destinatario
+    msg.set_content(corpo_html, subtype="html")
+
+    with smtplib.SMTP(os.environ["REPLY_SMTP_HOST"], int(os.environ["REPLY_SMTP_PORT"])) as smtp:
+        smtp.starttls()
+        smtp.login(os.environ["REPLY_SMTP_USER"], os.environ["REPLY_SMTP_PASS"])
+        smtp.send_message(msg)
+
+    logger.info("invia_email_reply_box: inviata a %s (oggetto=%s)", destinatario, oggetto)
+
+
 def _quota(testo):
     return "\n".join(f"> {riga}" for riga in testo.splitlines())
 
