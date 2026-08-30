@@ -25,6 +25,7 @@ services:
     volumes:
       - posters:/app/out
       - ./out/places:/app/dati/places
+      - ./out/export:/app/dati/export
     restart: unless-stopped
 
   caddy:
