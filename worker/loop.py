@@ -545,7 +545,7 @@ def digest_serale(payload):
                 "SELECT a.id, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
                 "FROM approvals a "
                 "JOIN messages m ON m.id = a.message_id "
-                "JOIN events e ON e.id = m.thread_id::int "
+                "JOIN events e ON m.thread_id = e.id::text "
                 "WHERE a.stato IN ('in_attesa', 'in_modifica') "
                 "ORDER BY a.updated_at ASC"
             )
@@ -555,7 +555,7 @@ def digest_serale(payload):
                 "SELECT a.id, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
                 "FROM approvals a "
                 "JOIN messages m ON m.id = a.message_id "
-                "JOIN events e ON e.id = m.thread_id::int "
+                "JOIN events e ON m.thread_id = e.id::text "
                 "WHERE a.stato = 'scaduta' AND a.updated_at >= now() - interval '24 hours' "
                 "ORDER BY a.updated_at DESC"
             )
@@ -578,7 +578,7 @@ def digest_serale(payload):
 
             cur.execute(
                 "SELECT e.payload->>'mittente', m.created_at "
-                "FROM messages m JOIN events e ON e.id = m.thread_id::int "
+                "FROM messages m JOIN events e ON m.thread_id = e.id::text "
                 "WHERE m.canale = 'email' AND m.direzione = 'out' "
                 "AND e.tipo = 'email.reply' "
                 "AND m.created_at >= now() - interval '24 hours' "
@@ -592,7 +592,7 @@ def digest_serale(payload):
                 "FROM events e "
                 "LEFT JOIN jobs j ON j.tipo = 'genera_poster' "
                 "AND (j.payload->>'event_id')::int = e.id "
-                "LEFT JOIN messages m ON m.thread_id::int = e.id "
+                "LEFT JOIN messages m ON m.thread_id = e.id::text "
                 "AND m.canale = 'email' AND m.direzione = 'out' "
                 "WHERE e.tipo = 'form.submitted' "
                 "AND e.created_at >= now() - interval '24 hours' "
@@ -662,7 +662,7 @@ def _controllo_approvazioni_bloccate():
                 "SELECT a.id, a.stato, a.updated_at, e.payload->>'mittente', e.payload->>'oggetto' "
                 "FROM approvals a "
                 "JOIN messages m ON m.id = a.message_id "
-                "JOIN events e ON e.id = m.thread_id::int "
+                "JOIN events e ON m.thread_id = e.id::text "
                 "WHERE a.stato IN ('in_attesa', 'in_modifica') "
                 "AND a.updated_at < now() - interval '6 hours' "
                 "ORDER BY a.updated_at ASC"
@@ -690,7 +690,7 @@ def _controllo_poster_mancante():
                 "AND e.created_at < now() - interval '30 minutes' "
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM messages m "
-                "  WHERE m.thread_id::int = e.id AND m.direzione = 'out'"
+                "  WHERE m.thread_id = e.id::text AND m.direzione = 'out'"
                 ") "
                 "ORDER BY e.created_at ASC"
             )
@@ -739,7 +739,7 @@ def _controllo_scadenza_vicina():
                 "SELECT a.id, a.scadenza, e.payload->>'mittente', e.payload->>'oggetto' "
                 "FROM approvals a "
                 "JOIN messages m ON m.id = a.message_id "
-                "JOIN events e ON e.id = m.thread_id::int "
+                "JOIN events e ON m.thread_id = e.id::text "
                 "WHERE a.stato IN ('in_attesa', 'in_modifica') "
                 "AND a.scadenza IS NOT NULL "
                 "AND a.scadenza <= now() + interval '2 hours' "
@@ -985,7 +985,7 @@ def invia_risposta(payload):
                        e.payload->>'mittente', e.payload->>'oggetto', e.payload->>'testo',
                        e.payload->>'message_id', e.payload->>'references',
                        e.payload->>'contact_id'
-                FROM messages m JOIN events e ON e.id = m.thread_id::int
+                FROM messages m JOIN events e ON m.thread_id = e.id::text
                 WHERE m.id = %s
                 """,
                 (message_id,),
