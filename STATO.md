@@ -37,10 +37,22 @@
   piattaforme mai viste prima, scoperte proprio così). A ogni run
   `risolvi.py` stampa i 10 domini più condivisi rimasti sotto soglia, per
   scovare il prossimo candidato senza doverlo cercare a mano.
+- Cantiere lead-gen host: export punteggiato (`scripts/export_prospect.py`,
+  gira dentro il container worker come `risolvi.py`) e skill di progetto
+  `.claude/skills/leadgen-citta/SKILL.md` per ripetere l'intero processo su
+  una nuova città senza ripensarlo. Punteggio deterministico (forma
+  impresa 15, volume ospiti 0-25 in scala logaritmica, `n_strutture` a
+  scala 2→20/3→30/4→40/5+→50, sito proprio 10, telefono 10) — ritarato il
+  30/08 dopo aver misurato che con impresa=30 e bonus fisso i gestori con
+  4-6 strutture finivano in posizione 48-112 su 1197, sotto singoli
+  ostelli. CSV con `googleMapsUri` e colonna `esito` vuota da riempire a
+  mano, in `out/export/` (non nel repo).
+  Ogni contatto porta ora `attributi->>'citta'` (`--citta` obbligatorio in
+  `risolvi.py`); i 1197 contatti esistenti backfillati a `'roma'`.
 
 ## In corso
-- Cantiere lead-gen host: passo successivo è il punteggio e l'export della
-  lista di contatto.
+- Cantiere lead-gen host: chiuso per Roma. Prossima città si apre solo se
+  Narratours ha tour attivi lì — segue la skill `leadgen-citta`.
 - Cantiere B (Firecrawl, ricerca email): dovrà filtrare su
   `attributi->>'sito_proprio'`, mai su `sito IS NOT NULL` — `sito` tiene il
   link grezzo anche quando è un aggregatore o una piattaforma di booking (è

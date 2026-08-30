@@ -1,6 +1,6 @@
 """Risolve le schede Places raccolte in contacts/identities. Non è un job
 del worker: si lancia a mano dentro il container.
-  docker compose exec worker python -m scripts.risolvi [--dry-run] \
+  docker compose exec worker python -m scripts.risolvi --citta NOME [--dry-run] \
       [--fonte-dettaglio NOME] [cartella_o_file]
 """
 import argparse
@@ -145,6 +145,20 @@ def completa_campi_vuoti(cur, contact_id, nome, telefono, sito, indirizzo):
     )
 
 
+def completa_citta(cur, contact_id, citta):
+    """Backfill di attributi.citta sui contatti già esistenti senza —
+    creati prima che --citta diventasse obbligatorio. Non sovrascrive un
+    valore già presente."""
+    cur.execute(
+        """
+        UPDATE contacts
+        SET attributi = jsonb_set(COALESCE(attributi, '{}'::jsonb), '{citta}', to_jsonb(%s::text))
+        WHERE id = %s AND attributi->>'citta' IS NULL
+        """,
+        (citta, contact_id),
+    )
+
+
 def crea_contatto(cur, nome, telefono, sito, indirizzo, fonte_dettaglio, attributi):
     cur.execute(
         """
@@ -157,7 +171,7 @@ def crea_contatto(cur, nome, telefono, sito, indirizzo, fonte_dettaglio, attribu
     return cur.fetchone()[0]
 
 
-def elabora_scheda(cur, scheda, fonte_dettaglio, indice_debole, contatori, tocchi, conteggio_domini):
+def elabora_scheda(cur, scheda, fonte_dettaglio, citta, indice_debole, contatori, tocchi, conteggio_domini):
     place_id = scheda["id"]
 
     cur.execute(
@@ -186,6 +200,7 @@ def elabora_scheda(cur, scheda, fonte_dettaglio, indice_debole, contatori, tocch
     if len(matches) == 1:
         contact_id = next(iter(matches))
         completa_campi_vuoti(cur, contact_id, nome, telefono, sito, indirizzo)
+        completa_citta(cur, contact_id, citta)
         contatori["identita_agganciate"] += aggancia_identita(cur, contact_id, chiavi)
         n = aggiorna_n_strutture(cur, contact_id)
         tocchi[contact_id] = n
@@ -213,6 +228,7 @@ def elabora_scheda(cur, scheda, fonte_dettaglio, indice_debole, contatori, tocch
         "numero_recensioni": scheda.get("userRatingCount"),
         "sito_proprio": proprio,
         "n_strutture": 1,
+        "citta": citta,
     }
     contact_id = crea_contatto(cur, nome, telefono, sito, indirizzo, fonte_dettaglio, attributi)
     contatori["identita_agganciate"] += aggancia_identita(cur, contact_id, chiavi)
@@ -241,6 +257,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--fonte-dettaglio",
                          help="usato se la scheda non ha _cella; altrimenti ripiego sul nome file")
+    parser.add_argument("--citta", required=True,
+                         help="es. 'roma' — scritta in attributi.citta su ogni contatto")
     args = parser.parse_args()
 
     contatori = {
@@ -262,7 +280,7 @@ def main():
                     continue
                 contatori["passate"] += 1
                 fonte_dettaglio = scheda.get("_cella") or args.fonte_dettaglio or nome_file
-                elabora_scheda(cur, scheda, fonte_dettaglio, indice_debole, contatori, tocchi, conteggio_domini)
+                elabora_scheda(cur, scheda, fonte_dettaglio, args.citta, indice_debole, contatori, tocchi, conteggio_domini)
 
         contatori["contatti_multi_struttura"] = sum(1 for n in tocchi.values() if n > 1)
 
