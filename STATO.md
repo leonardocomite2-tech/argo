@@ -6,8 +6,17 @@
 - argo.narratour-review.com → certificato Let's Encrypt valido
 - Schema DB: contacts, identities, events, messages, approvals, jobs
 - Git init + primo commit. Claude Code 2.1.233 + CLAUDE.md + subagent guardrail-review
+- Cantiere lead-gen host: raccolta Places API (New) operativa, sola lettura
+  (`connectors/places.py`, `connectors/normalizza.py`,
+  `scripts/cerca_places.py`, `tests/test_normalizza.py`). Il 30/08 raccolte
+  2003 schede grezze da 5 celle (centro storico, Trastevere, Monti/Colosseo,
+  Trevi/Spagna, Esquilino/Termini) con 128 chiamate API, salvate in
+  `out/places/` sul VPS — non nel repo (`.gitignore`).
 
 ## In corso
+- Cantiere lead-gen host: passo successivo è la migrazione 005 e il resolver
+  che porta le schede raccolte in `out/places/` dentro `contacts`/`identities`.
+
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
 events.payload->>'host_code' e genera /app/out/poster_<CODE>.png; volume posters
