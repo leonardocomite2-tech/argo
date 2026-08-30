@@ -24,6 +24,7 @@ services:
     depends_on: [db]
     volumes:
       - posters:/app/out
+      - ./out/places:/app/dati/places
     restart: unless-stopped
 
   caddy:

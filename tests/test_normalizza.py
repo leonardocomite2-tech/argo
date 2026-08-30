@@ -5,7 +5,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.normalizza import dominio, telefono_e164, nome_chiave, indirizzo_chiave  # noqa: E402
+from connectors.normalizza import (  # noqa: E402
+    dominio, telefono_e164, nome_chiave, indirizzo_chiave,
+    DOMINIO_MAX_STRUTTURE_CONDIVISE,
+)
 
 CASI = []
 
@@ -35,6 +38,37 @@ caso("None", (None, False), dominio(None))
 caso("stringa senza punto", (None, False), dominio("nonèunurl"))
 caso("mailto", (None, False), dominio("mailto:info@hotelroma.it"))
 caso("tel", (None, False), dominio("tel:+390658333413"))
+
+# Soglia di condivisione (30/08): una blocklist statica di aggregatori non
+# basta da sola — i booking engine/OTA nuovi spuntano di continuo (nel primo
+# batch reale su Roma ne sono emersi 8 mai visti prima: krossbooking,
+# spacest, vio, freecancellations, snaptrip, bluepillow, voyabay, trip.com,
+# scoperti solo perché centinaia di strutture diverse ci finivano incollate
+# sopra come fosse un solo "gestore"). Un dominio condiviso da troppe
+# strutture nello stesso batch non è il sito di nessuno in particolare,
+# anche se non è (ancora) in AGGREGATORI — per questo dominio() accetta un
+# conteggio_domini opzionale e applica la soglia lì, non nella blocklist.
+caso(
+    "dominio condiviso sopra soglia diventa piattaforma",
+    (None, False),
+    dominio(
+        "https://www.bookingenginesconosciuto.com/struttura-1",
+        conteggio_domini={"bookingenginesconosciuto.com": DOMINIO_MAX_STRUTTURE_CONDIVISE + 1},
+    ),
+)
+caso(
+    "dominio condiviso esattamente alla soglia resta sito proprio",
+    ("bookingenginesconosciuto.com", True),
+    dominio(
+        "https://www.bookingenginesconosciuto.com/struttura-1",
+        conteggio_domini={"bookingenginesconosciuto.com": DOMINIO_MAX_STRUTTURE_CONDIVISE},
+    ),
+)
+caso(
+    "senza conteggio_domini la soglia non si applica",
+    ("bookingenginesconosciuto.com", True),
+    dominio("https://www.bookingenginesconosciuto.com/struttura-1"),
+)
 
 # --- telefono_e164() ---
 caso("internazionale con spazi (Germania)", "+4930123456", telefono_e164("+49 30 123456"))

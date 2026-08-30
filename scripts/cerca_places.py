@@ -12,7 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from connectors.places import cerca_testo, carica_env, PlacesErrore  # noqa: E402
-from connectors.normalizza import dominio, telefono_e164  # noqa: E402
+from connectors.normalizza import (  # noqa: E402
+    dominio, telefono_e164, TYPES_AMMESSI, TYPES_ESCLUSI,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.cerca_places")
@@ -28,13 +30,6 @@ RICERCHE = [
     {"query": "ostello", "tipo": "hostel"},
     {"query": "casa vacanze", "tipo": None},
 ]
-
-TYPES_AMMESSI = {
-    "bed_and_breakfast", "guest_house", "private_guest_room", "hostel",
-    "inn", "lodging", "hotel", "extended_stay_hotel", "cottage",
-    "farmstay", "resort_hotel", "motel",
-}
-TYPES_ESCLUSI = {"real_estate_agency", "travel_agency", "tour_agency"}
 
 # Prima passata su base OpenStreetMap/confini di quartiere noti, NON confini
 # amministrativi ufficiali. Una cella troppo grande satura e si autodivide in
@@ -84,11 +79,14 @@ def _quadranti(rettangolo):
 
 
 def cerca_cella(nome_cella, rettangolo, ricerca, contatore, risultati_grezzi,
-                 celle_sature, celle_processate, livello=0):
+                 celle_sature, celle_processate, livello=0, cella_radice=None):
     """Fino a PAGINE_PER_CELLA pagine per (cella, ricerca). Se satura (60
     risultati) e livello < MAX_LIVELLO_BISEZIONE, si divide in 4 quadranti e
     ricorre. Ritorna False se il tetto di chiamate viene raggiunto (fermata
-    immediata, ciò che è già scaricato resta valido), True altrimenti."""
+    immediata, ciò che è già scaricato resta valido), True altrimenti.
+    cella_radice resta il nome pulito della cella originale (senza #qN) per
+    tutta la ricorsione — è quello che finisce in _cella su ogni scheda."""
+    cella_radice = cella_radice or nome_cella
     celle_processate.append((nome_cella, livello))
     pagina_token = None
     risultati_cella = []
@@ -109,7 +107,10 @@ def cerca_cella(nome_cella, rettangolo, ricerca, contatore, risultati_grezzi,
         finally:
             contatore.incrementa()
 
-        risultati_cella.extend(risposta.get("places", []))
+        nuovi = risposta.get("places", [])
+        for posto in nuovi:
+            posto["_cella"] = cella_radice
+        risultati_cella.extend(nuovi)
         pagina_token = risposta.get("nextPageToken")
         if not pagina_token:
             break
@@ -128,7 +129,8 @@ def cerca_cella(nome_cella, rettangolo, ricerca, contatore, risultati_grezzi,
 
     for i, quadrante in enumerate(_quadranti(rettangolo)):
         ok = cerca_cella(f"{nome_cella}#q{i}", quadrante, ricerca, contatore,
-                          risultati_grezzi, celle_sature, celle_processate, livello + 1)
+                          risultati_grezzi, celle_sature, celle_processate,
+                          livello + 1, cella_radice=cella_radice)
         if not ok:
             return False
     return True

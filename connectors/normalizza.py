@@ -10,6 +10,10 @@ AGGREGATORI = {
     "bedandbreakfast.it", "hostelworld.com", "vrbo.com", "wa.me", "t.me",
     "linktr.ee", "goo.gl", "business.site", "lastminute.com", "lastminute.it",
     "google.com",  # per i link maps (google.com/maps) — non è il sito proprio della struttura
+    # Booking engine / OTA scoperti nel batch Roma del 30/08 (STATO.md):
+    # condivisi da decine di gestori diversi, non sono il sito di nessuno.
+    "krossbooking.com", "spacest.com", "vio.com", "freecancellations.com",
+    "snaptrip.com", "bluepillow.com", "voyabay.com", "trip.com",
 }
 
 # Controllate PRIMA degli aggregatori: "google.com" è un aggregatore (per i
@@ -39,10 +43,15 @@ def _host_e_path(url):
     return host, parti.path
 
 
-def dominio(url):
-    """(chiave, sito_proprio). chiave=None quando l'url non produce
-    un'identità di dedup utilizzabile (input non-http, aggregatore noto,
-    o piattaforma di hosting senza alcun modo di identificare il sito)."""
+DOMINIO_MAX_STRUTTURE_CONDIVISE = 8
+
+
+def candidato_dominio(url):
+    """(chiave, sito_proprio) — la classificazione host/piattaforma/
+    aggregatore di sempre, SENZA la soglia di condivisione (quella vive in
+    dominio()). Esposta a parte perché risolvi.py la riusa identica nella
+    prima passata di conteggio, prima ancora di sapere quante strutture
+    condivideranno ogni chiave."""
     host, path = _host_e_path(url)
     if host is None:
         return None, False
@@ -67,6 +76,28 @@ def dominio(url):
             return None, False
 
     return host, True
+
+
+def dominio(url, conteggio_domini=None):
+    """(chiave, sito_proprio). chiave=None quando l'url non produce
+    un'identità di dedup utilizzabile (input non-http, aggregatore noto,
+    piattaforma di hosting senza alcun modo di identificare il sito, o un
+    dominio condiviso da troppe strutture per essere il sito di una sola).
+
+    conteggio_domini, se passato, è un dict chiave -> quanti place_id
+    distinti nel batch condividono quella chiave (calcolato a parte, in una
+    prima passata su tutte le schede — vedi risolvi.py). Un dominio non
+    ancora in AGGREGATORI ma condiviso da più di
+    DOMINIO_MAX_STRUTTURE_CONDIVISE strutture è quasi certamente un booking
+    engine o un'OTA non ancora scoperta, non il sito di nessuno in
+    particolare: (None, False), il link resta comunque nel payload grezzo,
+    solo non genera identità di dedup. Senza conteggio_domini (default)
+    dominio() si comporta come prima — nessuna soglia applicata."""
+    chiave, proprio = candidato_dominio(url)
+    if proprio and conteggio_domini is not None:
+        if conteggio_domini.get(chiave, 0) > DOMINIO_MAX_STRUTTURE_CONDIVISE:
+            return None, False
+    return chiave, proprio
 
 
 def telefono_e164(*valori):
@@ -178,3 +209,22 @@ def _espandi_abbreviazione(via):
     resto = parti[1] if len(parti) > 1 else ""
     primo_espanso = ABBREVIAZIONI_VIA.get(primo, parti[0])
     return (primo_espanso + (" " + resto if resto else "")).strip()
+
+
+TYPES_AMMESSI = {
+    "bed_and_breakfast", "guest_house", "private_guest_room", "hostel",
+    "inn", "lodging", "hotel", "extended_stay_hotel", "cottage",
+    "farmstay", "resort_hotel", "motel",
+}
+TYPES_ESCLUSI = {"real_estate_agency", "travel_agency", "tour_agency"}
+
+
+def ammesso(posto):
+    """OPERATIONAL e almeno un type ammesso, nessuno escluso. Stessa regola
+    usata sia da cerca_places.py (raccolta) sia da risolvi.py (resolver)."""
+    if posto.get("businessStatus") != "OPERATIONAL":
+        return False
+    types = set(posto.get("types", []))
+    if types & TYPES_ESCLUSI:
+        return False
+    return bool(types & TYPES_AMMESSI)

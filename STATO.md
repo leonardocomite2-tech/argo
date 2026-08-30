@@ -12,10 +12,41 @@
   2003 schede grezze da 5 celle (centro storico, Trastevere, Monti/Colosseo,
   Trevi/Spagna, Esquilino/Termini) con 128 chiamate API, salvate in
   `out/places/` sul VPS — non nel repo (`.gitignore`).
+- Cantiere lead-gen host: resolver operativo (`scripts/risolvi.py`,
+  migrazione `db/migrations/005_prospect.sql`). Gira dentro il container
+  worker (`docker compose exec worker python -m scripts.risolvi`), non è un
+  job — si lancia a mano, un file alla volta. Zero LLM, mai fusioni
+  automatiche: chiavi forti (`google_places`/`dominio`/`telefono`) fondono,
+  chiave debole (nome+indirizzo) solo segnala possibili doppioni, due
+  contatti diversi su chiavi diverse restano un conflitto loggato.
+  Idempotente: rilanciare lo stesso file due volte dà zero contatti nuovi
+  (verificato anche a livello DB, zero identità duplicate).
+  Numeri finali (30/08, 5 celle): **1197 contatti prospect**, 695 con
+  telefono, 524 con sito proprio, 58 collegati a più di una struttura.
+  **Regola del dominio contato**: un dominio genera identità solo se
+  condiviso da al massimo `DOMINIO_MAX_STRUTTURE_CONDIVISE=8` place_id
+  distinti nel batch (prima passata di conteggio in `risolvi.py`, prima
+  della risoluzione); sopra la soglia vale come piattaforma non ancora
+  riconosciuta — `sito_proprio=False`, nessuna identità, il link resta
+  comunque nel payload. Serve perché una blocklist statica
+  (`AGGREGATORI` in `connectors/normalizza.py`) non basta da sola: i booking
+  engine e le OTA nuove spuntano di continuo, e senza il conteggio si
+  scoprono solo quando hanno già fuso decine di strutture non correlate in
+  un unico falso "gestore" (successo il 30/08 con krossbooking, spacest,
+  vio, freecancellations, snaptrip, bluepillow, voyabay, trip.com — 8
+  piattaforme mai viste prima, scoperte proprio così). A ogni run
+  `risolvi.py` stampa i 10 domini più condivisi rimasti sotto soglia, per
+  scovare il prossimo candidato senza doverlo cercare a mano.
 
 ## In corso
-- Cantiere lead-gen host: passo successivo è la migrazione 005 e il resolver
-  che porta le schede raccolte in `out/places/` dentro `contacts`/`identities`.
+- Cantiere lead-gen host: passo successivo è il punteggio e l'export della
+  lista di contatto.
+- Cantiere B (Firecrawl, ricerca email): dovrà filtrare su
+  `attributi->>'sito_proprio'`, mai su `sito IS NOT NULL` — `sito` tiene il
+  link grezzo anche quando è un aggregatore o una piattaforma di booking (è
+  lì apposta, per non perdere il dato), quindi un filtro su `sito IS NOT
+  NULL` manderebbe Firecrawl a raschiare pagine di booking.com/OTA invece
+  che i siti veri delle strutture.
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da

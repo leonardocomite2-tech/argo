@@ -7,4 +7,5 @@ COPY worker/ ./worker/
 COPY media/ ./media/
 COPY connectors/ ./connectors/
 COPY templates/ ./templates/
+COPY scripts/ ./scripts/
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -4,6 +4,12 @@ CREATE TABLE IF NOT EXISTS contacts (
   email          TEXT,
   nome           TEXT,
   stato          TEXT DEFAULT 'nuovo',
+  telefono       TEXT,
+  sito           TEXT,
+  indirizzo      TEXT,
+  fonte          TEXT,
+  fonte_dettaglio TEXT,
+  attributi      JSONB,
   created_at     TIMESTAMPTZ DEFAULT now()
 );
 
@@ -68,4 +74,13 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS alert_inviati (
   chiave      TEXT PRIMARY KEY,
   created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS soppressioni (
+  id          SERIAL PRIMARY KEY,
+  tipo        TEXT NOT NULL,
+  valore      TEXT NOT NULL,
+  motivo      TEXT,
+  created_at  TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (tipo, valore)
 );
