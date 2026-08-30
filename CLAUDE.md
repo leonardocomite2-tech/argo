@@ -36,3 +36,11 @@ Vale per email, SMS e ogni messaggio in uscita, su tutti i canali.
 Alla fine di ogni piano, aggiungi una sezione RIEPILOGO di massimo 15 righe:
 file toccati, decisioni chiave, assunzioni fatte e problemi trovati.
 Deve bastare da sola a capire il piano senza leggere il resto.
+
+## Cambiare il formato di un campo esistente
+Prima di cambiare **cosa può contenere** un campo (non lo schema, il contenuto),
+cerca tutti i punti che lo leggono. Le assunzioni implicite non sono dichiarate
+da nessuna parte e nessun guardrail le vede.
+Caso reale (30/08): `thread_id` era implicitamente numerico. Renderlo
+alfanumerico (`"1468:depliant"`) ha rotto otto query che facevano `::int`,
+mandando il digest serale in loop di retry.
