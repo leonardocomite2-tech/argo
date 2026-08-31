@@ -213,12 +213,21 @@ def _espandi_abbreviazione(via):
 
 EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
-# Local-part di caselle di servizio, mai un contatto utile.
-PREFISSI_SERVIZIO = {"noreply", "no-reply", "postmaster", "webmaster", "privacy"}
+# Local-part di caselle di servizio o placeholder da template, mai un
+# contatto utile ("example@..." è il local-part demo più comune nei siti
+# costruiti con page builder).
+PREFISSI_SERVIZIO = {"noreply", "no-reply", "postmaster", "webmaster", "privacy", "example"}
 # Domini di servizio: compaiono negli indirizzi solo perché la regex ha preso
 # per email qualcos'altro — tipico un DSN Sentry incollato nel <script> della
 # pagina ("chiave@o12345.ingest.sentry.io"), o un placeholder di WordPress.
+# Controllo per sottostringa: questi non compaiono mai come dominio completo
+# di un indirizzo vero.
 DOMINI_SERVIZIO = {"wordpress", "sentry"}
+# Domini placeholder da demo/template (page builder, temi, form di esempio):
+# controllo per uguaglianza esatta, MAI per sottostringa — "mail.com" per
+# sottostringa scarterebbe anche gmail.com/hotmail.com, che sono domini
+# reali.
+DOMINI_PLACEHOLDER = {"mail.com", "company.co", "test.com", "domain.com", "yourdomain.com"}
 # Estensioni di file: la regex a volte prende per email nomi tipo
 # "logo@2x.png" nei retina asset dentro l'HTML.
 ESTENSIONI_FILE = {"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"}
@@ -227,7 +236,8 @@ ESTENSIONI_FILE = {"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"}
 def estrai_email(testo):
     """Regex deterministica sul testo HTML grezzo. Ritorna gli indirizzi
     validi (minuscoli, deduplicati, ordine di prima comparsa), scartando le
-    caselle di servizio e i falsi positivi che la regex prende per sbaglio."""
+    caselle di servizio, i placeholder da template e i falsi positivi che la
+    regex prende per sbaglio."""
     if not testo:
         return []
     trovate = []
@@ -238,6 +248,8 @@ def estrai_email(testo):
             continue
         locale, _, dom = indirizzo.partition("@")
         if locale in PREFISSI_SERVIZIO:
+            continue
+        if dom in DOMINI_PLACEHOLDER:
             continue
         if any(servizio in dom for servizio in DOMINI_SERVIZIO):
             continue

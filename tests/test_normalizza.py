@@ -124,6 +124,20 @@ caso("nessuna email nel testo", [], estrai_email("chiamateci in reception"))
 caso("testo vuoto", [], estrai_email(""))
 caso("testo None", [], estrai_email(None))
 
+# Placeholder da template/page builder, scoperti nel run reale sui 524 (31/08):
+# "example@" e domini demo tipo mail.com/company.co finivano scelti come
+# email vera perché non c'era nulla che li distinguesse da un indirizzo reale.
+caso("local-part example scartato", [], estrai_email("scrivi a example@sitovero.it"))
+caso("dominio mail.com scartato", [], estrai_email("prenota@mail.com"))
+caso("dominio company.co scartato", [], estrai_email("info@company.co"))
+caso("dominio test.com scartato", [], estrai_email("prova@test.com"))
+caso("dominio domain.com scartato", [], estrai_email("contatto@domain.com"))
+caso("dominio yourdomain.com scartato", [], estrai_email("info@yourdomain.com"))
+caso("gmail.com NON scartato (contiene 'mail.com' come sottostringa)",
+     ["mariorossi@gmail.com"], estrai_email("mariorossi@gmail.com"))
+caso("hotmail.com NON scartato (contiene 'mail.com' come sottostringa)",
+     ["utente@hotmail.com"], estrai_email("utente@hotmail.com"))
+
 # --- preferenza_email() ---
 # Il dominio del sito viene prima del local-part: un info@ fuori dominio
 # (spesso un placeholder da template, tipo info@company.co) non deve battere
