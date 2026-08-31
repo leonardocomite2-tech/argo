@@ -211,6 +211,67 @@ def _espandi_abbreviazione(via):
     return (primo_espanso + (" " + resto if resto else "")).strip()
 
 
+EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+# Local-part di caselle di servizio, mai un contatto utile.
+PREFISSI_SERVIZIO = {"noreply", "no-reply", "postmaster", "webmaster", "privacy"}
+# Domini di servizio: compaiono negli indirizzi solo perché la regex ha preso
+# per email qualcos'altro — tipico un DSN Sentry incollato nel <script> della
+# pagina ("chiave@o12345.ingest.sentry.io"), o un placeholder di WordPress.
+DOMINI_SERVIZIO = {"wordpress", "sentry"}
+# Estensioni di file: la regex a volte prende per email nomi tipo
+# "logo@2x.png" nei retina asset dentro l'HTML.
+ESTENSIONI_FILE = {"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"}
+
+
+def estrai_email(testo):
+    """Regex deterministica sul testo HTML grezzo. Ritorna gli indirizzi
+    validi (minuscoli, deduplicati, ordine di prima comparsa), scartando le
+    caselle di servizio e i falsi positivi che la regex prende per sbaglio."""
+    if not testo:
+        return []
+    trovate = []
+    visti = set()
+    for m in EMAIL_REGEX.finditer(testo):
+        indirizzo = m.group(0).lower()
+        if indirizzo in visti:
+            continue
+        locale, _, dom = indirizzo.partition("@")
+        if locale in PREFISSI_SERVIZIO:
+            continue
+        if any(servizio in dom for servizio in DOMINI_SERVIZIO):
+            continue
+        estensione = dom.rsplit(".", 1)[-1]
+        if estensione in ESTENSIONI_FILE:
+            continue
+        visti.add(indirizzo)
+        trovate.append(indirizzo)
+    return trovate
+
+
+PREFISSI_PREFERITI = {"info", "booking", "prenotazioni"}
+
+
+def preferenza_email(indirizzo, dominio_sito):
+    """Rango di preferenza per scegliere la migliore email tra più trovate
+    sullo stesso sito (rango più basso = preferito). Il dominio del sito
+    viene prima del local-part: un info@ su un dominio estraneo (spesso un
+    placeholder da template, tipo info@company.co) non deve battere un
+    indirizzo qualunque sul dominio giusto.
+    0 = info@/booking@/prenotazioni@ sul dominio del sito
+    1 = altro indirizzo sul dominio del sito
+    2 = info@/booking@/prenotazioni@ su un dominio diverso
+    3 = altro indirizzo su un dominio diverso (es. gmail)"""
+    locale, _, dom = indirizzo.partition("@")
+    if dom.startswith("www."):
+        dom = dom[4:]
+    preferito = locale in PREFISSI_PREFERITI
+    stesso_dominio = bool(dominio_sito) and dom == dominio_sito
+    if stesso_dominio:
+        return 0 if preferito else 1
+    return 2 if preferito else 3
+
+
 TYPES_AMMESSI = {
     "bed_and_breakfast", "guest_house", "private_guest_room", "hostel",
     "inn", "lodging", "hotel", "extended_stay_hotel", "cottage",

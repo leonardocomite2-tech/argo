@@ -7,7 +7,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from connectors.normalizza import (  # noqa: E402
     dominio, telefono_e164, nome_chiave, indirizzo_chiave,
-    DOMINIO_MAX_STRUTTURE_CONDIVISE,
+    DOMINIO_MAX_STRUTTURE_CONDIVISE, estrai_email, preferenza_email,
 )
 
 CASI = []
@@ -102,6 +102,42 @@ caso("V. abbreviata", ("Via Nazionale", "10"), indirizzo_chiave("V. Nazionale, 1
 caso("indirizzo senza civico", ("Via dei Fori Imperiali", None), indirizzo_chiave("Via dei Fori Imperiali, Roma"))
 caso("indirizzo vuoto", (None, None), indirizzo_chiave(""))
 caso("indirizzo None", (None, None), indirizzo_chiave(None))
+
+
+# --- estrai_email() ---
+caso("email semplice nel testo", ["info@hotelroma.it"], estrai_email("Scrivici a info@hotelroma.it per prenotare"))
+caso("maiuscole normalizzate", ["info@hotelroma.it"], estrai_email("INFO@HotelRoma.IT"))
+caso("duplicati rimossi", ["info@hotelroma.it"], estrai_email("info@hotelroma.it ... info@hotelroma.it"))
+caso("più email distinte, ordine di comparsa", ["info@hotelroma.it", "booking@hotelroma.it"],
+     estrai_email("info@hotelroma.it e anche booking@hotelroma.it"))
+caso("noreply scartata", [], estrai_email("mittente: noreply@hotelroma.it"))
+caso("no-reply scartata", [], estrai_email("no-reply@hotelroma.it"))
+caso("postmaster scartata", [], estrai_email("postmaster@hotelroma.it"))
+caso("webmaster scartata", [], estrai_email("webmaster@hotelroma.it"))
+caso("privacy scartata", [], estrai_email("privacy@hotelroma.it"))
+caso("dominio wordpress scartato", [], estrai_email("admin@miosito.wordpress.com"))
+caso("dominio sentry scartato (DSN incollato nello script)", [],
+     estrai_email("chiave123@o12345.ingest.sentry.io/67890"))
+caso("falso positivo retina .png", [], estrai_email("vedi logo@2x.png nell'header"))
+caso("falso positivo .jpg", [], estrai_email("sfondo@hero.jpg"))
+caso("nessuna email nel testo", [], estrai_email("chiamateci in reception"))
+caso("testo vuoto", [], estrai_email(""))
+caso("testo None", [], estrai_email(None))
+
+# --- preferenza_email() ---
+# Il dominio del sito viene prima del local-part: un info@ fuori dominio
+# (spesso un placeholder da template, tipo info@company.co) non deve battere
+# un indirizzo qualunque sul dominio giusto (caso reale, campione 30/08).
+caso("info@ sul dominio del sito: il migliore in assoluto", 0, preferenza_email("info@hotelroma.it", "hotelroma.it"))
+caso("prenotazioni@ sul dominio del sito", 0, preferenza_email("prenotazioni@hotelroma.it", "hotelroma.it"))
+caso("altro indirizzo sul dominio del sito", 1, preferenza_email("amministrazione@hotelroma.it", "hotelroma.it"))
+caso("info@ su dominio estraneo NON batte il dominio del sito", 2, preferenza_email("info@company.co", "hotelroma.it"))
+caso("booking@ su dominio estraneo", 2, preferenza_email("booking@altrodominio.com", "hotelroma.it"))
+caso("dominio diverso, local-part qualunque (gmail)", 3, preferenza_email("mariorossi@gmail.com", "hotelroma.it"))
+caso("stesso dominio con www ignorato", 0, preferenza_email("info@www.hotelroma.it", "hotelroma.it"))
+caso("dominio del sito batte info@ estraneo nel confronto diretto",
+     True,
+     preferenza_email("amministrazione@hotelroma.it", "hotelroma.it") < preferenza_email("info@company.co", "hotelroma.it"))
 
 
 def main():
