@@ -1,6 +1,6 @@
 ---
 name: leadgen-citta
-description: Ripete l'intero processo di lead-gen host (raccolta Google Places, resolver contacts/identities, export punteggiato, estrazione email) per aprire una nuova città, replicando esattamente i passi, i comandi e le decisioni prese per Roma il 30-31/08. Usala quando si apre una nuova città per il cantiere lead-gen host.
+description: Ripete l'intero processo di lead-gen host (raccolta Google Places, resolver contacts/identities, export punteggiato, estrazione email, estrazione social) per aprire una nuova città, replicando esattamente i passi, i comandi e le decisioni prese per Roma il 30/08-1/09. Usala quando si apre una nuova città per il cantiere lead-gen host.
 ---
 
 # Lead-gen host — aprire una nuova città
@@ -101,14 +101,51 @@ aprire una cella, non dopo.
    anche per aggregatori/OTA. Email scritta in `contacts.email` solo se
    vuoto, mai sovrascritta.
 
-   **Riferimento Roma** (524 prospect idonei): 311 con email, 192 su
-   dominio proprio, 119 personali. Il campione di misura da 30
+   **Riferimento Roma** (995 prospect idonei, 11 celle): 598 con email,
+   343 su dominio proprio, 255 personali. Il campione di misura da 30
    (`--campione 30 --seme <N>`, senza `--scrivi`) aveva dato 18 con email
    ed errori sparsi per motivo senza concentrazione su uno solo —
    **Firecrawl non è stato necessario**, non aperto. Se in una città nuova
    la ripartizione dei fallimenti per motivo (stampata a fine run) mostra
    molti 403 o timeout concentrati (bot-blocking o pagine costruite in
    JavaScript), è il segnale per rivalutare Firecrawl.
+
+   **Checkpoint**: ogni run stampa anche i 15 domini email più frequenti
+   tra le scelte. Un dominio placeholder da template si vede da solo
+   perché compare su decine di siti scollegati — leggerla ad ogni run,
+   stessa logica di "domini da valutare" del resolver.
+
+9. **Estrazione social (Instagram/Facebook), a lotti da 100**:
+   ```
+   docker compose exec worker python -m scripts.estrai_social --tutti --campione 100 --offset 0
+   docker compose exec worker python -m scripts.estrai_social --tutti --campione 100 --offset 100
+   ```
+   (stesso criterio di copertura di `estrai_email.py`: `--offset` +100
+   finché il lotto non ritorna meno righe di `--campione`). Nessun
+   `--scrivi`: qui la scrittura è il comportamento di default —
+   `attributi.instagram`/`facebook` sono dati derivati sovrascrivibili, non
+   un valore da proteggere come l'email — ma solo quando il run trova
+   qualcosa, senza cancellare un valore buono di un run precedente.
+
+   Due fonti, zero chiamate a pagamento: contatti con `sito_proprio` falso
+   il cui `sito` grezzo è già un link Facebook/Instagram (parsing diretto,
+   senza rete); contatti con `sito_proprio` vero, home + eventuale pagina
+   contatti scaricate con `connectors/fetch.py` (stesso client
+   dell'estrazione email). Tiene solo i profili — scarta
+   post/reel/storie/condivisioni/plugin — in `connectors/normalizza.py`
+   (`normalizza_instagram`/`normalizza_facebook`).
+
+   **Checkpoint**: ogni run stampa i 15 handle Instagram e le 15 pagine
+   Facebook più frequenti tra le scelte. Un account che compare su decine
+   di siti scollegati è quasi sempre un default di page builder/hosting
+   mai configurato, non la struttura — già trovati così wix, wordpress,
+   shopify e un booking engine con un widget social lasciato non
+   configurato (`facebook.com/1278` identico su 9 siti). Leggerla ad ogni
+   run per scovare il prossimo prima che inquini i numeri.
+
+   **Riferimento Roma** (1416 prospect con `sito`): 237 con Instagram, 289
+   con Facebook, 346 con almeno uno dei due, 6 raggiungibili solo via
+   social (nessuna email né telefono).
 
 ## 4. Checkpoint che restano umani, e perché
 

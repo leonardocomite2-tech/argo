@@ -157,15 +157,19 @@
   **Numeri finali (1/09, 1416 prospect con sito): 237 con Instagram, 289
   con Facebook, 346 con almeno uno dei due, 6 raggiungibili solo via
   social** (nessuna email né telefono).
+- **Cantiere lead-gen host — Roma chiuso (1/09), stato finale**: **1998
+  contatti prospect**, **1388 con telefono**, **598 con email** (343 su
+  dominio proprio, 255 personali), **346 con almeno un profilo social**
+  (Instagram/Facebook), **6 raggiungibili solo via social** (nessuna email
+  né telefono). Dettagli, decisioni e bug corretti lungo il percorso nei
+  punti sopra; skill `leadgen-citta` aggiornata con tutti i passi (celle →
+  resolver → export → email → social) per ripetere il processo su una
+  città nuova.
 
 ## In corso
-- Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email) e
-  cantiere social inclusi. Prossima città si apre solo se Narratours ha
-  tour attivi lì — segue la skill `leadgen-citta`. Prossimi passi
-  operativi: 30 telefonate ai contatti multi-struttura, prima campagna
-  Instantly sui 343 contatti con email su dominio proprio, outreach
-  manuale via Instagram/Facebook per i 6 contatti raggiungibili solo via
-  social.
+- 30 telefonate ai contatti multi-struttura.
+- Prima campagna Instantly da 50 lead sui contatti con email su dominio
+  proprio.
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
