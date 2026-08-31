@@ -102,14 +102,62 @@
   avevano altra email valida).
   Numeri finali (1/09, 995 prospect idonei): **598 con email, 343 su
   dominio proprio, 255 personali** (gmail/libero/hotmail/...).
+- **Cantiere lead-gen host — estrazione social, chiusa (1/09)**: profilo
+  Instagram e pagina Facebook per i prospect senza sito proprio raggiungibile
+  via email, per l'outreach manuale di settembre. Due fonti a costo zero,
+  `scripts/estrai_social.py` (`--tutti --offset`, come `estrai_email.py`):
+  1) contatti con `sito_proprio` falso il cui `sito` grezzo è già un link
+  Facebook/Instagram, parsing diretto senza rete; 2) contatti con
+  `sito_proprio` vero, home + eventuale pagina contatti scaricate con
+  `connectors/fetch.py`, primo profilo trovato negli `<a href>`.
+  Refactor: `con_schema()`/`host_di()`/`estrai_link()`/`trova_link_contatti()`
+  spostate da `estrai_email.py` a `connectors/fetch.py` (secondo uso reale
+  della stessa logica), `estrai_email.py` ora le importa. Nuovo
+  `tests/test_fetch.py`.
+  Normalizzazione in `connectors/normalizza.py`
+  (`normalizza_instagram`/`normalizza_facebook`): tengono solo i profili,
+  scartano post/reel/storie/condivisioni/plugin
+  (`IG_RISERVATI`/`FB_RISERVATI`); eccezione `profile.php?id=...` (unico
+  identificatore per pagine senza nome vanity, tenuto anche se la regola
+  generale è "niente query"); schemi multi-segmento `pages/Nome/id` e
+  `people/Nome/id` preservati per intero, ma solo con l'id (terzo segmento)
+  presente — senza, scartato: il solo primo segmento perderebbe
+  l'identificativo (bug reale trovato a campione: 11+5 contatti con
+  `facebook.com/pages`/`facebook.com/people` tronchi, corretti e
+  ri-estratti), e `facebook.com/pages/category/hotel` (directory categorie
+  di Facebook, non una pagina — altro bug reale, "category" esplicitamente
+  escluso) sarebbe stato tenuto come se "category" fosse il nome pagina.
+  Handle Instagram validato contro il charset vero
+  (lettere/cifre/punto/underscore) per scartare href rotti tipo
+  `instagram.com/https://instagram.com/handle`.
+  `BUILDER_SOCIAL_DA_SCARTARE`: account di default lasciati da page
+  builder/hosting mai configurati dal gestore (wix, wixstudio, shopify,
+  squarespace, webador, weebly, wordpress, godaddy, jimdo, altervista,
+  aruba, ionos) — scoperti a campione, scartati sia per Instagram sia per
+  Facebook. Ogni run stampa i 15 handle/pagine più frequenti, stessa logica
+  del top-15 domini email, per far emergere da soli i prossimi builder non
+  ancora in lista.
+  `attributi.instagram` (handle nudo) e `attributi.facebook` (URL
+  normalizzato) sono sovrascrivibili — dati derivati, non un valore storico
+  da proteggere come l'email — ma scritti solo quando il run trova
+  qualcosa, per non cancellare un valore buono di un run precedente.
+  Due colonne aggiunte a `export_prospect.py`.
+  **Numeri finali (1/09, 1416 prospect con sito): 237 con Instagram, 298
+  con Facebook, 355 con almeno uno dei due, 6 raggiungibili solo via
+  social** (nessuna email né telefono).
+  **Non risolto**: `facebook.com/1278` compare su 9 contatti scollegati —
+  stesso pattern dei builder noti ma non ne è stata identificata l'origine;
+  da valutare se aggiungerlo a `BUILDER_SOCIAL_DA_SCARTARE` quando se ne
+  capisce la fonte.
 
 ## In corso
-- Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email)
-  incluso. Prossima città si apre solo se Narratours ha tour attivi lì —
-  segue la skill `leadgen-citta` (aggiornata con il passo di estrazione
-  email). Prossimi passi operativi: 30 telefonate ai contatti
-  multi-struttura, prima campagna Instantly sui 343 contatti con email su
-  dominio proprio.
+- Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email) e
+  cantiere social inclusi. Prossima città si apre solo se Narratours ha
+  tour attivi lì — segue la skill `leadgen-citta`. Prossimi passi
+  operativi: 30 telefonate ai contatti multi-struttura, prima campagna
+  Instantly sui 343 contatti con email su dominio proprio, outreach
+  manuale via Instagram/Facebook per i 6 contatti raggiungibili solo via
+  social.
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da

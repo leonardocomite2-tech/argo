@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 AGGREGATORI = {
@@ -308,6 +308,87 @@ def preferenza_email(indirizzo, dominio_sito):
     if stesso_dominio:
         return 0 if preferito else 1
     return 2 if preferito else 3
+
+
+IG_RISERVATI = {"p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct"}
+# Un handle Instagram vero è solo lettere/cifre/punto/underscore (regole
+# reali di Instagram). Scarta gli artefatti di href rotti tipo
+# "instagram.com/https://instagram.com/handle" (copia-incolla nel template
+# del sito), dove il "primo segmento" diventerebbe "https:".
+IG_HANDLE_VALIDO = re.compile(r"^[a-z0-9._]{1,30}$")
+
+# Account social ufficiali di page builder/hosting: compaiono quando il
+# sito li lascia come icona social di default, mai configurata dal
+# gestore — non sono la struttura. Scoperti a campione (1/09: wix,
+# wixstudio, shopify) e ampliati coi builder più comuni tra i siti low-cost
+# usati da B&B/hotel italiani.
+BUILDER_SOCIAL_DA_SCARTARE = {
+    "wix", "wixstudio", "shopify", "squarespace", "webador", "weebly",
+    "wordpress", "godaddy", "jimdo", "altervista", "aruba", "ionos",
+}
+
+
+def normalizza_instagram(url):
+    """Handle nudo (minuscolo, senza @) da un URL instagram.com, o None se
+    non è un profilo — post/reel/storie/pagine di sistema, un href rotto, o
+    la home senza handle."""
+    segmenti = [s for s in urlsplit(url).path.split("/") if s]
+    if not segmenti:
+        return None
+    handle = segmenti[0].lower()
+    if handle in IG_RISERVATI:
+        return None
+    if not IG_HANDLE_VALIDO.match(handle):
+        return None
+    if handle in BUILDER_SOCIAL_DA_SCARTARE:
+        return None
+    return handle
+
+
+FB_RISERVATI = {
+    "sharer", "sharer.php", "share", "share.php", "dialog", "plugins",
+    "photo.php", "photos", "permalink.php", "story.php", "video.php",
+    "watch", "l.php", "posts", "reel", "reels", "groups", "events",
+}
+# "pages"/"people" sono schemi URL Facebook veri (facebook.com/pages/Nome/id,
+# facebook.com/people/Nome/id), non il nome della pagina — il primo
+# segmento da solo perderebbe l'identificativo. Servono i segmenti dopo.
+FB_SCHEMI_MULTI_SEGMENTO = {"pages", "people"}
+
+
+def normalizza_facebook(url):
+    """URL profilo normalizzato (https://facebook.com/<pagina>), o None se
+    non è un profilo — condivisioni/post/reel/plugin. "profile.php?id=..."
+    è l'unica eccezione alla regola "niente query": è l'unico identificatore
+    per le pagine senza nome vanity, senza id non ha senso tenerlo."""
+    parti = urlsplit(url)
+    segmenti = [s for s in parti.path.split("/") if s]
+    if not segmenti:
+        return None
+    primo = segmenti[0].lower()
+    if primo in FB_RISERVATI:
+        return None
+    if primo in BUILDER_SOCIAL_DA_SCARTARE:
+        return None
+    if primo == "profile.php":
+        id_valori = parse_qs(parti.query).get("id")
+        if not id_valori:
+            return None
+        return f"https://facebook.com/profile.php?id={id_valori[0]}"
+    if primo in FB_SCHEMI_MULTI_SEGMENTO:
+        # Serve anche l'id (terzo segmento): è quello che giustifica di
+        # preservare lo schema invece di scartarlo come gli altri — un
+        # "pages/nome" senza id non è un link garantito funzionante.
+        if len(segmenti) < 3:
+            return None
+        # "pages/category/..." è la directory categorie di Facebook, non
+        # una pagina — trovato reale in un batch (facebook.com/pages/
+        # category/hotel). "category" non è mai un nome di pagina vero.
+        if segmenti[1].lower() == "category":
+            return None
+        resto = "/".join(s.lower() for s in segmenti[1:3])
+        return f"https://facebook.com/{primo}/{resto}"
+    return f"https://facebook.com/{primo}"
 
 
 TYPES_AMMESSI = {

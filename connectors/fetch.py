@@ -1,7 +1,9 @@
 import logging
+import re
 import socket
 import urllib.error
 import urllib.request
+from urllib.parse import urljoin, urlsplit
 
 logger = logging.getLogger("argo.fetch")
 
@@ -43,3 +45,49 @@ def scarica(url, timeout=TIMEOUT_SEC):
         # in mezzo agli "altro" senza lasciare traccia.
         logger.warning("scarica: %s -> altro (%s: %s)", url, type(e).__name__, e)
         return None, "altro"
+
+
+def con_schema(url):
+    url = url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return "https://" + url
+    return url
+
+
+def host_di(url):
+    host = urlsplit(url).netloc.split("@")[-1].split(":")[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+PATTERN_LINK = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+PATTERN_TAG = re.compile(r"<[^>]+>")
+PAROLE_CONTATTO = ("contatt", "contact", "prenot", "booking", "reserv", "chi-siamo", "about")
+
+
+def estrai_link(html, url_base):
+    """Tutti gli <a href> di una pagina già scaricata, come (url_assoluto,
+    testo_pulito) — i relativi risolti rispetto a url_base. Scarta
+    mailto:/tel:/javascript:/#, che non sono mai una pagina da seguire."""
+    trovati = []
+    for href, testo in PATTERN_LINK.findall(html):
+        href = href.strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        assoluto = urljoin(url_base, href)
+        testo_pulito = PATTERN_TAG.sub("", testo).lower()
+        trovati.append((assoluto, testo_pulito))
+    return trovati
+
+
+def trova_link_contatti(html, url_base, host_sito):
+    """Primo link interno (stesso host) il cui href o testo somiglia a una
+    pagina contatti. None se non ne trova uno."""
+    for url, testo in estrai_link(html, url_base):
+        if host_di(url) != host_sito:
+            continue
+        etichetta = (url + " " + testo).lower()
+        if any(parola in etichetta for parola in PAROLE_CONTATTO):
+            return url
+    return None

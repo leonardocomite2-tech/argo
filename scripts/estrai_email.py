@@ -17,18 +17,12 @@ motivo, serve a decidere se e per quanti siti servirà aprire Firecrawl.
 import argparse
 import json
 import os
-import re
 import sys
-from urllib.parse import urljoin, urlsplit
 
 import psycopg
 
-from connectors.fetch import scarica
+from connectors.fetch import scarica, con_schema, host_di, trova_link_contatti
 from connectors.normalizza import estrai_email, preferenza_email
-
-PATTERN_LINK = re.compile(r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
-PATTERN_TAG = re.compile(r"<[^>]+>")
-PAROLE_CONTATTO = ("contatt", "contact", "prenot", "booking", "reserv", "chi-siamo", "about")
 
 MOTIVI = ("timeout", "dns", "403", "404", "500", "altro")
 
@@ -38,37 +32,6 @@ def db_connect():
         host="db", dbname="argo", user="argo",
         password=os.environ["PG_PASSWORD"],
     )
-
-
-def con_schema(url):
-    url = url.strip()
-    if not url.lower().startswith(("http://", "https://")):
-        return "https://" + url
-    return url
-
-
-def host_di(url):
-    host = urlsplit(url).netloc.split("@")[-1].split(":")[0].lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host
-
-
-def trova_link_contatti(html, url_base, host_sito):
-    """Primo link interno (stesso host) il cui href o testo somiglia a una
-    pagina contatti. None se non ne trova uno."""
-    for href, testo in PATTERN_LINK.findall(html):
-        href = href.strip()
-        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
-            continue
-        assoluto = urljoin(url_base, href)
-        if host_di(assoluto) != host_sito:
-            continue
-        testo_pulito = PATTERN_TAG.sub("", testo).lower()
-        etichetta = (href + " " + testo_pulito).lower()
-        if any(parola in etichetta for parola in PAROLE_CONTATTO):
-            return assoluto
-    return None
 
 
 def elabora_sito(sito, fallimenti_per_motivo):

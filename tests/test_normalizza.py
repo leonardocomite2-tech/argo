@@ -8,6 +8,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from connectors.normalizza import (  # noqa: E402
     dominio, telefono_e164, nome_chiave, indirizzo_chiave,
     DOMINIO_MAX_STRUTTURE_CONDIVISE, estrai_email, preferenza_email,
+    normalizza_instagram, normalizza_facebook,
 )
 
 CASI = []
@@ -177,6 +178,55 @@ caso("stesso dominio con www ignorato", 0, preferenza_email("info@www.hotelroma.
 caso("dominio del sito batte info@ estraneo nel confronto diretto",
      True,
      preferenza_email("amministrazione@hotelroma.it", "hotelroma.it") < preferenza_email("info@company.co", "hotelroma.it"))
+
+# --- normalizza_instagram() ---
+caso("profilo semplice", "hotelroma", normalizza_instagram("https://www.instagram.com/hotelroma/"))
+caso("profilo senza slash finale", "hotelroma", normalizza_instagram("https://instagram.com/hotelroma"))
+caso("maiuscole normalizzate", "hotelroma", normalizza_instagram("https://instagram.com/HotelRoma"))
+caso("query e frammento ignorati", "hotelroma", normalizza_instagram("https://instagram.com/hotelroma?hl=it#bio"))
+caso("path oltre l'handle ignorato", "hotelroma", normalizza_instagram("https://instagram.com/hotelroma/tagged/"))
+caso("post scartato", None, normalizza_instagram("https://instagram.com/p/Cxyz123/"))
+caso("reel scartato", None, normalizza_instagram("https://instagram.com/reel/Cxyz123/"))
+caso("storie scartate", None, normalizza_instagram("https://instagram.com/stories/hotelroma/"))
+caso("home senza handle scartata", None, normalizza_instagram("https://instagram.com/"))
+caso("href rotto con url incollata dentro (bug reale, 1/09)",
+     None, normalizza_instagram("https://instagram.com/https://instagram.com/hotelroma"))
+caso("handle con punto valido", "hotel.roma", normalizza_instagram("https://instagram.com/hotel.roma/"))
+caso("handle con underscore valido", "hotel_roma", normalizza_instagram("https://instagram.com/hotel_roma/"))
+caso("account wix di default scartato (bug reale, 1/09)", None, normalizza_instagram("https://instagram.com/wix/"))
+caso("account shopify di default scartato", None, normalizza_instagram("https://instagram.com/shopify"))
+
+# --- normalizza_facebook() ---
+caso("pagina semplice", "https://facebook.com/hotelroma", normalizza_facebook("https://www.facebook.com/hotelroma/"))
+caso("maiuscole normalizzate", "https://facebook.com/hotelroma", normalizza_facebook("https://facebook.com/HotelRoma"))
+caso("path oltre la pagina ignorato", "https://facebook.com/hotelroma", normalizza_facebook("https://facebook.com/hotelroma/reviews/"))
+caso("sharer scartato", None, normalizza_facebook("https://facebook.com/sharer/sharer.php?u=https://hotelroma.it"))
+caso("share.php scartato", None, normalizza_facebook("https://facebook.com/share.php?u=https://hotelroma.it"))
+caso("photo.php scartato", None, normalizza_facebook("https://facebook.com/photo.php?fbid=123"))
+caso("permalink.php scartato", None, normalizza_facebook("https://facebook.com/permalink.php?story_fbid=1&id=2"))
+caso("reel scartato", None, normalizza_facebook("https://facebook.com/reel/123456"))
+caso("plugin/embed scartato", None, normalizza_facebook("https://facebook.com/plugins/like.php?href=x"))
+caso("profile.php con id: tenuto solo l'id",
+     "https://facebook.com/profile.php?id=100012345678901",
+     normalizza_facebook("https://facebook.com/profile.php?id=100012345678901&ref=hotelroma"))
+caso("profile.php senza id scartato", None, normalizza_facebook("https://facebook.com/profile.php?ref=x"))
+caso("home senza pagina scartata", None, normalizza_facebook("https://facebook.com/"))
+caso("sharer.php a un segmento scartato (bug reale, 1/09)",
+     None, normalizza_facebook("https://facebook.com/sharer.php?u=https://hotelroma.it"))
+caso("schema pages/Nome/id preservato (bug reale, 1/09: perdeva l'id)",
+     "https://facebook.com/pages/hotel-roma/123456789012345",
+     normalizza_facebook("https://facebook.com/pages/Hotel-Roma/123456789012345"))
+caso("schema people/Nome/id preservato",
+     "https://facebook.com/people/mario-rossi/pfbid0abc123",
+     normalizza_facebook("https://facebook.com/people/Mario-Rossi/pfbid0abc123"))
+caso("pages senza nome dopo scartato", None, normalizza_facebook("https://facebook.com/pages/"))
+caso("pages con nome ma senza id scartato (link non garantito)",
+     None, normalizza_facebook("https://facebook.com/pages/Hotel-Roma/"))
+caso("pages/category scartato (directory categorie, bug reale, 1/09)",
+     None, normalizza_facebook("https://facebook.com/pages/category/hotel"))
+caso("pagina wix di default scartata (bug reale, 1/09)", None, normalizza_facebook("https://facebook.com/wix"))
+caso("pagina wixstudio di default scartata", None, normalizza_facebook("https://facebook.com/wixstudio/"))
+caso("pagina wordpress di default scartata", None, normalizza_facebook("https://facebook.com/wordpress"))
 
 
 def main():

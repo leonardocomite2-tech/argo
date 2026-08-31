@@ -98,7 +98,9 @@ def righe_csv(contatti):
     for contact_id, nome, telefono, sito, indirizzo, fonte_dettaglio, attributi, google_maps_uri in contatti:
         attributi = attributi or {}
         righe.append({
-            "nome": nome, "telefono": telefono, "sito": sito, "indirizzo": indirizzo,
+            "nome": nome, "telefono": telefono, "sito": sito,
+            "instagram": attributi.get("instagram"), "facebook": attributi.get("facebook"),
+            "indirizzo": indirizzo,
             "tipo": attributi.get("tipo_primario"),
             "recensioni": attributi.get("numero_recensioni"),
             "n_strutture": attributi.get("n_strutture"),
@@ -119,9 +121,9 @@ def scrivi_csv(righe, limite):
     Path(CARTELLA_EXPORT).mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     percorso = Path(CARTELLA_EXPORT) / f"prospect_{ts}.csv"
-    colonne = ["nome", "telefono", "sito", "indirizzo", "tipo", "recensioni",
-               "n_strutture", "fonte_dettaglio", "punteggio", "id",
-               "googleMapsUri", "esito"]
+    colonne = ["nome", "telefono", "sito", "instagram", "facebook", "indirizzo",
+               "tipo", "recensioni", "n_strutture", "fonte_dettaglio",
+               "punteggio", "id", "googleMapsUri", "esito"]
     with percorso.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=colonne)
         writer.writeheader()
