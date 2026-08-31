@@ -165,6 +165,27 @@ def stampa_totali_cumulativi(cur):
     print(f"  di cui personali (dominio diverso dal sito): {personali}")
 
 
+def stampa_domini_email_frequenti(cur, top=15):
+    """Un placeholder da template si riconosce perché compare su decine di
+    siti scollegati tra loro — questa lista lo mostra da sola, invece di
+    scoprirlo a campione ogni volta che ne spunta uno nuovo."""
+    cur.execute(
+        """
+        SELECT split_part(email, '@', 2) AS dominio, COUNT(*) AS n
+        FROM contacts
+        WHERE attributi->>'sito_proprio' = 'true' AND email IS NOT NULL AND email <> ''
+        GROUP BY dominio
+        ORDER BY n DESC
+        LIMIT %s
+        """,
+        (top,),
+    )
+    righe = cur.fetchall()
+    print(f"\nDomini email più frequenti tra le scelte (top {top}):")
+    for dominio, n in righe:
+        print(f"  {n:3d}  {dominio}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Email dai siti prospect (GET diretto, senza Firecrawl)")
     parser.add_argument("--campione", type=int, default=20,
@@ -271,6 +292,7 @@ def main():
                 print(f"Identità 'email' nuove: {identita_nuove}")
 
             stampa_totali_cumulativi(cur)
+            stampa_domini_email_frequenti(cur)
     finally:
         conn.close()
 

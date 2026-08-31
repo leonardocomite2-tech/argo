@@ -73,35 +73,43 @@
   scrittura reale (`--scrivi`): email in `contacts.email` solo se vuoto,
   identità `('email', indirizzo)` in `identities` (`ON CONFLICT DO
   NOTHING`), `attributi.email_altre`/`email_personale` (dominio email ≠
-  dominio sito, nessuna whitelist di provider) sempre aggiornati. Blocklist
-  di local-part/domini placeholder (`noreply`, `no-reply`, `postmaster`,
-  `webmaster`, `privacy`, `example`, `wordpress`/`sentry` per sottostringa,
-  `mail.com`/`company.co`/`test.com`/`domain.com`/`yourdomain.com` per
-  uguaglianza esatta — mai sottostringa, altrimenti scarterebbe anche
-  gmail.com/hotmail.com) ampliata dopo aver trovato placeholder scelti come
-  email vera nel run reale; i 4 contatti già scritti con un placeholder
-  sono stati svuotati e ri-estratti (2 recuperati con l'email vera, 2
-  rimasti vuoti).
-  Numeri (31/08, primo giro su 524 prospect idonei): 311 con email, 192 su
-  dominio proprio, 119 personali.
-  **Aggiornati dopo le 6 celle nuove (31/08, 995 prospect idonei): 597 con
-  email, 341 su dominio proprio, 256 personali** (gmail/outlook/tiscali/...).
-  **Placeholder nuovi scoperti in questo giro, non ancora in blocklist**:
-  `your.email@example.com`, `utente@dominio.com`, `indirizzo@email.com`,
-  `contatto@esempio.it`, `info@mysite.com` — quest'ultimo ha vinto su un
-  indirizzo vero per via del local-part `info@` (stesso meccanismo già visto
-  con `info@company.co`). Da aggiungere alla blocklist di
-  `connectors/normalizza.py` e ripetere la pulizia (svuota+ri-estrai) fatta
-  per `mail.com`/`company.co`/`test.com`/`domain.com`/`yourdomain.com` prima
-  di lanciare la campagna — non risolto in questo passo.
+  dominio sito, nessuna whitelist di provider) sempre aggiornati.
+  **Blocklist placeholder (1/09), da lista fissa a regola generale**: dopo
+  due giri in cui spuntavano varianti sempre nuove (prima `mail.com`/
+  `company.co`/`test.com`/`domain.com`/`yourdomain.com`, poi `example.com`/
+  `dominio.com`/`email.com`/`esempio.it`/`mysite.com`), la blocklist di
+  `connectors/normalizza.py` scarta ora anche chiunque contenga una
+  `PAROLA_SEGNAPOSTO` (example, esempio, mysite, dominio, tuodominio,
+  yourdomain, tuosito, email.com, indirizzo, utente, nomeazienda) come
+  sottostringa nel local-part O nel dominio — non serve più inseguire ogni
+  nuova variante una alla volta. Restano a lista fissa/uguaglianza esatta
+  solo `noreply`/`no-reply`/`postmaster`/`webmaster`/`privacy` (local-part),
+  `wordpress`/`sentry` (sottostringa dominio) e `mail.com`/`company.co`/
+  `test.com`/`domain.com` (uguaglianza esatta dominio — nomi che non
+  contengono nessuna parola segnaposto). Eccezione: "dominio" è sottostringa
+  di "condominio" (amministratori di condominio reali, es.
+  `info@condominiorossi.it`) — `_contiene_segnaposto()` la esclude
+  esplicitamente, unica parola della lista con questo problema.
+  Ogni run stampa anche i 15 domini
+  email più frequenti tra le scelte: un placeholder si vede da solo perché
+  compare su decine di siti scollegati (verificato dopo la correzione:
+  nessuna concentrazione sospetta, solo provider reali — gmail 152,
+  libero.it 10, hotmail.com 6, ...).
+  Ad ogni scoperta di placeholder, i contatti già scritti sono stati
+  svuotati (`contacts.email`, `attributi.email_altre/email_personale`,
+  identità collegata) e ri-estratti: 4 la prima volta (2 recuperati, 2
+  rimasti vuoti), 8 la seconda (6 recuperati, 2 rimasti vuoti — i siti non
+  avevano altra email valida).
+  Numeri finali (1/09, 995 prospect idonei): **598 con email, 343 su
+  dominio proprio, 255 personali** (gmail/libero/hotmail/...).
 
 ## In corso
 - Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email)
   incluso. Prossima città si apre solo se Narratours ha tour attivi lì —
   segue la skill `leadgen-citta` (aggiornata con il passo di estrazione
   email). Prossimi passi operativi: 30 telefonate ai contatti
-  multi-struttura, prima campagna Instantly sui 341 contatti con email su
-  dominio proprio (da ripulire prima dai placeholder nuovi, vedi sopra).
+  multi-struttura, prima campagna Instantly sui 343 contatti con email su
+  dominio proprio.
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da

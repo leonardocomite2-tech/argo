@@ -132,11 +132,36 @@ caso("dominio mail.com scartato", [], estrai_email("prenota@mail.com"))
 caso("dominio company.co scartato", [], estrai_email("info@company.co"))
 caso("dominio test.com scartato", [], estrai_email("prova@test.com"))
 caso("dominio domain.com scartato", [], estrai_email("contatto@domain.com"))
-caso("dominio yourdomain.com scartato", [], estrai_email("info@yourdomain.com"))
+caso("dominio yourdomain.com scartato (ora via PAROLE_SEGNAPOSTO)", [], estrai_email("info@yourdomain.com"))
 caso("gmail.com NON scartato (contiene 'mail.com' come sottostringa)",
      ["mariorossi@gmail.com"], estrai_email("mariorossi@gmail.com"))
 caso("hotmail.com NON scartato (contiene 'mail.com' come sottostringa)",
-     ["utente@hotmail.com"], estrai_email("utente@hotmail.com"))
+     ["prenota@hotmail.com"], estrai_email("prenota@hotmail.com"))
+
+# Regola generale (1/09): invece di inseguire una lista fissa di domini demo
+# scoperti a campione, si scarta chiunque contenga una parola da segnaposto
+# — nel dominio O nel local-part, anche come sottostringa di un nome più
+# lungo. Scoperto necessario dopo il secondo giro di celle: example.com,
+# dominio.com, email.com, esempio.it, mysite.com erano tutti passati
+# indenni alla blocklist precedente basata su lista fissa.
+caso("dominio example.com scartato", [], estrai_email("your.email@example.com"))
+caso("dominio esempio.it scartato", [], estrai_email("contatto@esempio.it"))
+caso("dominio mysite.com scartato", [], estrai_email("info@mysite.com"))
+caso("dominio dominio.com scartato", [], estrai_email("utente@dominio.com"))
+caso("dominio email.com scartato", [], estrai_email("indirizzo@email.com"))
+caso("local-part indirizzo scartato", [], estrai_email("indirizzo@hotelroma.it"))
+caso("local-part utente scartato", [], estrai_email("utente@hotelroma.it"))
+caso("local-part nomeazienda scartato", [], estrai_email("nomeazienda@hotelroma.it"))
+caso("parola segnaposto come sottostringa di un dominio più lungo",
+     [], estrai_email("info@ilmiosito-esempio.it"))
+caso("parola segnaposto come sottostringa di un local-part più lungo",
+     [], estrai_email("tuosito.staff@hotelroma.it"))
+caso("indirizzo reale con 'utenti' (plurale) NON scartato — non è sottostringa di 'utente'",
+     ["utenti@hotelroma.it"], estrai_email("utenti@hotelroma.it"))
+caso("amministratore di condominio reale NON scartato — 'dominio' è sottostringa di 'condominio'",
+     ["info@condominiorossi.it"], estrai_email("info@condominiorossi.it"))
+caso("condominio nel local-part NON scartato",
+     ["amministrazione@condominioverdi.it"], estrai_email("amministrazione@condominioverdi.it"))
 
 # --- preferenza_email() ---
 # Il dominio del sito viene prima del local-part: un info@ fuori dominio

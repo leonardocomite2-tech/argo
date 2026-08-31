@@ -213,24 +213,48 @@ def _espandi_abbreviazione(via):
 
 EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
-# Local-part di caselle di servizio o placeholder da template, mai un
-# contatto utile ("example@..." è il local-part demo più comune nei siti
-# costruiti con page builder).
-PREFISSI_SERVIZIO = {"noreply", "no-reply", "postmaster", "webmaster", "privacy", "example"}
+# Local-part di caselle di servizio, mai un contatto utile.
+PREFISSI_SERVIZIO = {"noreply", "no-reply", "postmaster", "webmaster", "privacy"}
 # Domini di servizio: compaiono negli indirizzi solo perché la regex ha preso
 # per email qualcos'altro — tipico un DSN Sentry incollato nel <script> della
 # pagina ("chiave@o12345.ingest.sentry.io"), o un placeholder di WordPress.
 # Controllo per sottostringa: questi non compaiono mai come dominio completo
 # di un indirizzo vero.
 DOMINI_SERVIZIO = {"wordpress", "sentry"}
-# Domini placeholder da demo/template (page builder, temi, form di esempio):
-# controllo per uguaglianza esatta, MAI per sottostringa — "mail.com" per
-# sottostringa scarterebbe anche gmail.com/hotmail.com, che sono domini
-# reali.
-DOMINI_PLACEHOLDER = {"mail.com", "company.co", "test.com", "domain.com", "yourdomain.com"}
+# Domini placeholder da demo/template con nomi che non contengono nessuna
+# delle PAROLE_SEGNAPOSTO sotto (altrimenti sarebbero già coperti da quella
+# regola generale): controllo per uguaglianza esatta, MAI per sottostringa —
+# "mail.com" per sottostringa scarterebbe anche gmail.com/hotmail.com, che
+# sono domini reali.
+DOMINI_PLACEHOLDER = {"mail.com", "company.co", "test.com", "domain.com"}
+# Parole che, ovunque compaiano — nel local-part o nel dominio, anche come
+# sottostringa di un nome più lungo — segnalano quasi certamente un
+# indirizzo demo lasciato in un template mai sostituito, non un contatto
+# vero. Scoperte a campione (31/08: company.co, mail.com, ...; poi
+# example.com, dominio.com, email.com, esempio.it, mysite.com nel giro
+# successivo) prima di passare a questa regola generale, per non dover
+# inseguire ogni nuova variante una alla volta.
+PAROLE_SEGNAPOSTO = {
+    "example", "esempio", "mysite", "dominio", "tuodominio", "yourdomain",
+    "tuosito", "email.com", "indirizzo", "utente", "nomeazienda",
+}
 # Estensioni di file: la regex a volte prende per email nomi tipo
 # "logo@2x.png" nei retina asset dentro l'HTML.
 ESTENSIONI_FILE = {"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"}
+
+
+def _contiene_segnaposto(campo):
+    """"dominio" è sottostringa di "condominio" — un amministratore di
+    condominio vero (info@condominiorossi.it) non va scartato come
+    placeholder. Unica eccezione nella lista: le altre parole non
+    compaiono per caso dentro nomi italiani comuni."""
+    for parola in PAROLE_SEGNAPOSTO:
+        if parola not in campo:
+            continue
+        if parola == "dominio" and "condominio" in campo:
+            continue
+        return True
+    return False
 
 
 def estrai_email(testo):
@@ -252,6 +276,8 @@ def estrai_email(testo):
         if dom in DOMINI_PLACEHOLDER:
             continue
         if any(servizio in dom for servizio in DOMINI_SERVIZIO):
+            continue
+        if _contiene_segnaposto(locale) or _contiene_segnaposto(dom):
             continue
         estensione = dom.rsplit(".", 1)[-1]
         if estensione in ESTENSIONI_FILE:
