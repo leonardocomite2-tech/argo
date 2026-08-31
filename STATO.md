@@ -12,6 +12,14 @@
   2003 schede grezze da 5 celle (centro storico, Trastevere, Monti/Colosseo,
   Trevi/Spagna, Esquilino/Termini) con 128 chiamate API, salvate in
   `out/places/` sul VPS — non nel repo (`.gitignore`).
+  Il 31/08, prima dell'azzeramento mensile del tier gratuito, aggiunte 6
+  celle (testaccio_aventino, prati_borgo, san_giovanni, salario_nomentano,
+  flaminio_parioli, san_lorenzo_pigneto) senza dry-run, una alla volta: altre
+  94 chiamate (14+39+21+6+6+8), nessuna ha esaurito il proprio tetto di 120.
+  11 celle totali, ~222 chiamate cumulative nel mese. Un sotto-quadrante
+  (`prati_borgo#q0#q3`) resta saturo anche al livello massimo di bisezione —
+  area densa non coperta per intero, da rivedere a mano se conta davvero
+  (segnalato da `cerca_places.py`, non un errore).
 - Cantiere lead-gen host: resolver operativo (`scripts/risolvi.py`,
   migrazione `db/migrations/005_prospect.sql`). Gira dentro il container
   worker (`docker compose exec worker python -m scripts.risolvi`), non è un
@@ -23,6 +31,10 @@
   (verificato anche a livello DB, zero identità duplicate).
   Numeri finali (30/08, 5 celle): **1197 contatti prospect**, 695 con
   telefono, 524 con sito proprio, 58 collegati a più di una struttura.
+  Aggiornati (31/08, 11 celle): **1998 contatti prospect**, 1388 con
+  telefono, 995 con sito proprio, 135 collegati a più di una struttura.
+  Idempotenza riverificata sull'ultimo file delle 6 celle nuove (0 contatti
+  nuovi, 0 identità al rilancio).
   **Regola del dominio contato**: un dominio genera identità solo se
   condiviso da al massimo `DOMINIO_MAX_STRUTTURE_CONDIVISE=8` place_id
   distinti nel batch (prima passata di conteggio in `risolvi.py`, prima
@@ -70,15 +82,26 @@
   email vera nel run reale; i 4 contatti già scritti con un placeholder
   sono stati svuotati e ri-estratti (2 recuperati con l'email vera, 2
   rimasti vuoti).
-  **Numeri finali (31/08, 524 prospect idonei): 311 con email, 192 su
-  dominio proprio, 119 personali** (gmail/outlook/tiscali/...).
+  Numeri (31/08, primo giro su 524 prospect idonei): 311 con email, 192 su
+  dominio proprio, 119 personali.
+  **Aggiornati dopo le 6 celle nuove (31/08, 995 prospect idonei): 597 con
+  email, 341 su dominio proprio, 256 personali** (gmail/outlook/tiscali/...).
+  **Placeholder nuovi scoperti in questo giro, non ancora in blocklist**:
+  `your.email@example.com`, `utente@dominio.com`, `indirizzo@email.com`,
+  `contatto@esempio.it`, `info@mysite.com` — quest'ultimo ha vinto su un
+  indirizzo vero per via del local-part `info@` (stesso meccanismo già visto
+  con `info@company.co`). Da aggiungere alla blocklist di
+  `connectors/normalizza.py` e ripetere la pulizia (svuota+ri-estrai) fatta
+  per `mail.com`/`company.co`/`test.com`/`domain.com`/`yourdomain.com` prima
+  di lanciare la campagna — non risolto in questo passo.
 
 ## In corso
-- Cantiere lead-gen host: chiuso per Roma, cantiere B (email) incluso.
-  Prossima città si apre solo se Narratours ha tour attivi lì — segue la
-  skill `leadgen-citta` (aggiornata con il passo di estrazione email).
-  Prossimi passi operativi: 30 telefonate ai contatti multi-struttura,
-  prima campagna Instantly sui 192 contatti con email su dominio proprio.
+- Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email)
+  incluso. Prossima città si apre solo se Narratours ha tour attivi lì —
+  segue la skill `leadgen-citta` (aggiornata con il passo di estrazione
+  email). Prossimi passi operativi: 30 telefonate ai contatti
+  multi-struttura, prima campagna Instantly sui 341 contatti con email su
+  dominio proprio (da ripulire prima dai placeholder nuovi, vedi sopra).
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
