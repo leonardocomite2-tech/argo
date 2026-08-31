@@ -49,16 +49,36 @@
   mano, in `out/export/` (non nel repo).
   Ogni contatto porta ora `attributi->>'citta'` (`--citta` obbligatorio in
   `risolvi.py`); i 1197 contatti esistenti backfillati a `'roma'`.
+- **Cantiere lead-gen host — cantiere B (email), chiuso (31/08)**:
+  `connectors/fetch.py` (GET diretto stdlib, un tentativo, timeout 10s,
+  motivo del fallimento classificato in timeout/dns/403/404/500/altro) +
+  `scripts/estrai_email.py` (home + eventuale pagina contatti, regex
+  deterministica in `connectors/normalizza.py`, zero LLM). Filtra su
+  `attributi->>'sito_proprio' = 'true'`, mai su `sito IS NOT NULL`. Il
+  campione di misura da 30 (18 con email, errori sparsi per motivo senza
+  concentrazione) ha mostrato che Firecrawl non serve — non aperto.
+  Lanciato su tutti i 524 prospect a lotti da 100 (`--tutti --offset`) con
+  scrittura reale (`--scrivi`): email in `contacts.email` solo se vuoto,
+  identità `('email', indirizzo)` in `identities` (`ON CONFLICT DO
+  NOTHING`), `attributi.email_altre`/`email_personale` (dominio email ≠
+  dominio sito, nessuna whitelist di provider) sempre aggiornati. Blocklist
+  di local-part/domini placeholder (`noreply`, `no-reply`, `postmaster`,
+  `webmaster`, `privacy`, `example`, `wordpress`/`sentry` per sottostringa,
+  `mail.com`/`company.co`/`test.com`/`domain.com`/`yourdomain.com` per
+  uguaglianza esatta — mai sottostringa, altrimenti scarterebbe anche
+  gmail.com/hotmail.com) ampliata dopo aver trovato placeholder scelti come
+  email vera nel run reale; i 4 contatti già scritti con un placeholder
+  sono stati svuotati e ri-estratti (2 recuperati con l'email vera, 2
+  rimasti vuoti).
+  **Numeri finali (31/08, 524 prospect idonei): 311 con email, 192 su
+  dominio proprio, 119 personali** (gmail/outlook/tiscali/...).
 
 ## In corso
-- Cantiere lead-gen host: chiuso per Roma. Prossima città si apre solo se
-  Narratours ha tour attivi lì — segue la skill `leadgen-citta`.
-- Cantiere B (Firecrawl, ricerca email): dovrà filtrare su
-  `attributi->>'sito_proprio'`, mai su `sito IS NOT NULL` — `sito` tiene il
-  link grezzo anche quando è un aggregatore o una piattaforma di booking (è
-  lì apposta, per non perdere il dato), quindi un filtro su `sito IS NOT
-  NULL` manderebbe Firecrawl a raschiare pagine di booking.com/OTA invece
-  che i siti veri delle strutture.
+- Cantiere lead-gen host: chiuso per Roma, cantiere B (email) incluso.
+  Prossima città si apre solo se Narratours ha tour attivi lì — segue la
+  skill `leadgen-citta` (aggiornata con il passo di estrazione email).
+  Prossimi passi operativi: 30 telefonate ai contatti multi-struttura,
+  prima campagna Instantly sui 192 contatti con email su dominio proprio.
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da

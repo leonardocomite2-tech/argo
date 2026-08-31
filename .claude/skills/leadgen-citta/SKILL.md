@@ -1,6 +1,6 @@
 ---
 name: leadgen-citta
-description: Ripete l'intero processo di lead-gen host (raccolta Google Places, resolver contacts/identities, export punteggiato) per aprire una nuova città, replicando esattamente i passi, i comandi e le decisioni prese per Roma il 30/08. Usala quando si apre una nuova città per il cantiere lead-gen host.
+description: Ripete l'intero processo di lead-gen host (raccolta Google Places, resolver contacts/identities, export punteggiato, estrazione email) per aprire una nuova città, replicando esattamente i passi, i comandi e le decisioni prese per Roma il 30-31/08. Usala quando si apre una nuova città per il cantiere lead-gen host.
 ---
 
 # Lead-gen host — aprire una nuova città
@@ -85,6 +85,30 @@ aprire una cella, non dopo.
    docker compose exec worker python -m scripts.export_prospect [--limite N] [--solo-con-telefono]
    ```
    CSV in `out/export/prospect_<timestamp UTC>.csv` sull'host.
+
+8. **Estrazione email, a lotti da 100, con `--scrivi`**:
+   ```
+   docker compose exec worker python -m scripts.estrai_email --tutti --campione 100 --offset 0   --scrivi
+   docker compose exec worker python -m scripts.estrai_email --tutti --campione 100 --offset 100 --scrivi
+   ```
+   (continuare aumentando `--offset` di 100 finché il lotto non ritorna
+   meno righe di `--campione` — copertura completa senza buchi né
+   doppioni, indipendentemente dagli esiti). GET diretto stdlib
+   (`connectors/fetch.py`, home + eventuale pagina contatti, un solo
+   tentativo) + regex deterministica (`connectors/normalizza.py`), zero
+   LLM. Filtra su `attributi->>'sito_proprio' = 'true'`, mai su `sito IS
+   NOT NULL` — stesso motivo del resolver: `sito` tiene il link grezzo
+   anche per aggregatori/OTA. Email scritta in `contacts.email` solo se
+   vuoto, mai sovrascritta.
+
+   **Riferimento Roma** (524 prospect idonei): 311 con email, 192 su
+   dominio proprio, 119 personali. Il campione di misura da 30
+   (`--campione 30 --seme <N>`, senza `--scrivi`) aveva dato 18 con email
+   ed errori sparsi per motivo senza concentrazione su uno solo —
+   **Firecrawl non è stato necessario**, non aperto. Se in una città nuova
+   la ripartizione dei fallimenti per motivo (stampata a fine run) mostra
+   molti 403 o timeout concentrati (bot-blocking o pagine costruite in
+   JavaScript), è il segnale per rivalutare Firecrawl.
 
 ## 4. Checkpoint che restano umani, e perché
 
