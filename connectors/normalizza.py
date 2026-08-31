@@ -388,6 +388,15 @@ def normalizza_facebook(url):
             return None
         resto = "/".join(s.lower() for s in segmenti[1:3])
         return f"https://facebook.com/{primo}/{resto}"
+    # Un id numerico vero (facebook.com/profile.php?id=... o le prime cifre
+    # di pages/people) è sempre lungo (15-17 cifre) — Facebook non assegna
+    # username di pagina puramente numerici brevi. Un "facebook.com/<cifre
+    # corte>" come slug diretto è quasi certo un placeholder di widget mai
+    # configurato (bug reale, 1/09: "facebook.com/1278" identico su 9 siti
+    # scollegati, stesso widget "socialHubWrapper" di un booking engine
+    # condiviso — non una pagina).
+    if primo.isdigit():
+        return None
     return f"https://facebook.com/{primo}"
 
 

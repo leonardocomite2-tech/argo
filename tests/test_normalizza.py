@@ -224,6 +224,10 @@ caso("pages con nome ma senza id scartato (link non garantito)",
      None, normalizza_facebook("https://facebook.com/pages/Hotel-Roma/"))
 caso("pages/category scartato (directory categorie, bug reale, 1/09)",
      None, normalizza_facebook("https://facebook.com/pages/category/hotel"))
+caso("slug numerico corto scartato — widget mai configurato, bug reale trovato su 9 siti (1/09)",
+     None, normalizza_facebook("https://facebook.com/1278"))
+caso("slug numerico lungo scartato comunque — mai un vero username di pagina",
+     None, normalizza_facebook("https://facebook.com/123456789012345"))
 caso("pagina wix di default scartata (bug reale, 1/09)", None, normalizza_facebook("https://facebook.com/wix"))
 caso("pagina wixstudio di default scartata", None, normalizza_facebook("https://facebook.com/wixstudio/"))
 caso("pagina wordpress di default scartata", None, normalizza_facebook("https://facebook.com/wordpress"))

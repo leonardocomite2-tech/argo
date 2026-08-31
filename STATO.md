@@ -142,13 +142,21 @@
   da proteggere come l'email — ma scritti solo quando il run trova
   qualcosa, per non cancellare un valore buono di un run precedente.
   Due colonne aggiunte a `export_prospect.py`.
-  **Numeri finali (1/09, 1416 prospect con sito): 237 con Instagram, 298
-  con Facebook, 355 con almeno uno dei due, 6 raggiungibili solo via
+  **`facebook.com/1278` indagato e risolto (1/09)**: href letterale
+  identico (`<div class="socialHubWrapper"> <a href="https://facebook.com/1278" ...
+  dm_dont_rewrite_url="true">`) su 9 siti indipendenti — widget social di
+  un booking engine condiviso (diversi domini `*.icalu.com` tra i 9)
+  mai configurato, non una pagina reale. Non serviva un'altra entry in
+  `BUILDER_SOCIAL_DA_SCARTARE` (non si conosce il nome del builder): regola
+  generale in `normalizza_facebook()` invece — uno slug puramente numerico
+  come `facebook.com/<cifre>` è scartato sempre, perché i veri id numerici
+  Facebook sono lunghi 15-17 cifre e compaiono solo dentro
+  `profile.php?id=`/`pages/.../<id>`/`people/.../<id>`, mai come slug
+  diretto. I 9 contatti svuotati e ri-estratti: nessuno aveva un'altra
+  pagina Facebook reale sul sito.
+  **Numeri finali (1/09, 1416 prospect con sito): 237 con Instagram, 289
+  con Facebook, 346 con almeno uno dei due, 6 raggiungibili solo via
   social** (nessuna email né telefono).
-  **Non risolto**: `facebook.com/1278` compare su 9 contatti scollegati —
-  stesso pattern dei builder noti ma non ne è stata identificata l'origine;
-  da valutare se aggiungerlo a `BUILDER_SOCIAL_DA_SCARTARE` quando se ne
-  capisce la fonte.
 
 ## In corso
 - Cantiere lead-gen host: chiuso per Roma (11 celle), cantiere B (email) e
