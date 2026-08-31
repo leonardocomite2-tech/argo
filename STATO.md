@@ -165,11 +165,36 @@
   punti sopra; skill `leadgen-citta` aggiornata con tutti i passi (celle →
   resolver → export → email → social) per ripetere il processo su una
   città nuova.
+- **`scripts/export_instantly.py` (1/09)**: export ripetibile per le
+  ondate della campagna Instantly, sostituisce lo script ad hoc del primo
+  giro. Sola lettura (contatti + `soppressioni`), nessuna scrittura.
+  Selezione: `stato='prospect'`, email non vuota, `email_personale` falso
+  (disattivabile con `--includi-personali`, per un uso futuro), esclusi
+  quelli in `soppressioni` e quelli nei CSV passati a `--escludi`
+  (ripetibile — così l'ondata 2 non ripesca i lead dell'ondata 1), ordinati
+  per punteggio decrescente (`calcola_punteggio` riusata da
+  `export_prospect.py`), tagliati a `--limite` (default 50). File scritto:
+  `instantly_ondata<N>.csv` (`--ondata`, default 1) — sovrascritto se
+  rilanciato con lo stesso N, è un deliverable rigenerabile.
+  Oltre alle colonne dati (email, struttura, citta, tipo, n_strutture,
+  telefono, sito, punteggio, `Nome Business` = duplicato di struttura per
+  il mapping variabili di Instantly), tre colonne di copy — `codice_host`,
+  `zona`, `chiusura` — **non derivate dal contatto**: `zona` è un esempio
+  di copertura del servizio citato nel testo, non la zona geografica vera
+  del contatto. Tutte e tre sono rotazioni stabili su un pool costante via
+  hash SHA-256 dell'id (`hashlib`, non `hash()` di Python che è salato per
+  processo): stesso contatto, stesso valore in ogni export futuro, finché
+  `POOL_CODICI`/`POOL_ZONE`/`POOL_CHIUSURE` non cambiano ordine/contenuto —
+  da non editare una volta in uso, solo estendere in coda. A fine run
+  stampa la distribuzione per zona (verifica, non un fallback: l'assegnazione
+  non fallisce mai).
+  `instantly_ondata1.csv` rigenerato nel nuovo formato: 50 righe su 343
+  idonei (dominio proprio, nessuno ancora in `soppressioni`, che è vuota).
 
 ## In corso
 - 30 telefonate ai contatti multi-struttura.
 - Prima campagna Instantly da 50 lead sui contatti con email su dominio
-  proprio.
+  proprio (`instantly_ondata1.csv`).
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
