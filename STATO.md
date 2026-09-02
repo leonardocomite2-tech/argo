@@ -225,6 +225,21 @@ condiviso api+worker in docker-compose)
   job se la catena si spezza (nessun `leggi_email` pending/running), sia
   all'avvio sia ad ogni giro del loop worker — protegge dal caso in cui
   l'handler vada in `failed` dopo i retry.
+- **Caselle in lettura (2/09)**: attive le cinque caselle `landmarkpixel.com`
+  più `narratours.info@gmail.com`, tutte su `imap.gmail.com` con password
+  per le app. Le due caselle `.click` sono state tolte dalla lettura finché
+  restano in warmup — da rimettere tra un mese. Quando succederà servirà un
+  host IMAP per singola casella (oggi `IMAP_HOST` è un'unica variabile
+  globale in `imap_reader.py`, usata per tutte le caselle): le `.click`
+  torneranno su Hostinger, mentre le altre restano su Google.
+  `WARMUP_TAG` è ora `rule-once`.
+  **Due difetti noti, da affrontare nel cantiere risposte**:
+  1. il filtro warmup guarda solo l'oggetto (`WARMUP_TAG.lower() in
+     oggetto.lower()` in `leggi_nuove()`) e quindi lascia passare i
+     rimbalzi (bounce) come messaggi veri;
+  2. le email automatiche di Google (`no-reply@google.com`, avvisi di
+     sicurezza) generano notifiche inutili — non sono conversazioni con
+     host/prospect.
 - Approvazione bozze via Telegram (`connectors/telegram.py`:
   `chiedi_approvazione()` manda bozza+contesto con tre bottoni inline
   (Approva/Modifica/Rifiuta, callback_data `appr:<id>`/`modif:<id>`/`rifiu:<id>`),
@@ -389,6 +404,17 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   bene subito, perché ritrofittarla è doloroso. Oggi non blocca nulla — ogni
   canale lavora isolato — ma appena lo stesso prospect scriverà via email e
   via DM, non avremo modo di sapere che è la stessa persona.
+- Filtro warmup lascia passare i rimbalzi: `leggi_nuove()` classifica come
+  warmup solo controllando se `WARMUP_TAG` compare nell'oggetto — un
+  rimbalzo (bounce) non ha il tag nell'oggetto e passa come email vera. Da
+  affrontare nel cantiere risposte, non risolto qui.
+- Email automatiche di Google generano notifiche inutili: `no-reply@google.com`
+  e gli avvisi di sicurezza vengono letti come email vere e notificati su
+  Telegram. Da affrontare nel cantiere risposte, non risolto qui.
+- Le caselle `.click` (in warmup) richiederanno un host IMAP per casella
+  quando rientrano in lettura tra un mese: torneranno su Hostinger mentre
+  le altre restano su Google, e oggi `IMAP_HOST` è un'unica variabile
+  globale in `imap_reader.py`, condivisa da tutte le caselle.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
