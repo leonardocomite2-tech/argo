@@ -275,6 +275,25 @@ condiviso api+worker in docker-compose)
   comunque non c'è nulla da sopprimere — impatta solo il conteggio nel
   digest). La classificazione LLM e la stesura di bozze restano il
   prossimo pezzo del cantiere.
+  **Incidente e fix (3/09, scoperto prima del deploy del secondo pezzo)**:
+  un'email di warmup di una nuova ondata (mittente
+  `paige.m@leadifylabs.org`, oggetto "How can we help you? | Q086N4B
+  ZWNVS42") è passata come risposta vera perché il token non era in
+  `WARMUP_TAG` (conteneva solo `rule-once`) — sarebbe costata una chiamata
+  al modello una volta collegato il classificatore. `WARMUP_TAG` ora è
+  `rule-once,ZWNVS42,HX9J9MY`, ma soprattutto è stata aggiunta una regola
+  **strutturale**, indipendente dal token: un oggetto la cui riga `Subject:`
+  termina con una pipe seguita da uno o due gruppi alfanumerici maiuscoli di
+  6-10 caratteri (`_e_pattern_warmup_soggetto` in `connectors/imap_reader.py`)
+  è trattato come warmup a prescindere dal token esatto — i token cambiano
+  ad ogni ondata, la struttura no. Controlla anche l'oggetto annidato di un
+  eventuale rimbalzo, come già fa il controllo sui token letterali. Trade-off
+  accettato: un oggetto reale (non di warmup) che terminasse per coincidenza
+  con "| XXXXXX" verrebbe scartato per errore — rischio ritenuto trascurabile,
+  non osservato su traffico reale. Test aggiunti in
+  `tests/test_filtri_email.py`: il caso reale di Paige (bloccante solo dalla
+  regola strutturale, `WARMUP_TAG` di test non contiene quel token) e un
+  oggetto con token misto (tag letterale + nuovo formato).
 - Approvazione bozze via Telegram (`connectors/telegram.py`:
   `chiedi_approvazione()` manda bozza+contesto con tre bottoni inline
   (Approva/Modifica/Rifiuta, callback_data `appr:<id>`/`modif:<id>`/`rifiu:<id>`),

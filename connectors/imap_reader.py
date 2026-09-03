@@ -2,6 +2,7 @@ import email
 import imaplib
 import logging
 import os
+import re
 from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 from html.parser import HTMLParser
@@ -101,6 +102,32 @@ def _contiene_tag_warmup(msg, tags):
     return any(tag.lower() in grezzo for tag in tags)
 
 
+_PATTERN_WARMUP_SOGGETTO = re.compile(r"\|\s*[A-Z0-9]{6,10}(?:\s+[A-Z0-9]{6,10})?\s*$")
+
+
+def _e_pattern_warmup_soggetto(msg):
+    """Un oggetto che termina con una pipe seguita da uno o due gruppi
+    alfanumerici maiuscoli di 6-10 caratteri è un marcatore strutturale di
+    warmup, indipendente dal token esatto: i token cambiano ad ogni ondata
+    (es. "Q086N4B ZWNVS42"), la struttura no — a differenza di WARMUP_TAG
+    (elenco chiuso di token noti), questo controllo prende anche i token
+    futuri mai visti. Controlla prima l'oggetto decodificato di primo livello
+    (_decodifica_header lo riunisce anche se l'header è "foldato" su più
+    righe per RFC 2822 — un controllo riga per riga sul messaggio grezzo lo
+    perderebbe), poi ogni riga "Subject:" nel messaggio grezzo per coprire
+    anche l'oggetto annidato di un eventuale rimbalzo di warmup, come già fa
+    _contiene_tag_warmup per i token (stessa limitazione lì: un oggetto
+    annidato foldato non verrebbe intercettato — rischio residuo minimo,
+    non osservato su traffico reale)."""
+    oggetto_decodificato = _decodifica_header(msg.get("Subject")) or ""
+    if _PATTERN_WARMUP_SOGGETTO.search(oggetto_decodificato.rstrip()):
+        return True
+    for riga in msg.as_string().splitlines():
+        if riga.lower().startswith("subject:") and _PATTERN_WARMUP_SOGGETTO.search(riga.rstrip()):
+            return True
+    return False
+
+
 def _e_rimbalzo(msg):
     mittente = (msg.get("From") or "").lower()
     if "mailer-daemon" in mittente or "postmaster@" in mittente:
@@ -169,7 +196,7 @@ def _e_google_admin(msg):
 
 
 def classifica_messaggio(msg, warmup_tags):
-    if _contiene_tag_warmup(msg, warmup_tags):
+    if _contiene_tag_warmup(msg, warmup_tags) or _e_pattern_warmup_soggetto(msg):
         return {"motivo": "warmup"}
 
     if _e_rimbalzo(msg):

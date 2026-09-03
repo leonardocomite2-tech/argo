@@ -49,6 +49,52 @@ caso(
     classifica_messaggio(msg_da_testo(WARMUP_OGGETTO), WARMUP_TAGS)["motivo"],
 )
 
+# --- regola strutturale: oggetto che termina con pipe + 1-2 gruppi maiuscoli
+# alfanumerici di 6-10 caratteri, indipendente dal token esatto (WARMUP_TAGS
+# qui è solo ["rule-once"]: senza la regola strutturale questi due casi
+# passerebbero come email vere) ---
+PAIGE_REALE = """From: Paige Montgomery <paige.m@leadifylabs.org>
+To: dennis@landmarkpixel.com
+Subject: How can we help you? | Q086N4B ZWNVS42
+Content-Type: text/plain; charset=utf-8
+
+Contenuto di warmup con token mai visto prima.
+"""
+caso(
+    "warmup strutturale: caso reale Paige (due gruppi maiuscoli dopo la pipe, "
+    "token non in WARMUP_TAG) — incidente del 3/09, prima del fix passava come vera",
+    "warmup",
+    classifica_messaggio(msg_da_testo(PAIGE_REALE), WARMUP_TAGS)["motivo"],
+)
+
+NINA_MISTO = """From: Nina <nina@leadifylabs.org>
+To: narratours.info@gmail.com
+Subject: Nina, how are you today? | rule-once HX9J9MY
+Content-Type: text/plain; charset=utf-8
+
+Contenuto di warmup, token misto (tag letterale + nuovo formato).
+"""
+caso(
+    "warmup: oggetto con tag letterale e token nuovo mescolati",
+    "warmup",
+    classifica_messaggio(msg_da_testo(NINA_MISTO), WARMUP_TAGS)["motivo"],
+)
+
+# --- regola strutturale su oggetto "foldato" su più righe (RFC 2822) ---
+PAIGE_FOLDATA = """From: Paige Montgomery <paige.m@leadifylabs.org>
+To: dennis@landmarkpixel.com
+Subject: How can we help you?
+ | Q086N4B ZWNVS42
+Content-Type: text/plain; charset=utf-8
+
+Stesso caso di Paige ma con l'header Subject foldato su due righe.
+"""
+caso(
+    "warmup strutturale: oggetto foldato su due righe, token mai visto",
+    "warmup",
+    classifica_messaggio(msg_da_testo(PAIGE_FOLDATA), WARMUP_TAGS)["motivo"],
+)
+
 # --- warmup nel corpo/oggetto del messaggio originale allegato a un rimbalzo vero ---
 # Ha anche mittente MAILER-DAEMON e content-type multipart/report: se l'ordine dei
 # filtri fosse sbagliato (rimbalzo prima di warmup) questo caso finirebbe come bounce.
