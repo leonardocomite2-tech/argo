@@ -369,11 +369,21 @@ condiviso api+worker in docker-compose)
     (`puo_rispondere: false` + motivo) invece di inventare — verificato a
     mano su un caso reale (punto di partenza di un tour, dato mancante in
     `conoscenza.md`: risposta corretta "verifico e rispondo a breve").
-    **Fix tono (3/09)**: la prima stesura del prompt mescolava lei e tu nelle
-    forme implicite ("Appendi i poster... ai tuoi ospiti" insieme a "risponda
-    pure") — scoperto nel primo collaudo su un caso realistico. Il prompt ora
-    elenca esplicitamente imperativi/congiuntivi, possessivi e pronomi da
-    evitare, non solo "dare del lei" in generale.
+    **Fix tono (3/09), due giri**: il primo collaudo su un caso realistico ha
+    mostrato prima lei/tu mescolati ("Appendi i poster... ai tuoi ospiti" +
+    "risponda pure"), poi lei/voi mescolati ("il vostro B&B", "rispondete
+    pure"). Il prompt ora è esplicito su entrambe le forme sbagliate e sui
+    possessivi riferiti a QUALSIASI sostantivo (non solo "ospiti" — "il suo
+    B&B", non "il vostro B&B"), non solo "dare del lei" in generale.
+    Temperatura abbassata a 0 (come il classificatore): niente creatività
+    richiesta per risposte brevi da una base di conoscenza fissa, e la
+    determinatezza rende ripetibile il collaudo di un fix di prompt.
+    **Osservazione (non un bug da correggere)**: durante il collaudo il
+    drafter ha una volta contato male i caratteri di un codice sconto di
+    esempio (10 lettere, dichiarate 11) rifiutandolo per errore — un limite
+    noto dei modelli linguistici sul conteggio esatto di caratteri. Non
+    richiede un fix di codice: è esattamente il motivo per cui ogni bozza
+    passa da un'approvazione umana prima di partire, mai in automatico.
   - `worker/loop.py`: nuovo helper `_valuta_e_rispondi()`, chiamato da
     `notifica_risposta` e `notifica_dm` dopo la guardia di idempotenza su
     `messages` (che ora cattura anche l'id della riga inserita). Diramazione

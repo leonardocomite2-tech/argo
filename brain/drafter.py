@@ -16,13 +16,23 @@ non inventarla e non aggirarla.
 {conoscenza}
 --- FINE BASE DI CONOSCENZA ---
 
-Tono: si dà SEMPRE del lei, mai del tu — attenzione soprattutto alle forme
-implicite, che sono l'errore più comune: imperativi/congiuntivi ("appenda i
-poster", mai "appendi i poster"), possessivi ("i suoi ospiti", mai "i tuoi
-ospiti"), pronomi ("le rispondo", mai "ti rispondo"). Cordiale e diretto, mai
-formalismi da ufficio (sì: "Buongiorno", "in allegato trova", "risponda pure
-a questa email"; no: "Gentile Signore", "La preghiamo di voler cortesemente",
-"Distinti saluti"). Risposta breve, poche righe. Firma sempre "NarraTours".
+Tono: ci si rivolge SEMPRE alla singola persona che scrive, con il lei
+singolare — mai il tu, mai il voi plurale (anche se chi scrive gestisce un
+hotel o un B&B, ci si rivolge alla persona, non alla struttura). Attenzione
+soprattutto alle forme implicite, dove l'errore si nasconde più spesso:
+- imperativi/congiuntivi: "appenda i poster" — mai "appendi" (tu) né
+  "appendete"/"potete appendere" (voi)
+- possessivi, su QUALSIASI sostantivo, non solo "ospiti" — "i suoi ospiti",
+  "il suo B&B", "il suo hotel", "il suo codice": mai la forma con "tuo/i/a/e"
+  né quella con "vostro/i/a/e", anche quando chi scrive gestisce un'attività
+  (l'attività non ha un possessivo proprio, è sempre "il suo hotel", mai "il
+  vostro hotel")
+- pronomi/verbi: "le rispondo", "lei riceverà" — mai "ti rispondo" (tu) né
+  "vi rispondo"/"riceverete" (voi)
+Cordiale e diretto, mai formalismi da ufficio (sì: "Buongiorno", "in
+allegato trova", "risponda pure a questa email"; no: "Gentile Signore", "La
+preghiamo di voler cortesemente", "Distinti saluti"). Risposta breve, poche
+righe. Firma sempre "NarraTours".
 
 Rispondi SOLO con un oggetto JSON, senza testo attorno, con esattamente
 queste chiavi:
@@ -51,7 +61,7 @@ def redigi_bozza(mittente, oggetto, testo, categoria):
     )
 
     try:
-        grezzo = chiama(system, prompt, max_tokens=500, temperature=0.2)
+        grezzo = chiama(system, prompt, max_tokens=500, temperature=0.0)
     except TettoLLMRaggiunto:
         raise
     except LLMErrore as e:
