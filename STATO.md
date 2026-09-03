@@ -369,6 +369,11 @@ condiviso api+worker in docker-compose)
     (`puo_rispondere: false` + motivo) invece di inventare — verificato a
     mano su un caso reale (punto di partenza di un tour, dato mancante in
     `conoscenza.md`: risposta corretta "verifico e rispondo a breve").
+    **Fix tono (3/09)**: la prima stesura del prompt mescolava lei e tu nelle
+    forme implicite ("Appendi i poster... ai tuoi ospiti" insieme a "risponda
+    pure") — scoperto nel primo collaudo su un caso realistico. Il prompt ora
+    elenca esplicitamente imperativi/congiuntivi, possessivi e pronomi da
+    evitare, non solo "dare del lei" in generale.
   - `worker/loop.py`: nuovo helper `_valuta_e_rispondi()`, chiamato da
     `notifica_risposta` e `notifica_dm` dopo la guardia di idempotenza su
     `messages` (che ora cattura anche l'id della riga inserita). Diramazione
