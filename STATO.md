@@ -320,6 +320,64 @@ condiviso api+worker in docker-compose)
   ancora pending (accodati prima del rename) al nuovo tipo. La classificazione
   LLM (enum chiuso di categorie) e la stesura di bozze restano da fare — questo
   handler resta solo notifica, zero LLM.
+- **Cantiere risposte, secondo pezzo (3/09) — classificazione LLM + bozze,
+  collegate al traffico vero**: prima chiamata a un modello in produzione in
+  questo repo.
+  - `connectors/llm.py`: connector sottile (stile `places.py`, solo stdlib),
+    `chiama(system, prompt, max_tokens, temperature)` POST a
+    `https://api.anthropic.com/v1/messages`, modello `claude-haiku-4-5-20251001`.
+    Retry solo su errori di rete e 5xx (niente 429, a differenza di
+    `places.py`), 3 tentativi. Logga sempre token in ingresso/uscita e
+    latenza. Tetto giornaliero `LLM_TETTO_GIORNALIERO` (env, oggi 150):
+    contatore **in-memory** nel processo worker — vedi DECISIONI APERTE per
+    il trade-off. Al superamento: notifica Telegram una sola volta al giorno
+    e solleva `TettoLLMRaggiunto` prima di qualunque chiamata HTTP.
+  - `brain/classifier.py`: `classifica(mittente, oggetto, testo)`, enum
+    chiuso (`interessato, domanda, obiezione, prezzo_o_contratto,
+    non_interessato, disiscrizione, fuori_tema`), temperatura 0, JSON
+    forzato. `prezzo_o_contratto` è per le condizioni del *proprio*
+    contratto/commissione come host (da negoziare), non i prezzi dei tour
+    per l'ospite (quelli sono `domanda`, coperti da `knowledge/conoscenza.md`).
+    JSON non valido o categoria fuori enum → `ClassificazioneErrore`, motivo
+    sempre categorico (mai il testo grezzo del modello nell'alert). Eval in
+    `tests/eval_classificatore.py`, 21 casi scritti a mano (uno o più per
+    categoria, casi di confine inclusi), chiamate reali all'API, rilanciabile
+    dopo ogni modifica al prompt — 21/21 passati alla prima stesura.
+  - `brain/drafter.py`: `redigi_bozza(mittente, oggetto, testo, categoria)`,
+    legge `knowledge/conoscenza.md` ad ogni chiamata (niente cache, il file
+    può essere aggiornato senza riavviare il worker). Se la domanda esce dal
+    perimetro della base di conoscenza, il drafter stesso lo dichiara
+    (`puo_rispondere: false` + motivo) invece di inventare — verificato a
+    mano su un caso reale (punto di partenza di un tour, dato mancante in
+    `conoscenza.md`: risposta corretta "verifico e rispondo a breve").
+  - `worker/loop.py`: nuovo helper `_valuta_e_rispondi()`, chiamato da
+    `notifica_risposta` e `notifica_dm` dopo la guardia di idempotenza su
+    `messages` (che ora cattura anche l'id della riga inserita). Diramazione
+    per categoria: `interessato`/`domanda` con confidenza > 0.7 → bozza dal
+    drafter → `INSERT INTO approvals` + `chiedi_approvazione()` (stessa
+    identica catena di `test_approvazione`/`test_approvazione_dm`, mai un
+    invio diretto); `obiezione`, `prezzo_o_contratto`, `fuori_tema` o
+    confidenza ≤ 0.7 → solo notifica con contesto, nessuna bozza;
+    `non_interessato`/`disiscrizione` → riga in `soppressioni` (sempre) +
+    `UPDATE contacts SET stato='non_interessato'` con match best-effort
+    (`email` per le email, `ghl_contact_id` per i DM, nessuna creazione — non
+    esiste identity resolution). Se il contatto non viene trovato: **non è un
+    no-op silenzioso** — `messages.payload.contatto_trovato=false`, nota
+    esplicita nella notifica immediata, e nuovo conteggio nel digest serale
+    ("N disiscrizioni/non_interessato senza contatto corrispondente" nelle
+    24h) — un mancato match è un segnale (lead da un'altra fonte, o email
+    diversa da quella in anagrafica), non un caso normale da ignorare.
+    `messages.categoria`/`messages.confidence` (colonne orfane dallo schema
+    iniziale) ora sono scritte per ogni messaggio classificato.
+  - **Invio email ora dalla casella originaria, non più dalla reply-box
+    fissa**: `invia_risposta` (ramo email) legge anche
+    `e.payload->>'destinatario'` e risolve la password app con il nuovo
+    `connectors.imap_reader.password_per(user)`. `invia_risposta_email()` in
+    `connectors/mailer.py` è ora parametrica su `mittente_user`/
+    `mittente_pass` invece di usare sempre `REPLY_SMTP_*`. `Reply-To` resta
+    fisso su `REPLY_SMTP_USER` (narratours.info@gmail.com), così le risposte
+    dell'host convergono sempre lì anche se il primo giro è partito da una
+    delle caselle `landmarkpixel.com`.
 - **Email del depliant (29/08)**: `genera_poster`, dopo l'invio riuscito dei
   poster, accoda il job `invia_depliant` con `run_after = now() + interval
   '24 hours'` e `event_id` nel payload. Nuovo handler `invia_depliant`
@@ -416,6 +474,19 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   atomica a livello DB, niente più finestra tra verifica e scrittura.
 
 ## DECISIONI APERTE — bloccano
+- Tetto giornaliero di chiamate LLM (`LLM_TETTO_GIORNALIERO`, oggi 150) tenuto
+  in un contatore in-memory nel processo worker (`connectors/llm.py`), non su
+  DB. Trade-off scelto: connector resta sottile (zero dipendenza DB, come
+  `places.py`), ma il contatore si azzera ad ogni riavvio del worker (raro,
+  solo su deploy) — nel caso peggiore il tetto reale del giorno è più alto di
+  150 se il worker riavvia più volte. Non risolto nel codice.
+- Classificazione/bozza fallita (`ClassificazioneErrore`/`DrafterErrore`, es.
+  JSON non valido dal modello) non viene ritentata a livello di job: la
+  guardia di idempotenza su `messages` (scritta prima della classificazione)
+  fa sì che un retry del job veda il messaggio "già notificato" e esca subito
+  senza mai richiamare l'LLM. Trade-off scelto: un errore di classificazione
+  è terminale per quel messaggio — arriva solo la notifica Telegram, nessun
+  retry automatico, gestione a mano se capita.
 - Provider caselle Instantly + casella pulita: non blocca più il codice (il
   connettore IMAP è provider-agnostico, basta configurare `IMAP_HOST`/
   `MAILBOX_N_USER/PASS` in `.env`), resta aperta solo la scelta operativa di

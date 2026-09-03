@@ -201,6 +201,15 @@ def _mailboxes():
         n += 1
 
 
+def password_per(user):
+    """Password app della casella `user` tra quelle configurate
+    (MAILBOX_N_USER/PASS), o None se non trovata."""
+    for candidato, password in _mailboxes():
+        if candidato == user:
+            return password
+    return None
+
+
 def _leggi_casella(user, password):
     host = os.environ["IMAP_HOST"]
     port = int(os.environ.get("IMAP_PORT", 993))

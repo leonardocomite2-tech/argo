@@ -44,13 +44,13 @@ def _quota(testo):
 
 
 def invia_risposta_email(destinatario, oggetto, testo_risposta, testo_originale,
-                          in_reply_to, references, reply_to):
+                          in_reply_to, references, reply_to, mittente_user, mittente_pass):
     if not oggetto.strip().lower().startswith("re:"):
         oggetto = f"Re: {oggetto}"
 
     msg = EmailMessage()
     msg["Subject"] = oggetto
-    msg["From"] = f'{os.environ["REPLY_FROM_NAME"]} <{os.environ["REPLY_SMTP_USER"]}>'
+    msg["From"] = f'{os.environ["MAIL_FROM_NAME"]} <{mittente_user}>'
     msg["To"] = destinatario
     msg["Reply-To"] = reply_to
     if in_reply_to:
@@ -63,7 +63,7 @@ def invia_risposta_email(destinatario, oggetto, testo_risposta, testo_originale,
 
     with smtplib.SMTP(os.environ["REPLY_SMTP_HOST"], int(os.environ["REPLY_SMTP_PORT"])) as smtp:
         smtp.starttls()
-        smtp.login(os.environ["REPLY_SMTP_USER"], os.environ["REPLY_SMTP_PASS"])
+        smtp.login(mittente_user, mittente_pass)
         smtp.send_message(msg)
 
-    logger.info("invia_risposta_email: inviata a %s (oggetto=%s)", destinatario, oggetto)
+    logger.info("invia_risposta_email: inviata a %s da %s (oggetto=%s)", destinatario, mittente_user, oggetto)

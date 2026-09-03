@@ -10,8 +10,11 @@ from zoneinfo import ZoneInfo
 import psycopg
 
 from media.poster import BASE_DIR, genera_poster as genera_poster_immagine, jpeg_per_invio
+from brain.classifier import classifica, ClassificazioneErrore
+from brain.drafter import redigi_bozza, DrafterErrore
 from connectors.ghl import invia_messaggio
-from connectors.imap_reader import leggi_nuove
+from connectors.imap_reader import leggi_nuove, password_per
+from connectors.llm import TettoLLMRaggiunto
 from connectors.mailer import invia_email, invia_risposta_email, invia_email_reply_box
 from connectors.telegram import notifica, chiedi_approvazione, riga_scadenza
 from connectors.testi import (
@@ -430,7 +433,8 @@ def _lista_con_taglio(righe, max_elementi=5):
 
 def componi_digest_serale(
     approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
-    poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi
+    poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi,
+    contatti_non_trovati
 ):
     titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
 
@@ -556,6 +560,14 @@ def componi_digest_serale(
             mostrate = mostrate + [f"   e altri {extra}"]
         sezione_codici = f"🚫 {n} codic{'e' if n == 1 else 'i'} rifiutat{'o' if n == 1 else 'i'}\n" + "\n".join(mostrate)
 
+    if contatti_non_trovati:
+        sezione_contatti = (
+            f"❓ {contatti_non_trovati} disiscrizione/non_interessato senza contatto "
+            "corrispondente in anagrafica (24h)"
+        )
+    else:
+        sezione_contatti = "❓ nessuna disiscrizione senza contatto corrispondente"
+
     conteggio_posta, ultima_lettura = posta
     if conteggio_posta:
         orario = ultima_lettura.astimezone(FUSO_ROMA).strftime("%H:%M")
@@ -579,6 +591,7 @@ def componi_digest_serale(
             sezione_poster,
             sezione_codici,
             sezione_posta,
+            sezione_contatti,
         ]
     )
 
@@ -681,9 +694,18 @@ def digest_serale(payload):
             )
             rimbalzi_soppressi = cur.fetchall()
 
+            cur.execute(
+                "SELECT count(*) FROM messages "
+                "WHERE categoria IN ('non_interessato', 'disiscrizione') "
+                "AND payload->>'contatto_trovato' = 'false' "
+                "AND created_at >= now() - interval '24 hours'"
+            )
+            (contatti_non_trovati,) = cur.fetchone()
+
     testo = componi_digest_serale(
         approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
         poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi,
+        contatti_non_trovati,
     )
 
     # Riaccodato PRIMA dell'invio: se notifica() venisse chiamata prima e poi
@@ -900,26 +922,194 @@ def notifica_risposta(payload):
                 "DO NOTHING RETURNING id",
                 (thread_id, testo),
             )
-            gia_notificata = cur.fetchone() is None
+            row_msg = cur.fetchone()
+            gia_notificata = row_msg is None
+            db_message_id = row_msg[0] if row_msg else None
 
     if gia_notificata:
         logger.info("notifica_risposta: già notificata per evento %s, salto", event_id)
         return
 
-    anteprima = testo[:400] + ("[...]" if len(testo) > 400 else "")
-    testo_notifica = (
-        f"📧 Nuova risposta\n"
-        f"Da: {mittente}\n"
-        f"A: {destinatario}\n"
-        f"Oggetto: {oggetto or '(senza oggetto)'}\n\n"
-        f"{anteprima}"
+    _, indirizzo_mittente = parseaddr(mittente or "")
+    _valuta_e_rispondi(
+        db_message_id=db_message_id,
+        canale="email",
+        mittente=mittente,
+        oggetto=oggetto,
+        testo=testo,
+        scadenza=None,
+        contatto_where_col="email",
+        contatto_valore=indirizzo_mittente or mittente,
+        soppressione_tipo="email",
+        soppressione_valore=indirizzo_mittente or mittente,
     )
-    notifica(testo_notifica)
-    logger.info("notifica_risposta: evento %s oggetto=%r notificato", event_id, oggetto)
+    logger.info("notifica_risposta: evento %s oggetto=%r elaborato", event_id, oggetto)
 
 
 MARCATORE_CANALE_DM = {"instagram": "📷 IG", "facebook": "💬 FB"}
 TIPO_GHL_CANALE = {"instagram": "IG", "facebook": "FB"}
+SOGLIA_CONFIDENZA_BOZZA = 0.7
+CATEGORIE_SOPPRESSIONE = {"non_interessato", "disiscrizione"}
+CATEGORIE_CON_BOZZA_POSSIBILE = {"interessato", "domanda"}
+
+
+def _valuta_e_rispondi(db_message_id, canale, mittente, oggetto, testo, scadenza,
+                        contatto_where_col, contatto_valore,
+                        soppressione_tipo, soppressione_valore):
+    """Classifica un messaggio in arrivo (email o DM, già scritto in `messages`
+    con id `db_message_id`) e decide cosa fare in base alla categoria — bozza
+    con approvazione, soppressione, o solo notifica. Mai un invio automatico:
+    ogni bozza passa da chiedi_approvazione(), mai da qui direttamente."""
+    marcatore = MARCATORE_CANALE_DM.get(canale, "📧")
+    riga_oggetto = f"Oggetto: {oggetto or '(senza oggetto)'}\n" if oggetto is not None else ""
+    anteprima = testo[:400] + ("[...]" if len(testo) > 400 else "")
+
+    try:
+        esito = classifica(mittente, oggetto, testo)
+    except TettoLLMRaggiunto:
+        # Già notificato da connectors/llm.py — un solo alert per il tetto.
+        return
+    except ClassificazioneErrore as e:
+        notifica(
+            f"⚠️ Classificazione fallita ({e}) — nessuna bozza\n"
+            f"Da: {mittente}\n{riga_oggetto}\n{anteprima}"
+        )
+        logger.warning("_valuta_e_rispondi: classificazione fallita per messaggio %s: %s", db_message_id, e)
+        return
+
+    categoria, confidenza, motivo = esito["categoria"], esito["confidenza"], esito["motivo"]
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE messages SET categoria = %s, confidence = %s WHERE id = %s",
+                (categoria, confidenza, db_message_id),
+            )
+
+    # Da qui in poi qualunque eccezione non gestita sarebbe silenziosa per
+    # sempre, non solo fino al prossimo retry: la guardia di idempotenza su
+    # `messages` è già stata scritta PRIMA di chiamare questa funzione (in
+    # notifica_risposta/notifica_dm), quindi un retry del job la troverebbe
+    # già presente ed uscirebbe subito senza mai ripetere classificazione,
+    # bozza o chiedi_approvazione — un'approvazione creata ma con
+    # chiedi_approvazione fallito resterebbe orfana (tg_message_id NULL) per
+    # sempre, invisibile. Meglio un alert esplicito e uscire, piuttosto che
+    # lasciar propagare e sperare in un retry che non aiuterebbe comunque.
+    try:
+        if categoria in CATEGORIE_SOPPRESSIONE:
+            with db_connect() as conn:
+                with conn.cursor() as cur:
+                    if soppressione_valore is not None:
+                        cur.execute(
+                            "INSERT INTO soppressioni (tipo, valore, motivo) VALUES (%s, %s, %s) "
+                            "ON CONFLICT (tipo, valore) DO NOTHING",
+                            (soppressione_tipo, soppressione_valore, categoria),
+                        )
+                    else:
+                        # NULL non è deduplicato dal vincolo UNIQUE(tipo, valore)
+                        # in Postgres (NULL <> NULL) — senza un valore non c'è
+                        # comunque nulla da sopprimere, si salta l'insert.
+                        logger.warning(
+                            "_valuta_e_rispondi: soppressione_valore mancante per messaggio %s, salto soppressioni",
+                            db_message_id,
+                        )
+                    if contatto_where_col == "email":
+                        cur.execute(
+                            "UPDATE contacts SET stato = 'non_interessato' WHERE email = %s",
+                            (contatto_valore,),
+                        )
+                    elif contatto_where_col == "ghl_contact_id":
+                        cur.execute(
+                            "UPDATE contacts SET stato = 'non_interessato' WHERE ghl_contact_id = %s",
+                            (contatto_valore,),
+                        )
+                    else:
+                        raise ValueError(f"_valuta_e_rispondi: contatto_where_col sconosciuto '{contatto_where_col}'")
+                    contatto_trovato = cur.rowcount > 0
+                    if not contatto_trovato:
+                        # Non un no-op silenzioso: un contatto non trovato per una
+                        # disiscrizione/non_interessato è un segnale (lead arrivato
+                        # da un'altra fonte, o email diversa da quella in anagrafica)
+                        # — va visto subito e contato nel digest serale, non scoperto
+                        # mesi dopo. La riga in soppressioni sopra protegge comunque
+                        # gli invii futuri, a prescindere dal match del contatto.
+                        cur.execute(
+                            "UPDATE messages SET payload = %s WHERE id = %s",
+                            (json.dumps({"contatto_trovato": False}), db_message_id),
+                        )
+
+            nota_contatto = "" if contatto_trovato else " — contatto non trovato in anagrafica"
+            notifica(f"🔕 {categoria} — {mittente}{nota_contatto}, nessuna risposta inviata")
+            logger.info("_valuta_e_rispondi: messaggio %s soppresso (%s)", db_message_id, categoria)
+            return
+
+        if categoria in CATEGORIE_CON_BOZZA_POSSIBILE and confidenza > SOGLIA_CONFIDENZA_BOZZA:
+            try:
+                bozza_esito = redigi_bozza(mittente, oggetto, testo, categoria)
+            except TettoLLMRaggiunto:
+                return
+            except DrafterErrore as e:
+                notifica(
+                    f"⚠️ Bozza non generata ({categoria}, {e}) — decido io\n"
+                    f"Da: {mittente}\n{riga_oggetto}\n{anteprima}"
+                )
+                logger.warning("_valuta_e_rispondi: bozza fallita per messaggio %s: %s", db_message_id, e)
+                return
+
+            if bozza_esito["bozza"] is None:
+                notifica(
+                    f"✋ Bozza non generata ({categoria}) — {bozza_esito['motivo']}\n"
+                    f"Da: {mittente}\n{riga_oggetto}\n{anteprima}"
+                )
+                return
+
+            bozza = bozza_esito["bozza"]
+            with db_connect() as conn:
+                with conn.cursor() as cur:
+                    if scadenza is not None:
+                        cur.execute(
+                            "INSERT INTO approvals (message_id, bozza, scadenza) VALUES (%s, %s, %s) RETURNING id",
+                            (db_message_id, bozza, scadenza),
+                        )
+                    else:
+                        cur.execute(
+                            "INSERT INTO approvals (message_id, bozza) VALUES (%s, %s) RETURNING id",
+                            (db_message_id, bozza),
+                        )
+                    approval_id = cur.fetchone()[0]
+
+            contesto = {"mittente": mittente, "oggetto": oggetto, "testo_ricevuto": testo}
+            tg_message_id = chiedi_approvazione(approval_id, bozza, contesto, scadenza)
+
+            with db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE approvals SET tg_message_id = %s WHERE id = %s",
+                        (tg_message_id, approval_id),
+                    )
+            logger.info(
+                "_valuta_e_rispondi: approvazione %s creata per messaggio %s (%s)",
+                approval_id, db_message_id, categoria,
+            )
+            return
+
+        # obiezione, prezzo_o_contratto, fuori_tema, o interessato/domanda
+        # sotto soglia: nessuna bozza, decide l'operatore.
+        notifica(
+            f"{marcatore} {categoria} (confidenza {confidenza:.2f}) — decido io\n"
+            f"Da: {mittente}\n{riga_oggetto}"
+            f"Motivo: {motivo}\n\n"
+            f"{anteprima}"
+        )
+        logger.info("_valuta_e_rispondi: messaggio %s notificato senza bozza (%s)", db_message_id, categoria)
+    except Exception:
+        logger.exception(
+            "_valuta_e_rispondi: eccezione non gestita per messaggio %s (categoria=%s)",
+            db_message_id, categoria,
+        )
+        notifica(
+            f"⚠️ Errore interno dopo la classificazione del messaggio #{db_message_id} "
+            f"(categoria={categoria}) — verificare a mano (possibile approvazione orfana)."
+        )
 
 
 @handler("notifica_dm")
@@ -933,14 +1123,14 @@ def notifica_dm(payload):
             cur.execute(
                 "SELECT payload->>'reply_channel', payload->>'message_body', "
                 "payload->>'first_name', payload->>'last_name', payload->>'email', "
-                "payload->>'scadenza' FROM events WHERE id = %s",
+                "payload->>'scadenza', payload->>'contact_id' FROM events WHERE id = %s",
                 (event_id,),
             )
             row = cur.fetchone()
 
     if row is None:
         raise ValueError(f"notifica_dm: evento {event_id} non trovato")
-    canale, message_body, first_name, last_name, email, scadenza_raw = row
+    canale, message_body, first_name, last_name, email, scadenza_raw, contact_id_ghl = row
     message_body = message_body or ""
     scadenza = datetime.fromisoformat(scadenza_raw)
 
@@ -949,7 +1139,9 @@ def notifica_dm(payload):
         with conn.cursor() as cur:
             # contact_id NULL come negli altri handler email: il contact_id nel
             # payload è l'id esterno di GHL (stringa), non una riga di `contacts`
-            # (nessuna risoluzione contatto/identities ancora implementata).
+            # (nessuna risoluzione contatto/identities ancora implementata) —
+            # per la soppressione/il match contatto si usa contact_id_ghl,
+            # letto direttamente dal payload dell'evento.
             cur.execute(
                 "INSERT INTO messages (contact_id, canale, direzione, thread_id, testo) "
                 "VALUES (NULL, %s, 'in', %s, %s) "
@@ -957,23 +1149,28 @@ def notifica_dm(payload):
                 "DO NOTHING RETURNING id",
                 (canale, thread_id, message_body),
             )
-            gia_notificata = cur.fetchone() is None
+            row_msg = cur.fetchone()
+            gia_notificata = row_msg is None
+            db_message_id = row_msg[0] if row_msg else None
 
     if gia_notificata:
         logger.info("notifica_dm: già notificata per evento %s, salto", event_id)
         return
 
-    marcatore = MARCATORE_CANALE_DM.get(canale, canale)
     mittente = " ".join(filter(None, [first_name, last_name])) or email or "(mittente sconosciuto)"
-    anteprima = message_body[:400] + ("[...]" if len(message_body) > 400 else "")
-    testo_notifica = (
-        f"{marcatore} Nuovo DM\n"
-        f"Da: {mittente}\n"
-        f"{riga_scadenza(scadenza)}\n\n"
-        f"{anteprima}"
+    _valuta_e_rispondi(
+        db_message_id=db_message_id,
+        canale=canale,
+        mittente=mittente,
+        oggetto=None,
+        testo=message_body,
+        scadenza=scadenza,
+        contatto_where_col="ghl_contact_id",
+        contatto_valore=contact_id_ghl,
+        soppressione_tipo=canale,
+        soppressione_valore=contact_id_ghl,
     )
-    notifica(testo_notifica)
-    logger.info("notifica_dm: evento %s canale=%s notificato", event_id, canale)
+    logger.info("notifica_dm: evento %s canale=%s elaborato", event_id, canale)
 
 
 # Stati di approvals.stato: 'in_attesa' (default, in attesa di un tocco su
@@ -1050,7 +1247,7 @@ def invia_risposta(payload):
                 SELECT m.thread_id, m.canale,
                        e.payload->>'mittente', e.payload->>'oggetto', e.payload->>'testo',
                        e.payload->>'message_id', e.payload->>'references',
-                       e.payload->>'contact_id'
+                       e.payload->>'contact_id', e.payload->>'destinatario'
                 FROM messages m JOIN events e ON m.thread_id = e.id::text
                 WHERE m.id = %s
                 """,
@@ -1064,7 +1261,7 @@ def invia_risposta(payload):
             "senza evento collegato"
         )
     (thread_id, canale, mittente, oggetto, testo_originale,
-     message_id_originale, references_orig, contact_id_ghl) = riga
+     message_id_originale, references_orig, contact_id_ghl, destinatario_originale) = riga
 
     if canale == "email":
         corpo = f"{PREMESSA_CASELLA_DIVERSA}\n\n{testo_finale}"
@@ -1087,12 +1284,25 @@ def invia_risposta(payload):
         if message_id_originale:
             references = f"{references_orig} {message_id_originale}" if references_orig else message_id_originale
 
+        # La risposta parte dalla stessa casella che ha ricevuto il messaggio
+        # originale (non più sempre dalla reply-box), con Reply-To fisso sulla
+        # casella "info" perché le risposte successive convergano lì.
+        mittente_pass = password_per(destinatario_originale)
+        if mittente_pass is None:
+            raise ValueError(
+                f"invia_risposta: nessuna password configurata per la casella '{destinatario_originale}' "
+                f"(approvazione {approval_id})"
+            )
         reply_to = os.environ["REPLY_SMTP_USER"]
         invia_risposta_email(
             mittente, oggetto, corpo, testo_originale,
             message_id_originale, references, reply_to,
+            destinatario_originale, mittente_pass,
         )
-        logger.info("invia_risposta: inviata per approvazione %s a %s", approval_id, mittente)
+        logger.info(
+            "invia_risposta: inviata per approvazione %s a %s da %s",
+            approval_id, mittente, destinatario_originale,
+        )
         notifica(f"Risposta inviata — approvazione #{approval_id}, oggetto: {oggetto or '(senza oggetto)'}")
 
     elif canale in ("instagram", "facebook"):
