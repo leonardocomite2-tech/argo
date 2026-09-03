@@ -3,7 +3,7 @@ import imaplib
 import logging
 import os
 from email.header import decode_header, make_header
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 from html.parser import HTMLParser
 
 from connectors.telegram import notifica
@@ -85,9 +85,109 @@ def _parsa_data(valore):
         return valore
 
 
-WARMUP_TAG = os.environ.get("WARMUP_TAG", "").strip()
-if not WARMUP_TAG:
+def _parse_warmup_tags(valore):
+    return [t.strip() for t in (valore or "").split(",") if t.strip()]
+
+
+WARMUP_TAGS = _parse_warmup_tags(os.environ.get("WARMUP_TAG", ""))
+if not WARMUP_TAGS:
     logger.info("imap_reader: WARMUP_TAG non impostata, filtro warmup disattivo")
+
+
+def _contiene_tag_warmup(msg, tags):
+    if not tags:
+        return False
+    grezzo = msg.as_string().lower()
+    return any(tag.lower() in grezzo for tag in tags)
+
+
+def _e_rimbalzo(msg):
+    mittente = (msg.get("From") or "").lower()
+    if "mailer-daemon" in mittente or "postmaster@" in mittente:
+        return True
+    if msg.get_content_type() == "multipart/report":
+        report_type = (msg.get_param("report-type", header="Content-Type") or "").lower()
+        if report_type == "delivery-status":
+            return True
+    return False
+
+
+def _estrai_dettagli_rimbalzo(msg):
+    for parte in msg.walk():
+        if parte.get_content_type() != "message/delivery-status":
+            continue
+        payload = parte.get_payload()
+        if isinstance(payload, list) and payload:
+            blocco = payload[0]
+        else:
+            testo = parte.get_payload(decode=True)
+            if isinstance(testo, bytes):
+                testo = testo.decode("utf-8", errors="replace")
+            blocco = email.message_from_string(testo or "")
+        indirizzo = blocco.get("Final-Recipient") or blocco.get("Original-Recipient")
+        if indirizzo and ";" in indirizzo:
+            indirizzo = indirizzo.split(";", 1)[1].strip()
+        status = blocco.get("Status")
+        return indirizzo, status
+    return None, None
+
+
+def _e_automatica(msg):
+    auto_submitted = (msg.get("Auto-Submitted") or "no").strip().lower()
+    if auto_submitted not in ("", "no"):
+        return True
+    precedence = (msg.get("Precedence") or "").strip().lower()
+    if precedence in ("bulk", "auto_reply"):
+        return True
+    _, indirizzo = parseaddr(msg.get("From") or "")
+    indirizzo = (indirizzo or "").lower()
+    dominio = indirizzo.split("@")[-1] if "@" in indirizzo else ""
+    if _e_dominio_google(dominio):
+        # I domini Google hanno un controllo dedicato più sotto (_e_google_admin):
+        # qui li escludiamo per non far scattare sempre "automatica" per primo.
+        return False
+    return indirizzo.startswith(("no-reply@", "noreply@", "donotreply@"))
+
+
+def _e_dominio_google(dominio):
+    return (
+        dominio in ("google.com", "googlemail.com")
+        or dominio.endswith(".google.com")
+        or dominio.endswith(".googlemail.com")
+    )
+
+
+def _e_google_admin(msg):
+    _, indirizzo = parseaddr(msg.get("From") or "")
+    indirizzo = (indirizzo or "").lower()
+    if "@" not in indirizzo:
+        return False
+    locale, dominio = indirizzo.split("@", 1)
+    if not _e_dominio_google(dominio):
+        return False
+    return locale.startswith("no-reply") or locale.startswith("noreply")
+
+
+def classifica_messaggio(msg, warmup_tags):
+    if _contiene_tag_warmup(msg, warmup_tags):
+        return {"motivo": "warmup"}
+
+    if _e_rimbalzo(msg):
+        indirizzo, status = _estrai_dettagli_rimbalzo(msg)
+        definitivo = bool(status) and status.strip().startswith("5.")
+        return {
+            "motivo": "bounce_definitivo" if definitivo else "bounce_temporaneo",
+            "indirizzo_fallito": indirizzo,
+            "codice_rimbalzo": status,
+        }
+
+    if _e_automatica(msg):
+        return {"motivo": "automatica"}
+
+    if _e_google_admin(msg):
+        return {"motivo": "google_admin"}
+
+    return {"motivo": None}
 
 
 def _mailboxes():
@@ -121,6 +221,7 @@ def _leggi_casella(user, password):
 
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
+            classificazione = classifica_messaggio(msg, WARMUP_TAGS)
 
             risultati.append({
                 "message_id": msg.get("Message-ID"),
@@ -131,6 +232,9 @@ def _leggi_casella(user, password):
                 "data": _parsa_data(msg.get("Date")),
                 "in_reply_to": msg.get("In-Reply-To"),
                 "references": msg.get("References"),
+                "motivo_scarto": classificazione["motivo"],
+                "indirizzo_fallito": classificazione.get("indirizzo_fallito"),
+                "codice_rimbalzo": classificazione.get("codice_rimbalzo"),
             })
 
     return risultati
@@ -147,16 +251,4 @@ def leggi_nuove():
                 f"ALERT: casella IMAP {user} non raggiungibile (errore={type(e).__name__})"
             )
 
-    if not WARMUP_TAG:
-        return tutti
-
-    risultato = []
-    scartati = 0
-    for m in tutti:
-        oggetto = m.get("oggetto") or ""
-        if WARMUP_TAG.lower() in oggetto.lower():
-            scartati += 1
-        else:
-            risultato.append(m)
-    logger.info("leggi_nuove: %d messaggi scartati come warmup", scartati)
-    return risultato
+    return tutti

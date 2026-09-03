@@ -233,13 +233,48 @@ condiviso api+worker in docker-compose)
   globale in `imap_reader.py`, usata per tutte le caselle): le `.click`
   torneranno su Hostinger, mentre le altre restano su Google.
   `WARMUP_TAG` è ora `rule-once`.
-  **Due difetti noti, da affrontare nel cantiere risposte**:
-  1. il filtro warmup guarda solo l'oggetto (`WARMUP_TAG.lower() in
-     oggetto.lower()` in `leggi_nuove()`) e quindi lascia passare i
-     rimbalzi (bounce) come messaggi veri;
-  2. le email automatiche di Google (`no-reply@google.com`, avvisi di
-     sicurezza) generano notifiche inutili — non sono conversazioni con
-     host/prospect.
+- **Cantiere risposte, primo pezzo (3/09) — filtri email in ingresso**:
+  i due difetti noti sopra sono risolti. `connectors/imap_reader.py`
+  classifica ogni messaggio con `classifica_messaggio(msg, WARMUP_TAGS)`,
+  in ordine fisso: warmup → rimbalzi → automatiche → amministrazione
+  Google. `WARMUP_TAG` ora accetta più valori separati da virgola
+  (`_parse_warmup_tags`), e il tag si cerca nel testo grezzo completo del
+  messaggio (`msg.as_string()`: intestazioni + corpo + parti annidate),
+  non solo nell'oggetto — copre il caso dei rimbalzi di warmup, dove il
+  tag è nel messaggio originale allegato (`message/rfc822` dentro il
+  `multipart/report`). Rimbalzi riconosciuti da mittente
+  (`MAILER-DAEMON`/`postmaster@`) o da `Content-Type: multipart/report;
+  report-type=delivery-status`; indirizzo fallito e codice estratti dalla
+  sotto-parte `message/delivery-status`. Codice `5.x.x` → definitivo,
+  `4.x.x` (o non estraibile — default prudente) → temporaneo. Amministrazione
+  Google riconosciuta **solo dal mittente** (dominio `google.com`/
+  `googlemail.com`, anche sottodomini come `accounts.google.com`, local-part
+  che inizia per `no-reply`/`noreply`), mai dall'oggetto — confermato con
+  oggetti reali dai log ("Tips for using your new inbox" non è un avviso di
+  sicurezza ma va comunque ignorato). Il controllo "automatiche" esclude i
+  domini Google dal proprio check sul prefisso no-reply/noreply, altrimenti
+  finirebbero sempre lì (essendo prima nell'ordine) e la categoria
+  `google_admin` non scatterebbe mai.
+  `leggi_nuove()` non filtra più nulla: restituisce tutti i messaggi
+  annotati con `motivo_scarto`. La decisione si sposta nell'handler
+  `leggi_email` (`worker/loop.py`): se `motivo_scarto` è `None` comportamento
+  invariato (evento `email.reply` + job `notifica_risposta`); altrimenti
+  evento `email.filtrata` con `payload.motivo` (e `indirizzo_fallito`/
+  `codice_rimbalzo` per i rimbalzi), nessun job di notifica — mai scartato
+  in silenzio. Rimbalzo definitivo con indirizzo estratto → riga in
+  `soppressioni` (`tipo='email', motivo='bounce'`, schema già pronto,
+  nessuna migrazione). Log di fine giro: quanti messaggi passati e quanti
+  filtrati per motivo. Digest serale (`componi_digest_serale`): due nuove
+  sezioni, conteggio filtrati per motivo (24h) e indirizzi finiti in
+  `soppressioni` per bounce (24h, troncati a 5 con "e altri N" come le
+  altre sezioni — riepilogo, non un rimbalzo alla volta). Test in
+  `tests/test_filtri_email.py` (stile CASI, un caso per categoria, incluso
+  un rimbalzo vero con il tag warmup nel messaggio allegato).
+  Trade-off noto: un rimbalzo senza `message/delivery-status` parsabile è
+  trattato come temporaneo anche se fosse definitivo (senza indirizzo
+  comunque non c'è nulla da sopprimere — impatta solo il conteggio nel
+  digest). La classificazione LLM e la stesura di bozze restano il
+  prossimo pezzo del cantiere.
 - Approvazione bozze via Telegram (`connectors/telegram.py`:
   `chiedi_approvazione()` manda bozza+contesto con tre bottoni inline
   (Approva/Modifica/Rifiuta, callback_data `appr:<id>`/`modif:<id>`/`rifiu:<id>`),
@@ -404,13 +439,12 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   bene subito, perché ritrofittarla è doloroso. Oggi non blocca nulla — ogni
   canale lavora isolato — ma appena lo stesso prospect scriverà via email e
   via DM, non avremo modo di sapere che è la stessa persona.
-- Filtro warmup lascia passare i rimbalzi: `leggi_nuove()` classifica come
-  warmup solo controllando se `WARMUP_TAG` compare nell'oggetto — un
-  rimbalzo (bounce) non ha il tag nell'oggetto e passa come email vera. Da
-  affrontare nel cantiere risposte, non risolto qui.
-- Email automatiche di Google generano notifiche inutili: `no-reply@google.com`
-  e gli avvisi di sicurezza vengono letti come email vere e notificati su
-  Telegram. Da affrontare nel cantiere risposte, non risolto qui.
+- **Risolto (3/09)** — Filtro warmup lasciava passare i rimbalzi ed email
+  automatiche di Google generavano notifiche inutili: vedi cantiere
+  risposte, primo pezzo, sopra. Trade-off rimasto: un rimbalzo senza
+  `message/delivery-status` parsabile è trattato come temporaneo anche se
+  fosse definitivo — nessun indirizzo estratto, quindi nessuna soppressione
+  mancata, solo un conteggio impreciso nel digest.
 - Le caselle `.click` (in warmup) richiederanno un host IMAP per casella
   quando rientrano in lettura tra un mese: torneranno su Hostinger mentre
   le altre restano su Google, e oggi `IMAP_HOST` è un'unica variabile

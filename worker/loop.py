@@ -313,6 +313,9 @@ def leggi_email(payload):
     messaggi = leggi_nuove()
     logger.info("leggi_email: %d messaggi letti in questo giro", len(messaggi))
 
+    passati = 0
+    filtrati = {}
+
     for m in messaggi:
         message_id = m.get("message_id")
         if message_id:
@@ -332,7 +335,10 @@ def leggi_email(payload):
 
         testo = m.get("testo") or ""
         troncato = len(testo) > TESTO_MAX_LEN
-        evento_payload = json.dumps({
+        motivo_scarto = m.get("motivo_scarto")
+        tipo_evento = "email.reply" if motivo_scarto is None else "email.filtrata"
+
+        evento_payload_dict = {
             "message_id": message_id,
             "mittente": m.get("mittente"),
             "destinatario": m.get("destinatario"),
@@ -343,28 +349,51 @@ def leggi_email(payload):
             "data": m.get("data"),
             "in_reply_to": m.get("in_reply_to"),
             "references": m.get("references"),
-        })
+        }
+        if motivo_scarto is not None:
+            evento_payload_dict["motivo"] = motivo_scarto
+            if m.get("indirizzo_fallito"):
+                evento_payload_dict["indirizzo_fallito"] = m["indirizzo_fallito"]
+            if m.get("codice_rimbalzo"):
+                evento_payload_dict["codice_rimbalzo"] = m["codice_rimbalzo"]
+        evento_payload = json.dumps(evento_payload_dict)
 
         with db_connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO events (tipo, dedup_key, payload)
-                    VALUES ('email.reply', %s, %s)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT (dedup_key) DO NOTHING
                     RETURNING id
                     """,
-                    (dedup_key, evento_payload),
+                    (tipo_evento, dedup_key, evento_payload),
                 )
                 row = cur.fetchone()
                 if row is None:
                     continue
                 event_id = row[0]
 
-                cur.execute(
-                    "INSERT INTO jobs (tipo, payload) VALUES ('notifica_risposta', %s)",
-                    (json.dumps({"event_id": event_id}),),
-                )
+                if motivo_scarto is None:
+                    cur.execute(
+                        "INSERT INTO jobs (tipo, payload) VALUES ('notifica_risposta', %s)",
+                        (json.dumps({"event_id": event_id}),),
+                    )
+                elif motivo_scarto == "bounce_definitivo" and m.get("indirizzo_fallito"):
+                    cur.execute(
+                        "INSERT INTO soppressioni (tipo, valore, motivo) "
+                        "VALUES ('email', %s, 'bounce') "
+                        "ON CONFLICT (tipo, valore) DO NOTHING",
+                        (m["indirizzo_fallito"],),
+                    )
+
+        if motivo_scarto is None:
+            passati += 1
+        else:
+            filtrati[motivo_scarto] = filtrati.get(motivo_scarto, 0) + 1
+
+    dettaglio_filtrati = ", ".join(f"{k}={v}" for k, v in sorted(filtrati.items())) or "nessuno"
+    logger.info("leggi_email: %d passati, filtrati: %s", passati, dettaglio_filtrati)
 
     with db_connect() as conn:
         with conn.cursor() as cur:
@@ -401,7 +430,7 @@ def _lista_con_taglio(righe, max_elementi=5):
 
 def componi_digest_serale(
     approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
-    poster, codici_rifiutati, posta
+    poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi
 ):
     titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
 
@@ -459,6 +488,26 @@ def componi_digest_serale(
             mostrate = mostrate + [f"   e altri {extra}"]
         genere = "a" if n == 1 else "e"
         sezione_ricevute = f"📬 {n} rispost{genere} ricevut{genere}\n" + "\n".join(mostrate)
+
+    if not filtrate:
+        sezione_filtrate = "🧹 nessuna email filtrata"
+    else:
+        n = sum(c for _, c in filtrate)
+        dettaglio = ", ".join(f"{motivo}: {c}" for motivo, c in filtrate)
+        sezione_filtrate = f"🧹 {n} email filtrat{'a' if n == 1 else 'e'}\n   {dettaglio}"
+
+    if not rimbalzi_soppressi:
+        sezione_rimbalzi = "📭 nessun rimbalzo definitivo nelle 24h"
+    else:
+        n = len(rimbalzi_soppressi)
+        indirizzi = [v for (v,) in rimbalzi_soppressi]
+        mostrati, extra = _lista_con_taglio(indirizzi)
+        riga = "   → " + ", ".join(mostrati)
+        if extra:
+            riga += f" e altri {extra}"
+        sezione_rimbalzi = (
+            f"📭 {n} indirizz{'o' if n == 1 else 'i'} in soppressione (rimbalzo)\n" + riga
+        )
 
     if not risposte_inviate:
         sezione_inviate = "📤 nessuna risposta inviata"
@@ -524,6 +573,8 @@ def componi_digest_serale(
             sezione_scadute,
             sezione_job,
             sezione_ricevute,
+            sezione_filtrate,
+            sezione_rimbalzi,
             sezione_inviate,
             sezione_poster,
             sezione_codici,
@@ -615,9 +666,24 @@ def digest_serale(payload):
             )
             posta = cur.fetchone()
 
+            cur.execute(
+                "SELECT payload->>'motivo', count(*) FROM events "
+                "WHERE tipo = 'email.filtrata' AND created_at >= now() - interval '24 hours' "
+                "GROUP BY payload->>'motivo' ORDER BY count(*) DESC"
+            )
+            filtrate = cur.fetchall()
+
+            cur.execute(
+                "SELECT valore FROM soppressioni "
+                "WHERE tipo = 'email' AND motivo = 'bounce' "
+                "AND created_at >= now() - interval '24 hours' "
+                "ORDER BY created_at DESC"
+            )
+            rimbalzi_soppressi = cur.fetchall()
+
     testo = componi_digest_serale(
         approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
-        poster, codici_rifiutati, posta,
+        poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi,
     )
 
     # Riaccodato PRIMA dell'invio: se notifica() venisse chiamata prima e poi
