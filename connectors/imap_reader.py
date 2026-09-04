@@ -7,8 +7,6 @@ from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 from html.parser import HTMLParser
 
-from connectors.telegram import notifica
-
 logger = logging.getLogger("argo.imap")
 
 
@@ -277,14 +275,19 @@ def _leggi_casella(user, password):
 
 
 def leggi_nuove():
+    """Ritorna (messaggi, caselle_irraggiungibili). Non manda alert qui: con
+    polling ogni due minuti una casella giù per ore genererebbe centinaia di
+    notifiche. La deduplica (un alert per casella al giorno) usa
+    _alert_una_volta, che vive in worker/loop.py — imap_reader non può
+    importarlo senza creare un ciclo (loop.py importa già leggi_nuove da qui).
+    Ritorniamo quindi solo i fallimenti; chi chiama decide se e come avvisare."""
     tutti = []
+    irraggiungibili = []
     for user, password in _mailboxes():
         try:
             tutti.extend(_leggi_casella(user, password))
         except Exception as e:
             logger.exception("leggi_nuove: casella %s non raggiungibile", user)
-            notifica(
-                f"ALERT: casella IMAP {user} non raggiungibile (errore={type(e).__name__})"
-            )
+            irraggiungibili.append((user, type(e).__name__))
 
-    return tutti
+    return tutti, irraggiungibili

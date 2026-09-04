@@ -313,8 +313,15 @@ def invia_depliant(payload):
 
 @handler("leggi_email")
 def leggi_email(payload):
-    messaggi = leggi_nuove()
+    messaggi, caselle_irraggiungibili = leggi_nuove()
     logger.info("leggi_email: %d messaggi letti in questo giro", len(messaggi))
+
+    for user, errore in caselle_irraggiungibili:
+        data_roma = datetime.now(FUSO_ROMA).strftime("%Y-%m-%d")
+        _alert_una_volta(
+            f"imap_ko:{user}:{data_roma}",
+            f"⚠️ casella IMAP {user} non raggiungibile (errore={errore})",
+        )
 
     passati = 0
     filtrati = {}
@@ -434,7 +441,7 @@ def _lista_con_taglio(righe, max_elementi=5):
 def componi_digest_serale(
     approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
     poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi,
-    contatti_non_trovati
+    contatti_non_trovati, caselle_irraggiungibili
 ):
     titolo = f"📊 Digest serale — {datetime.now(FUSO_ROMA).strftime('%d/%m %H:%M')}"
 
@@ -578,6 +585,13 @@ def componi_digest_serale(
     else:
         sezione_posta = "🔄 Posta: 0 letture nelle 24h, ultima: mai"
 
+    if caselle_irraggiungibili:
+        sezione_imap_ko = (
+            f"📡 {caselle_irraggiungibili} caselle IMAP irraggiungibili nelle 24h"
+        )
+    else:
+        sezione_imap_ko = "📡 nessuna casella IMAP irraggiungibile"
+
     testo = "\n\n".join(
         [
             titolo,
@@ -591,6 +605,7 @@ def componi_digest_serale(
             sezione_poster,
             sezione_codici,
             sezione_posta,
+            sezione_imap_ko,
             sezione_contatti,
         ]
     )
@@ -680,6 +695,12 @@ def digest_serale(payload):
             posta = cur.fetchone()
 
             cur.execute(
+                "SELECT count(DISTINCT split_part(chiave, ':', 2)) FROM alert_inviati "
+                "WHERE chiave LIKE 'imap_ko:%' AND created_at >= now() - interval '24 hours'"
+            )
+            (caselle_irraggiungibili,) = cur.fetchone()
+
+            cur.execute(
                 "SELECT payload->>'motivo', count(*) FROM events "
                 "WHERE tipo = 'email.filtrata' AND created_at >= now() - interval '24 hours' "
                 "GROUP BY payload->>'motivo' ORDER BY count(*) DESC"
@@ -705,7 +726,7 @@ def digest_serale(payload):
     testo = componi_digest_serale(
         approvazioni, scadute, job_falliti, risposte_ricevute, risposte_inviate,
         poster, codici_rifiutati, posta, filtrate, rimbalzi_soppressi,
-        contatti_non_trovati,
+        contatti_non_trovati, caselle_irraggiungibili,
     )
 
     # Riaccodato PRIMA dell'invio: se notifica() venisse chiamata prima e poi
