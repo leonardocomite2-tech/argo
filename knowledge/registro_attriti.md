@@ -36,10 +36,10 @@ accettato citato in STATO.md, non un incidente contato.*
 
 | ID | Attrito | Contesto | Volte | Costo/volta | Stato | Candidati |
 |---|---|---|---|---|---|---|
-| A07 | `thread_id` reso alfanumerico ha rotto le query `::int` nel digest serale (errore `invalid input syntax for type integer: "1468:depliant"`) | Digest serale (cross-cantiere: poster/depliant + email) | 109 (jobs.tipo='digest_serale', stato='failed', 28-29/08; verificato nel codice attuale: nessun `thread_id::int` residuo, solo `event_id::int` in worker/loop.py:673 → chiuso) | ? | chiuso | 92 Code Review (debole) |
+| A07 | `thread_id` reso alfanumerico ha rotto le query `::int` nel digest serale (errore `invalid input syntax for type integer: "1468:depliant"`) | Digest serale (cross-cantiere: poster/depliant + email) | 109 (jobs.tipo='digest_serale', stato='failed', 28-29/08; verificato nel codice attuale: nessun `thread_id::int` residuo, solo `event_id::int` in worker/loop.py:673 → chiuso) | ? | chiuso | 85 Claude Code Review (debole) |
 | A08 | Contatti con email-placeholder scritta prima della regola generale, ripuliti a mano (6 recuperati, 2 rimasti vuoti) | Lead-gen Roma (estrazione email) | 8 (commit `57273db`) | ? | chiuso | |
 | A09 | Alert Telegram IMAP senza dedup: una casella down genera un flood di messaggi ("centinaia", numero esatto non nel commit) | Cantiere 2 (email IMAP) | 1 incidente noto (frequenza reale prima del fix sconosciuta) | ? | chiuso (fix 04/09, commit `1941229`) | |
-| A10 | Bug di estrazione URL Facebook: troncamento `/pages`, `/people`, `/pages/category`; slug numerico `/1278` trattato come pagina vera | Lead-gen Roma (estrazione social) | 2 bug distinti (STATO.md:124-129, 145-156; commit `2f118fe`) | ? | chiuso | 86 Scrapling (debole) |
+| A10 | Bug di estrazione URL Facebook: troncamento `/pages`, `/people`, `/pages/category`; slug numerico `/1278` trattato come pagina vera | Lead-gen Roma (estrazione social) | 2 bug distinti (STATO.md:124-129, 145-156; commit `2f118fe`) | ? | chiuso | 79 Scrapling (debole) |
 | A11 | Collaudo drafter/filtro warmup: tono non conforme (lei/tu poi lei/voi) + filtro warmup non strutturale — 3 correzioni lo stesso giorno prima del deploy | Cantiere risposte email | 3 (commit `674bf7f`, `eea9796`, `7c49c5b`, tutti 03/09) | ? | chiuso — costo di collaudo | |
 | A12 | Approvazioni corrette dall'operatore prima di approvare (stato `modificata`) | Cantiere risposte email | 2 (approvals.stato='modificata') | ? | accettato — è lo scopo del gate, non un difetto | |
 | A13 | Approvazioni ferme in `in_attesa` da oltre 24h senza `scadenza` impostata | Cantiere risposte email | 2 (id 4 dal 23/08, id 10 dal 03/09) | ? | aperto — conferma il seed A02 con un numero | |
@@ -143,8 +143,8 @@ che non reggono il conteggio.
 | A05 | Script estrazione/diagnostica debuggati per iterazioni multiple prima di girare | Cantiere 1 Regia sonora | ? | ? | chiuso? |
 | A06 | Verifica manuale dello stato attuale di tool/modelli prima di ogni raccomandazione (rassegna quasi quotidiana delle novità) | progettazione cantieri | ~quotidiana | ? | aperto — è la versione manuale della Porta 2 |
 
-**Candidati accoppiati (corsia riparazioni, 07/09):** A06 → 74 Find Skills;
-Agent Reach (baseline). A03 → Claude-Mem (baseline) — condizionato al
+**Candidati accoppiati (corsia riparazioni, 07/09):** A06 → 67 Find Skills;
+16 Agent Reach (baseline). A03 → 7 Claude-Mem (baseline) — condizionato al
 SOSPESO 7.
 
 ---

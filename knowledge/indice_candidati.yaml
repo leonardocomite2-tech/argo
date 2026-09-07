@@ -1,522 +1,417 @@
 # INDICE DEI CANDIDATI — Cantiere Skill & Tool
-# v0.1 — 7 settembre 2026
-# Posizione prevista nel repo: knowledge/indice_candidati.yaml
+# v0.2 — 7 settembre 2026 — MASTER CANONICA (95 voci)
+# Sostituisce integralmente la v0.1. Posizione: knowledge/indice_candidati.yaml
 #
-# Cos'è: il catalogo delle risorse esterne osservate, nel formato che le tre
-# porte leggono. NON è una lista di cose da installare: una voce entra qui
-# per essere confrontabile col registro degli attriti, niente altro.
+# Fonte: master canonica deduplicata ricostruita il 7/09 (1-43 EXACT dalla
+# lista originale; 44-58 HIGH; 59-65 ricostruite; 66-95 nuove deduplicate).
+# La correzione 102→95 elimina il doppio conteggio della baseline.
 #
-# Il campo che decide è `attriti`. Oggi è vuoto ovunque: si riempie
-# nell'accoppiamento manuale del Cantiere 1 e resta l'unica giustificazione
-# per passare da `catalogato` a `in_valutazione`.
+# RIMAPPATURA vs v0.1 (riferimenti già scritti nel registro):
+#   SkillSpector 66→59 · Skills CLI 73→66 · Find Skills 74→67 ·
+#   Scrapling 86→79 · Code Review 92→85 · Composio 102→95
+#
+# Il campo che decide resta `attriti`. La canonical_stack_map e i principi
+# della fonte NON sono importati: le voci sì, l'architettura no.
 
 formato:
   campi:
-    id: "numero progressivo, continua la numerazione della master list"
+    id: "canonical_id — stabile, non si rinumera più"
     nome: ""
-    alias: "nomi precedenti o alternativi (genealogia unica)"
-    tipo: "skill | skill_suite | meta_skill | mcp | plugin | tool | runtime | harness | piattaforma | directory | guida | servizio"
-    fonte: "URL"
+    alias: "rename e varianti (genealogia unica)"
+    tipo: "skill | skill_suite | meta_skill | mcp | plugin | tool | runtime | harness | piattaforma | modello | directory | guida | servizio | integrazione"
     fiducia_fonte: "alta | media | bassa | da_verificare"
-    # alta  = Anthropic, vendor ufficiale, progetto con storia e manutenzione stabile
-    # media = community nota, manutentore identificabile, repo con storia
-    # bassa = virale recente, manutentore ignoto, nessuna storia
-    # da_verificare = assegnazione rimandata all'ispezione (Porta 3)
+    confidenza_storica: "EXACT | HIGH | RECONSTRUCTED | UNCERTAIN — dalla ricostruzione della master"
     promessa: "una riga: cosa dice di risolvere"
-    promessa_score: "ex jarvis_score — metadato di curatela, NON criterio di decisione"
-    occorrenze: "quante volte incontrato in contenuti distinti"
-    superficie: "sola_lettura | scrive | esegue | hook | rete | credenziali — compilata dall'ispettore, vuota alla catalogazione"
-    stato: "catalogato | in_valutazione | adottato | tenuto_30gg | disinstallato | scartato"
+    curatela: "CORE | PILOT | OPTIONAL | NICCHIA | RISORSA | MODEL | PLATFORM | INTEGRATION | SKIP — giudizio di curatela della master, NON decisione"
+    occorrenze: "contenuti distinti in cui è apparso (1 se assente)"
+    superficie: "sola_lettura | scrive | esegue | hook | rete | credenziali — compilata dall'ispettore"
+    stato: "catalogato | in_uso | in_valutazione | adottato | tenuto_30gg | disinstallato | scartato"
     attriti: "[] — id dal registro_attriti. IL campo che decide."
-    sovrapposizioni: "voci dell'indice che promettono la stessa cosa"
     note: ""
-
-# ---------------------------------------------------------------------------
-# BASELINE 65 — da importare
-# Le voci 1-65 della master list precedente vanno normalizzate in questo
-# stesso formato. Fino ad allora l'indice è parziale.
-# ---------------------------------------------------------------------------
 
 voci:
 
-  - id: 66
-    nome: "SkillSpector"
-    tipo: tool
-    fonte: "https://github.com/nvidia/skillspector"
-    fiducia_fonte: alta        # repo ufficiale NVIDIA
-    promessa: "scansiona una skill prima dell'installazione: injection, esfiltrazione, supply-chain, escalation"
-    promessa_score: 9.8
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: [A06]
-    sovrapposizioni: ["Security Guidance"]
-    note: "candidato naturale per l'ispettore della Porta 3 — è l'unico della lista che tocca direttamente questo cantiere — infrastruttura Porta 3 di questo cantiere (ispettore candidati)"
+  # ========== BASELINE ORIGINALE 1-43 (EXACT) ==========
 
-  - id: 67
-    nome: "ScrapeGraphAI"
-    tipo: tool
-    fonte: "https://github.com/ScrapeGraphAI/Scrapegraph-ai"
-    fiducia_fonte: media
-    promessa: "pipeline di scraping da istruzioni in linguaggio naturale (LLM + graph logic)"
-    promessa_score: 8.9
-    occorrenze: 2
-    superficie: null
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Firecrawl", "Scrapling"]
+  - {id: 1, nome: "Claude Code", tipo: tool, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: CORE,
+     promessa: "coding agent: shell, repo, sviluppo agentico", stato: in_uso, attriti: [],
+     note: "l'officina di Argo — PC e VPS"}
 
-  - id: 68
-    nome: "Claude Code Guide for Startups"
-    tipo: guida
-    fonte: "https://claude.com/blog/claude-code-guide-for-startups"
-    fiducia_fonte: alta
-    promessa: "pratiche operative Anthropic per usare Claude Code in organizzazioni piccole"
-    promessa_score: 7.4
-    occorrenze: 1
-    superficie: sola_lettura
-    stato: catalogato
-    attriti: []
-    note: "risorsa, non runtime: input possibile per le regole dell'Officina"
+  - {id: 2, nome: "Claude", tipo: modello, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: MODEL,
+     promessa: "ragionamento, pianificazione, contenuti", stato: in_uso, attriti: [],
+     note: "Haiku 4.5 in produzione (classificatore risposte); chat di progetto"}
 
-  - id: 69
-    nome: "Odysseus AI"
-    tipo: harness
-    fonte: "https://github.com/odysseus-dev/odysseus"
-    fiducia_fonte: da_verificare
-    promessa: "workspace locale completo: chat, agenti, MCP, file, shell, memoria, email, calendario"
-    promessa_score: 7.6
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Ruflo", "StarNet", "Argo stesso"]
-    note: "benchmark architetturale, non componente: somiglia troppo ad Argo per starci dentro"
+  - {id: 3, nome: "Gemini", tipo: modello, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: MODEL,
+     promessa: "modello alternativo, multimodale", stato: catalogato, attriti: []}
 
-  - id: 70
-    nome: "CLI-Anything"
-    tipo: tool
-    fonte: "https://github.com/KitJacky/cli-anything"
-    fiducia_fonte: da_verificare
-    promessa: "genera CLI strutturate (e SKILL.md) per software senza API/MCP"
-    promessa_score: 9.6
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
+  - {id: 4, nome: "Codex", tipo: tool, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: CORE,
+     promessa: "coding agent alternativo (OpenAI)", stato: catalogato, attriti: []}
 
-  - id: 71
-    nome: "DigitalPlat FreeDomain"
-    tipo: servizio
-    fonte: "https://github.com/DigitalPlatDev/FreeDomain"
-    fiducia_fonte: media
-    promessa: "domini/namespace gratuiti con delega DNS per test e staging"
-    promessa_score: 4.5
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
+  - {id: 5, nome: "OmniRoute", alias: ["Omniro", "Omni Route"], tipo: tool, fiducia_fonte: da_verificare,
+     confidenza_storica: EXACT, curatela: CORE, promessa: "routing richieste tra provider con fallback",
+     stato: catalogato, attriti: [], note: "model routing è parcheggiato (CONTESTO §8: si riprende col token accounting)"}
 
-  - id: 72
-    nome: "Free LLM API Resources"
-    tipo: directory
-    fonte: "https://github.com/cheahjs/free-llm-api-resources"
-    fiducia_fonte: media
-    promessa: "catalogo mantenuto di provider LLM con tier gratuiti"
-    promessa_score: 7.5
-    occorrenze: 1
-    superficie: sola_lettura
-    stato: catalogato
-    attriti: []
+  - {id: 6, nome: "Everything Claude Code", tipo: guida, fiducia_fonte: media, confidenza_storica: EXACT,
+     curatela: RISORSA, promessa: "raccolta di configurazioni e pratiche Claude Code", stato: catalogato, attriti: []}
 
-  - id: 73
-    nome: "Skills CLI"
-    alias: ["npx skills", "skills.sh CLI"]
-    tipo: tool
-    fonte: "https://github.com/vercel-labs/skills"
-    fiducia_fonte: alta        # Vercel Labs, ecosistema attivo
-    promessa: "package manager delle Agent Skills: installa, aggiorna, rimuove su più agenti"
-    promessa_score: 9.8
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
-    note: "infrastruttura del cantiere stesso (installazione pulita), non una skill da valutare come le altre — infrastruttura Porta 3 di questo cantiere (install/rimozione pulita)"
+  - {id: 7, nome: "Claude Mem", alias: ["Claude-Mem", "claude-mem"], tipo: tool, fiducia_fonte: media,
+     confidenza_storica: EXACT, curatela: CORE, promessa: "memoria persistente tra sessioni Claude Code",
+     occorrenze: 2, stato: catalogato, attriti: [],
+     note: "accoppiato ipoteticamente ad A03 — condizionato al SOSPESO 7 (qual è il passaggio ripetuto)"}
 
-  - id: 74
-    nome: "Find Skills"
-    tipo: meta_skill
-    fonte: "https://www.skills.sh/"
-    fiducia_fonte: media
-    promessa: "l'agente cerca e propone skill esistenti quando incontra un compito specializzato"
-    promessa_score: 9.6
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: [A06]
-    note: "si sovrappone alla Porta 2/3 del cantiere: valutare se usarla come connettore di scoperta invece di scriverne uno"
+  - {id: 8, nome: "Headroom", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "compressione contesto e riduzione token", stato: catalogato, attriti: []}
 
-  - id: 75
-    nome: "Superpowers"
-    tipo: skill_suite
-    fonte: "https://github.com/obra/superpowers"
-    fiducia_fonte: media       # manutentore noto (obra), progetto con storia
-    promessa: "metodologia di sviluppo imposta: brainstorm → spec → piano → TDD → review"
-    promessa_score: 9.8
-    occorrenze: 2
-    superficie: null
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["GStack", "metodo cantieri esistente"]
-    note: "attenzione: Argo ha già una metodologia (le sette domande). Da confrontare, non da sommare"
+  - {id: 9, nome: "Claude Code Setup", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: CORE, promessa: "analizza il progetto e raccomanda il setup Claude Code", stato: catalogato, attriti: []}
 
-  - id: 76
-    nome: "Impeccable"
-    tipo: skill_suite
-    fonte: "https://impeccable.style/"
-    fiducia_fonte: media
-    promessa: "critica, correzione e rifinitura frontend: UX, accessibilità, typography, motion"
-    promessa_score: 9.3
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["frontend-design", "Vercel Web Design Guidelines"]
+  - {id: 10, nome: "Task Observer", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "osservare l'esecuzione dei task degli agenti", stato: catalogato, attriti: []}
 
-  - id: 77
-    nome: "Bloom AI"
-    tipo: piattaforma
-    fonte: "https://www.trybloom.ai/"
-    fiducia_fonte: da_verificare
-    promessa: "brand system canonico da sito/Figma/copy, servito agli agenti via MCP/API"
-    promessa_score: 9.2
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
-    note: "pertinenza NarraTours reale (coerenza identità visiva), ma nessun attrito registrato oggi la richiede"
+  - {id: 11, nome: "Playwright CLI / MCP", alias: ["Playwright MCP", "Playwright"], tipo: mcp,
+     fiducia_fonte: alta, confidenza_storica: EXACT, curatela: CORE, occorrenze: 4,
+     promessa: "browser automation deterministica e affidabile", stato: catalogato, attriti: []}
 
-  - id: 78
-    nome: "Kira AI Platform"
-    tipo: piattaforma
-    fonte: "https://kiraai.vn/"
-    fiducia_fonte: bassa       # condizioni free tier già cambiate, provider poco tracciato
-    promessa: "API multimodale OpenAI-like con free tier ampio"
-    promessa_score: 6.3
-    occorrenze: 1
-    superficie: credenziali
-    stato: catalogato
-    attriti: []
+  - {id: 12, nome: "Context7", tipo: mcp, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: CORE,
+     occorrenze: 3, promessa: "documentazione software aggiornata per i coding agent", stato: catalogato, attriti: []}
 
-  - id: 79
-    nome: "Agentic Inbox"
-    tipo: runtime
-    fonte: "https://github.com/cloudflare/agentic-inbox"
-    fiducia_fonte: alta        # Cloudflare
-    promessa: "client email self-hosted con agente che legge, cerca e prepara risposte"
-    promessa_score: 8.8
-    occorrenze: 1
-    superficie: credenziali
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["cantiere email IMAP già in produzione"]
-    note: "deve battere un cantiere GIÀ CHIUSO e funzionante — asticella alta per definizione"
+  - {id: 13, nome: "ElevenLabs", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "voci sintetiche di alta qualità", stato: in_uso, attriti: [],
+     note: "pipeline NarraTours: narrazione italiana (Corrado Noventa)"}
 
-  - id: 80
-    nome: "Kickbacks.ai"
-    tipo: tool
-    fonte: "https://github.com/andrewmccalip/kickbacks.ai"
-    fiducia_fonte: bassa
-    promessa: "monetizza i tempi di attesa dell'IDE con contenuti sponsorizzati"
-    promessa_score: 1.5
-    occorrenze: 1
-    stato: scartato
-    attriti: []
+  - {id: 14, nome: "Hermes Agent", alias: ["Hermes"], tipo: harness, fiducia_fonte: da_verificare,
+     confidenza_storica: EXACT, curatela: CORE, promessa: "runtime agente aperto con action layer",
+     stato: catalogato, attriti: [], note: "sovrapposizione con Argo stesso — stesso discorso di Ruflo/Odysseus"}
 
-  - id: 81
-    nome: "Email Marketing Bible"
-    tipo: skill
-    fonte: "https://github.com/CosmoBlk/email-marketing-bible"
-    fiducia_fonte: da_verificare
-    promessa: "audit email, flow, copy, deliverability, segmentazione, controllo ESP via MCP"
-    promessa_score: 9.4
-    occorrenze: 1
-    superficie: null
-    stato: catalogato
-    attriti: []
-    note: "pertinente per le campagne Instantly quando ci sarà volume — oggi nessun attrito la chiama"
+  - {id: 15, nome: "Cursor", tipo: tool, fiducia_fonte: alta, confidenza_storica: EXACT, curatela: OPTIONAL,
+     promessa: "IDE con AI integrata", stato: catalogato, attriti: []}
 
-  - id: 82
-    nome: "GEO SEO"
-    tipo: skill
-    fonte: "https://github.com/zubair-trabzada/geo-seo-claude"
-    fiducia_fonte: da_verificare
-    promessa: "ottimizzazione citabilità in ChatGPT/Claude/Perplexity/AI Overviews"
-    promessa_score: 8.8
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Claude SEO"]
+  - {id: 16, nome: "Agent Reach", tipo: tool, fiducia_fonte: media, confidenza_storica: EXACT, curatela: CORE,
+     occorrenze: 2, promessa: "ricerca/lettura da X, Reddit, YouTube, GitHub, RSS",
+     stato: catalogato, attriti: [A06],
+     note: "candidato connettore del radar (Porta 2) — layer di lettura, non browser interattivo"}
 
-  - id: 83
-    nome: "Marketing Skills"
-    tipo: skill_suite
-    fonte: "https://github.com/coreyhaines31/marketingskills"
-    fiducia_fonte: media       # manutentore noto (Corey Haines)
-    promessa: "suite marketing completa: CRO, copy, SEO, ads, email, analytics, pricing"
-    promessa_score: 9.7
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 17, nome: "NotebookLM", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "ricerca ancorata alle fonti su documenti", stato: catalogato, attriti: []}
 
-  - id: 84
-    nome: "Langflow"
-    tipo: tool
-    fonte: "https://github.com/langflow-ai/langflow"
-    fiducia_fonte: alta        # progetto grande, storia lunga
-    promessa: "builder visuale per agenti, RAG e workflow, esportabili come API/MCP"
-    promessa_score: 8.3
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    note: "prototipazione; Argo ha scelto infrastruttura custom versionata"
+  - {id: 18, nome: "Perplexity MCP", tipo: mcp, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "ricerca web esposta agli agenti", stato: catalogato, attriti: []}
 
-  - id: 85
-    nome: "Ollama"
-    tipo: runtime
-    fonte: "https://ollama.com/"
-    fiducia_fonte: alta
-    promessa: "runtime locale per modelli open, integrabile come backend di Claude Code"
-    promessa_score: 9.7
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    note: "già parcheggiato in CONTESTO §8: 'modelli locali su GPU — un caso reale in cui battono Haiku per costo o privacy'. La voce non riapre il parcheggio"
+  - {id: 19, nome: "Firecrawl MCP", alias: ["Firecrawl integration"], tipo: mcp, fiducia_fonte: alta,
+     confidenza_storica: EXACT, curatela: CORE, promessa: "siti web → contenuto strutturato per agenti",
+     stato: catalogato, attriti: [], note: "famiglia Firecrawl: vedi 46 (piattaforma). Occorrenze famiglia: 3"}
 
-  - id: 86
-    nome: "Scrapling"
-    tipo: tool
-    fonte: "https://github.com/D4Vinci/Scrapling"
-    fiducia_fonte: media
-    promessa: "scraper adattivo: HTTP, browser, spider, stealth, MCP e Agent Skill"
-    promessa_score: 9.5
-    occorrenze: 1
-    stato: catalogato
-    attriti: [A10]
-    sovrapposizioni: ["Firecrawl", "ScrapeGraphAI", "Camoufox"]
-    note: "match debole — 2 bug risolti con fix interno"
+  - {id: 20, nome: "Supabase", alias: ["Supabase MCP"], tipo: piattaforma, fiducia_fonte: alta,
+     confidenza_storica: EXACT, curatela: CORE, occorrenze: 2,
+     promessa: "database, auth, storage, stato persistente", stato: catalogato, attriti: [],
+     note: "in Argo il DB è Postgres su VPS (invariante: DB fonte di verità). Si valuta solo se un caso reale impone di cambiare"}
 
-  - id: 87
-    nome: "Public APIs"
-    tipo: directory
-    fonte: "https://github.com/public-apis/public-apis"
-    fiducia_fonte: alta        # directory storica
-    promessa: "directory comunitaria di API pubbliche per cercare un'API prima di fare scraping"
-    promessa_score: 7.8
-    occorrenze: 1
-    superficie: sola_lettura
-    stato: catalogato
-    attriti: []
-    note: "coerente col criterio §11 del CONTESTO: API ufficiale sempre prima scelta"
+  - {id: 21, nome: "Strix", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: PILOT, occorrenze: 2, promessa: "security testing autonomo di applicazioni", stato: catalogato, attriti: []}
 
-  - id: 88
-    nome: "Obsidian Second Brain"
-    tipo: skill_suite
-    fonte: "https://github.com/eugeniughelbur/obsidian-second-brain"
-    fiducia_fonte: da_verificare
-    promessa: "vault Obsidian come memoria persistente auto-aggiornante per agenti"
-    promessa_score: 8.8
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Claude-Mem", "Core DB"]
-    note: "in Argo la memoria che conta sta nel DB (invariante). Qualsiasi memory layer va confrontato con quello, non adottato accanto"
+  - {id: 22, nome: "Skill UI Frontend", alias: ["Skill UI"], tipo: skill, fiducia_fonte: da_verificare,
+     confidenza_storica: EXACT, curatela: PILOT, occorrenze: 2,
+     promessa: "migliorare/generare frontend costruiti da agenti", stato: catalogato, attriti: []}
 
-  - id: 89
-    nome: "StarNet"
-    tipo: harness
-    fonte: "https://github.com/androoAGI/starnet"
-    fiducia_fonte: da_verificare
-    promessa: "stazione visuale multi-agent locale: stanze, permessi, budget, night shift"
-    promessa_score: 7.7
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    note: "ispirazione UX per la dashboard parcheggiata (CONTESTO §8), non runtime"
+  - {id: 23, nome: "Gmail MCP", tipo: mcp, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: CORE, promessa: "leggere/inviare/gestire Gmail via agenti", stato: catalogato, attriti: [],
+     note: "esistono più implementazioni: identificare quale prima dell'ispezione. Il cantiere email attuale usa IMAP diretto"}
 
-  - id: 90
-    nome: "Ruflo"
-    tipo: harness
-    fonte: "https://github.com/ruvnet/ruflo"
-    fiducia_fonte: media       # manutentore noto (ruvnet), progetto giovane e molto ampio
-    promessa: "orchestrazione multi-agent: swarm, memoria, background workers, routing, 100+ specialisti"
-    promessa_score: 9.9
-    occorrenze: 2
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Router di Argo", "worker", "Core DB"]
-    note: "la lista lo marca 'test critico'. In Argo l'orchestratore è 200 righe PER SCELTA (CONTESTO §4): il benchmark ha senso solo quando il Router smette di bastare — quell'attrito oggi non esiste"
+  - {id: 24, nome: "Meta Ads MCP", tipo: mcp, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "operazioni Meta advertising via agente", stato: catalogato, attriti: [],
+     note: "vincolo Meta di CONTESTO §11: solo API/strumenti ufficiali"}
 
-  - id: 91
-    nome: "Archify"
-    tipo: skill
-    fonte: "https://github.com/tt-a1i/archify"
-    fiducia_fonte: da_verificare
-    promessa: "trasforma repository in mappe architetturali verificabili e interattive"
-    promessa_score: 8.9
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 25, nome: "Buffer MCP", tipo: mcp, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "pianificazione e gestione social publishing", stato: catalogato, attriti: []}
 
-  - id: 92
-    nome: "Code Review"
-    tipo: plugin
-    fonte: "https://claude.com/plugins/code-review"
-    fiducia_fonte: alta        # plugin ufficiale Anthropic
-    promessa: "cinque reviewer paralleli con filtro per confidence, gate pre-merge"
-    promessa_score: 9.5
-    occorrenze: 2
-    stato: catalogato
-    attriti: [A07]
-    note: "candidato realistico: Leonardo approva a mano ogni edit di Claude Code — se questo è un attrito con un numero, il gate automatico è la risposta — match debole — fix da un commit, tool non giustificato dal solo A07"
+  - {id: 26, nome: "RevenueCat MCP", tipo: mcp, fiducia_fonte: media, confidenza_storica: EXACT,
+     curatela: NICCHIA, promessa: "gestione abbonamenti/ricavi per app", stato: catalogato, attriti: []}
 
-  - id: 93
-    nome: "Strawberry Browser"
-    tipo: harness
-    fonte: "https://strawberrybrowser.com/for-ai"
-    fiducia_fonte: da_verificare
-    promessa: "browser con agenti nei tab autenticati, azioni parallele, conferma su azioni irreversibili"
-    promessa_score: 8.9
-    occorrenze: 1
-    superficie: credenziali
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Camoufox", "Playwright MCP", "Claude in Chrome"]
+  - {id: 27, nome: "Claude in Chrome", tipo: tool, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "Claude opera direttamente dentro Chrome", stato: catalogato, attriti: []}
 
-  - id: 94
-    nome: "LogoAI Animation"
-    tipo: servizio
-    fonte: "https://www.logoai.com/design/animated-logo"
-    fiducia_fonte: media
-    promessa: "animazione logo e brand asset con preset"
-    promessa_score: 4.8
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 28, nome: "Paperclip", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "coordinamento multi-agente sperimentale", stato: catalogato, attriti: []}
 
-  - id: 95
-    nome: "Security Guidance"
-    alias: ["Security Review"]
-    tipo: plugin
-    fonte: "https://github.com/anthropics/claude-code/tree/main/plugins/security-guidance"
-    fiducia_fonte: alta        # ufficiale Anthropic
-    promessa: "tre layer: pattern warning sugli edit, review LLM del diff, commit review cross-file"
-    promessa_score: 9.7
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 29, nome: "Pixel Agents", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "visualizzazione pixel-art di agenti e ruoli", stato: catalogato, attriti: [],
+     note: "la dashboard è parcheggiata (CONTESTO §8): si riprende quando ci sono eventi reali da mostrare"}
 
-  - id: 96
-    nome: "GStack"
-    tipo: skill_suite
-    fonte: "https://github.com/garrytan/gstack"
-    fiducia_fonte: media       # manutentore notissimo, progetto recente
-    promessa: "team startup simulato: ruoli CEO/engineering/design/QA/release/security"
-    promessa_score: 9.6
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Superpowers"]
-    note: "organigramma simulato — in tensione diretta col criterio 'un agente nasce da un workflow, non da un organigramma'"
+  - {id: 30, nome: "Tailscale", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: CORE, promessa: "accesso remoto sicuro tra le macchine", stato: catalogato, attriti: [],
+     note: "già scelto in CONTESTO §6 — si attiva quando i nodi andranno collegati"}
 
-  - id: 97
-    nome: "shadcn MCP"
-    tipo: mcp
-    fonte: "https://ui.shadcn.com/docs/mcp"
-    fiducia_fonte: alta        # ufficiale shadcn
-    promessa: "cerca, legge e installa componenti shadcn in linguaggio naturale"
-    promessa_score: 9.2
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 31, nome: "Honcho AI", tipo: tool, fiducia_fonte: media, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "contesto relazionale/utente persistente per agenti", stato: catalogato, attriti: []}
 
-  - id: 98
-    nome: "Vercel Web Design Guidelines"
-    tipo: skill
-    fonte: "https://github.com/vercel-labs/agent-skills"
-    fiducia_fonte: alta        # Vercel Labs
-    promessa: "audit frontend contro 100+ regole di accessibilità, UX, performance"
-    promessa_score: 9.1
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    note: "scarica le guideline da main a ogni run: da pin-nare se mai adottata (supply-chain)"
+  - {id: 32, nome: "Hermes Voice", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: OPTIONAL, promessa: "layer vocale per agenti stile Hermes", stato: catalogato, attriti: [],
+     note: "voice layer parcheggiato (CONTESTO §8): i vocali Telegram coprono l'80%"}
 
-  - id: 99
-    nome: "frontend-design"
-    tipo: skill
-    fonte: "https://github.com/anthropics/claude-code/blob/main/plugins/frontend-design"
-    fiducia_fonte: alta        # ufficiale Anthropic
-    promessa: "genera interfacce production-grade con identità estetica non generica"
-    promessa_score: 9.2
-    occorrenze: 2
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["Impeccable"]
+  - {id: 33, nome: "GLM 5.2", tipo: modello, fiducia_fonte: media, confidenza_storica: EXACT,
+     curatela: MODEL, promessa: "modello alternativo per carichi agente", stato: catalogato, attriti: []}
 
-  - id: 100
-    nome: "Chrome DevTools MCP"
-    tipo: mcp
-    fonte: "https://github.com/ChromeDevTools/chrome-devtools-mcp"
-    fiducia_fonte: alta        # ufficiale Chrome DevTools team
-    promessa: "network, console, screenshot, performance trace e automazione dal browser reale"
-    promessa_score: 9.8
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
+  - {id: 34, nome: "Fable 5", tipo: modello, fiducia_fonte: alta, confidenza_storica: UNCERTAIN,
+     curatela: MODEL, promessa: "voce storica 'Fable 5*' — identificazione incompleta nella master",
+     stato: catalogato, attriti: [],
+     note: "quasi certamente Claude Fable 5 (Anthropic, tier Mythos, 2026)"}
 
-  - id: 101
-    nome: "21st MCP"
-    alias: ["Magic MCP"]
-    tipo: mcp
-    fonte: "https://github.com/21st-dev/magic-mcp"
-    fiducia_fonte: media
-    promessa: "ricerca e generazione componenti React/Tailwind dall'ecosistema 21st.dev"
-    promessa_score: 8.9
-    occorrenze: 1
-    stato: catalogato
-    attriti: []
-    sovrapposizioni: ["shadcn MCP"]
+  - {id: 35, nome: "Google Cloud", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: PLATFORM, promessa: "compute, storage, servizi gestiti", stato: catalogato, attriti: [],
+     note: "runtime attuale: VPS Hostinger — nessun caso reale richiede cloud"}
 
-  - id: 102
-    nome: "Composio"
-    tipo: piattaforma
-    fonte: "https://github.com/composiohq/composio"
-    fiducia_fonte: alta        # progetto grande con storia
-    promessa: "integration fabric: discovery, auth, sessioni e action execution su moltissime app"
-    promessa_score: 9.9
-    occorrenze: 1
-    superficie: credenziali
-    stato: catalogato
-    attriti: []
-    note: "in Argo il collante I/O è già deciso: GHL (decisione chiusa 16/08). Composio si valuta solo quando GHL smette di coprire un'integrazione necessaria — è un attrito futuro preciso, non uno attuale"
+  - {id: 36, nome: "Gemini CLI", tipo: tool, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: PILOT, promessa: "workflow terminale/coding con Gemini", stato: catalogato, attriti: []}
 
-# ---------------------------------------------------------------------------
-# AGGIORNAMENTI A VOCI BASELINE (non aumentano il totale)
-# Da fondere quando le 65 vengono importate.
-# ---------------------------------------------------------------------------
+  - {id: 37, nome: "VS Code", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: PLATFORM, promessa: "editor principale, host di estensioni", stato: in_uso, attriti: []}
 
-aggiornamenti_baseline:
-  - nome: "Agent Reach"
-    occorrenze_aggiuntive: 1
-    promessa_score: 9.3
-    nota: "layer di lettura/search (X, Reddit, YouTube, GitHub, RSS), non browser interattivo. Candidato connettore per il radar (Porta 2) — accoppiato ad A06 (candidato connettore radar); id definitivo all'import della baseline 65"
-  - nome: "Camoufox"
-    occorrenze_aggiuntive: 1
-    promessa_score: 9.1
-  - nome: "Claude-Mem"
-    occorrenze_aggiuntive: 1
-    promessa_score: 9.0
-  - nome: "Claude SEO"
-    occorrenze_aggiuntive: 1
-    promessa_score: 9.5
+  - {id: 38, nome: "Unusual Whales MCP", tipo: mcp, fiducia_fonte: da_verificare, confidenza_storica: EXACT,
+     curatela: NICCHIA, promessa: "dati finanziari/di mercato per agenti", stato: catalogato, attriti: []}
+
+  - {id: 39, nome: "Slack", tipo: integrazione, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: INTEGRATION, promessa: "messaggi team, notifiche, azioni agente", stato: catalogato, attriti: []}
+
+  - {id: 40, nome: "Telegram", tipo: integrazione, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: INTEGRATION, promessa: "comandi remoti, alert, comunicazione agente", stato: in_uso, attriti: [],
+     note: "interfaccia di Argo: approvazioni, alert, digest"}
+
+  - {id: 41, nome: "iMessage", tipo: integrazione, fiducia_fonte: alta, confidenza_storica: EXACT,
+     curatela: NICCHIA, promessa: "canale di messaggistica Apple", stato: catalogato, attriti: []}
+
+  - {id: 42, nome: "Quad Design", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: UNCERTAIN,
+     curatela: OPTIONAL, promessa: "voce storica legata al design — identificazione incompleta",
+     stato: catalogato, attriti: []}
+
+  - {id: 43, nome: "Antcode", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: UNCERTAIN,
+     curatela: OPTIONAL, promessa: "voce storica legata al coding — identificazione incompleta",
+     stato: catalogato, attriti: []}
+
+  # ========== ESPANSIONE 44-58 (HIGH) ==========
+
+  - {id: 44, nome: "Pipecat", tipo: tool, fiducia_fonte: alta, confidenza_storica: HIGH, curatela: CORE,
+     occorrenze: 2, promessa: "pipeline voce conversazionale realtime", stato: catalogato, attriti: [],
+     note: "voice layer parcheggiato — si riprende dopo la dashboard"}
+
+  - {id: 45, nome: "browser-use", tipo: tool, fiducia_fonte: media, confidenza_storica: HIGH, curatela: PILOT,
+     occorrenze: 2, promessa: "agenti che operano siti reali via browser", stato: catalogato, attriti: []}
+
+  - {id: 46, nome: "Firecrawl", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "crawl, scrape, search e strutturazione web", stato: catalogato, attriti: [],
+     note: "famiglia con 19 (MCP)"}
+
+  - {id: 47, nome: "Cline", tipo: tool, fiducia_fonte: media, confidenza_storica: HIGH, curatela: PILOT,
+     promessa: "coding assistant autonomo per IDE/CLI", stato: catalogato, attriti: []}
+
+  - {id: 48, nome: "HyperFrames", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "generazione programmatica di media/video", stato: catalogato, attriti: []}
+
+  - {id: 49, nome: "Open Generative AI", alias: ["Open-Gen-AI"], tipo: piattaforma,
+     fiducia_fonte: da_verificare, confidenza_storica: HIGH, curatela: PILOT,
+     promessa: "esecuzione/accesso a più modelli generativi", stato: catalogato, attriti: []}
+
+  - {id: 50, nome: "Claude Ads", tipo: skill, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "audit/ottimizzazione advertising con Claude", stato: catalogato, attriti: []}
+
+  - {id: 51, nome: "Camoufox Browser", alias: ["Camofox Browser", "Camoufox"], tipo: tool,
+     fiducia_fonte: media, confidenza_storica: HIGH, curatela: CORE, occorrenze: 2,
+     promessa: "browser stealth/anti-detect compatibile Playwright", stato: catalogato, attriti: []}
+
+  - {id: 52, nome: "Bytez", tipo: piattaforma, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "accesso unificato a modelli/inference", stato: catalogato, attriti: []}
+
+  - {id: 53, nome: "Claude SEO", alias: ["claude-seo"], tipo: skill_suite, fiducia_fonte: media,
+     confidenza_storica: HIGH, curatela: CORE, occorrenze: 2,
+     promessa: "technical SEO, content, GEO, schema e workflow SEO", stato: catalogato, attriti: []}
+
+  - {id: 54, nome: "Rankscale", tipo: piattaforma, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "tracking visibilità brand nei motori generativi", stato: catalogato, attriti: []}
+
+  - {id: 55, nome: "Voicebox", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "voice cloning e generazione voce locale/open", stato: catalogato, attriti: []}
+
+  - {id: 56, nome: "BabyLoveGrowth", tipo: piattaforma, fiducia_fonte: da_verificare,
+     confidenza_storica: HIGH, curatela: OPTIONAL,
+     promessa: "ottimizzare/misurare visibilità nelle risposte AI", stato: catalogato, attriti: []}
+
+  - {id: 57, nome: "FreeLLMAPI", tipo: tool, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "aggregare provider LLM gratuiti dietro un endpoint", stato: catalogato,
+     attriti: [], note: "model routing parcheggiato (CONTESTO §8)"}
+
+  - {id: 58, nome: "Google Agent Skills", tipo: directory, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "Agent Skills per prodotti e tecnologie Google", stato: catalogato, attriti: []}
+
+  # ========== COMPLETAMENTO BASELINE 59-65 (RECONSTRUCTED) ==========
+
+  - {id: 59, nome: "SkillSpector", tipo: tool, fiducia_fonte: alta, confidenza_storica: RECONSTRUCTED,
+     curatela: CORE, promessa: "scansiona una skill prima dell'installazione: injection, esfiltrazione, supply-chain",
+     stato: catalogato, attriti: [],
+     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (ispettore candidati) — repo ufficiale NVIDIA"}
+
+  - {id: 60, nome: "ScrapeGraphAI", tipo: tool, fiducia_fonte: media, confidenza_storica: RECONSTRUCTED,
+     curatela: PILOT, occorrenze: 2, promessa: "pipeline di scraping da istruzioni in linguaggio naturale",
+     stato: catalogato, attriti: []}
+
+  - {id: 61, nome: "Claude Code Guide for Startups", tipo: guida, fiducia_fonte: alta,
+     confidenza_storica: RECONSTRUCTED, curatela: RISORSA,
+     promessa: "pratiche operative Anthropic per Claude Code in organizzazioni piccole",
+     stato: catalogato, attriti: [], note: "input possibile per le regole dell'Officina"}
+
+  - {id: 62, nome: "Odysseus AI", tipo: harness, fiducia_fonte: da_verificare,
+     confidenza_storica: RECONSTRUCTED, curatela: PILOT,
+     promessa: "workspace locale completo: chat, agenti, MCP, memoria, email", stato: catalogato,
+     attriti: [], note: "benchmark architetturale, non componente: somiglia troppo ad Argo"}
+
+  - {id: 63, nome: "CLI-Anything", tipo: tool, fiducia_fonte: da_verificare,
+     confidenza_storica: RECONSTRUCTED, curatela: CORE,
+     promessa: "genera CLI strutturate (e SKILL.md) per software senza API/MCP", stato: catalogato, attriti: []}
+
+  - {id: 64, nome: "DigitalPlat FreeDomain", alias: ["FreeDomain"], tipo: servizio, fiducia_fonte: media,
+     confidenza_storica: RECONSTRUCTED, curatela: NICCHIA,
+     promessa: "domini/namespace gratuiti per test e staging", stato: catalogato, attriti: []}
+
+  - {id: 65, nome: "Free LLM API Resources", tipo: directory, fiducia_fonte: media,
+     confidenza_storica: RECONSTRUCTED, curatela: RISORSA,
+     promessa: "catalogo mantenuto di provider LLM con tier gratuiti", stato: catalogato, attriti: []}
+
+  # ========== NUOVE VOCI 66-95 (deduplicazione corretta) ==========
+
+  - {id: 66, nome: "Skills CLI", alias: ["npx skills"], tipo: tool, fiducia_fonte: alta,
+     confidenza_storica: HIGH, curatela: CORE,
+     promessa: "package manager delle Agent Skills: installa/aggiorna/rimuove su più agenti",
+     stato: catalogato, attriti: [],
+     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (installazione/rimozione pulita) — Vercel Labs"}
+
+  - {id: 67, nome: "Find Skills", tipo: meta_skill, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "l'agente cerca e propone skill esistenti per il compito incontrato",
+     stato: catalogato, attriti: [A06],
+     note: "candidato superficie di scoperta per Porta 2/3 invece di scrivere un connettore da zero"}
+
+  - {id: 68, nome: "Superpowers", tipo: skill_suite, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: CORE, occorrenze: 2,
+     promessa: "metodologia imposta: brainstorm → spec → piano → TDD → review",
+     stato: catalogato, attriti: [],
+     note: "Argo ha già una metodologia (le sette domande): da confrontare, non da sommare"}
+
+  - {id: 69, nome: "Impeccable", tipo: skill_suite, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "critica, correzione e rifinitura frontend: UX, accessibilità, typography",
+     stato: catalogato, attriti: []}
+
+  - {id: 70, nome: "Bloom AI", tipo: piattaforma, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "brand system canonico da sito/Figma/copy, servito agli agenti via MCP",
+     stato: catalogato, attriti: [],
+     note: "pertinenza NarraTours reale (coerenza identità alla seconda città), ma nessun attrito la richiede oggi"}
+
+  - {id: 71, nome: "Kira AI Platform", tipo: piattaforma, fiducia_fonte: bassa, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "API multimodale OpenAI-like con free tier ampio", stato: catalogato,
+     attriti: [], superficie: credenziali, note: "condizioni free tier già cambiate: mai come dipendenza"}
+
+  - {id: 72, nome: "Agentic Inbox", tipo: runtime, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "client email self-hosted con agente che legge/cerca/prepara risposte",
+     stato: catalogato, attriti: [], superficie: credenziali,
+     note: "Cloudflare. Deve battere un cantiere GIÀ CHIUSO e in produzione — asticella alta"}
+
+  - {id: 73, nome: "Kickbacks.ai", tipo: tool, fiducia_fonte: bassa, confidenza_storica: HIGH,
+     curatela: SKIP, promessa: "monetizza i tempi di attesa dell'IDE con sponsor", stato: scartato, attriti: []}
+
+  - {id: 74, nome: "Email Marketing Bible", tipo: skill, fiducia_fonte: da_verificare,
+     confidenza_storica: HIGH, curatela: CORE,
+     promessa: "audit email, flow, copy, deliverability, segmentazione, ESP via MCP",
+     stato: catalogato, attriti: [],
+     note: "pertinente per Instantly quando ci sarà volume — oggi nessun attrito la chiama"}
+
+  - {id: 75, nome: "GEO SEO", tipo: skill, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "ottimizzazione citabilità in ChatGPT/Claude/Perplexity/AI Overviews",
+     stato: catalogato, attriti: []}
+
+  - {id: 76, nome: "Marketing Skills", tipo: skill_suite, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "suite marketing completa: CRO, copy, SEO, ads, email, analytics, pricing",
+     stato: catalogato, attriti: []}
+
+  - {id: 77, nome: "Langflow", tipo: tool, fiducia_fonte: alta, confidenza_storica: HIGH, curatela: PILOT,
+     promessa: "builder visuale per agenti/RAG/workflow, esportabili come API/MCP", stato: catalogato,
+     attriti: [], note: "prototipazione; Argo ha scelto infrastruttura custom versionata"}
+
+  - {id: 78, nome: "Ollama", tipo: runtime, fiducia_fonte: alta, confidenza_storica: HIGH, curatela: CORE,
+     promessa: "runtime locale per modelli open, integrabile come backend", stato: catalogato, attriti: [],
+     note: "modelli locali parcheggiati (CONTESTO §8): si riprendono con un caso reale che batte Haiku per costo o privacy"}
+
+  - {id: 79, nome: "Scrapling", tipo: tool, fiducia_fonte: media, confidenza_storica: HIGH, curatela: CORE,
+     promessa: "scraper adattivo: HTTP, browser, spider, stealth, MCP e Agent Skill",
+     stato: catalogato, attriti: [A10],
+     note: "match debole su A10 — 2 bug risolti con fix interno, tool non giustificato dal solo attrito"}
+
+  - {id: 80, nome: "Public APIs", tipo: directory, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: RISORSA, promessa: "directory di API pubbliche: cercare un'API prima di fare scraping",
+     stato: catalogato, attriti: [], superficie: sola_lettura,
+     note: "coerente col criterio CONTESTO §11: API ufficiale sempre prima scelta"}
+
+  - {id: 81, nome: "Obsidian Second Brain", tipo: skill_suite, fiducia_fonte: da_verificare,
+     confidenza_storica: HIGH, curatela: PILOT,
+     promessa: "vault Obsidian come memoria persistente auto-aggiornante", stato: catalogato, attriti: [],
+     note: "in Argo la memoria che conta sta nel DB (invariante): qualsiasi memory layer si confronta con quello"}
+
+  - {id: 82, nome: "StarNet", tipo: harness, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "workspace visuale multi-agent: stanze, permessi, budget",
+     stato: catalogato, attriti: [], note: "ispirazione UX per la dashboard parcheggiata"}
+
+  - {id: 83, nome: "Ruflo", alias: ["Claude Flow"], tipo: harness, fiducia_fonte: media,
+     confidenza_storica: HIGH, curatela: PILOT, occorrenze: 2,
+     promessa: "orchestrazione multi-agent: swarm, memoria, workers, routing, 100+ specialisti",
+     stato: catalogato, attriti: [],
+     note: "in Argo il Router è 200 righe PER SCELTA (CONTESTO §4): il benchmark ha senso solo quando il Router smette di bastare — attrito che oggi non esiste"}
+
+  - {id: 84, nome: "Archify", tipo: skill, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "repository → mappe architetturali verificabili e interattive",
+     stato: catalogato, attriti: []}
+
+  - {id: 85, nome: "Claude Code Review", alias: ["Code Review"], tipo: plugin, fiducia_fonte: alta,
+     confidenza_storica: HIGH, curatela: CORE, occorrenze: 2,
+     promessa: "cinque reviewer paralleli con filtro confidence, gate pre-merge",
+     stato: catalogato, attriti: [A07],
+     note: "match debole su A07 — fix da un commit. Diventa candidato serio se il pattern 'fix il giorno del deploy' (SOSPESO 12) risulta ricorrente. Plugin ufficiale Anthropic"}
+
+  - {id: 86, nome: "Strawberry Browser", tipo: harness, fiducia_fonte: da_verificare,
+     confidenza_storica: HIGH, curatela: PILOT, superficie: credenziali,
+     promessa: "browser con agenti nei tab autenticati, conferma su azioni irreversibili",
+     stato: catalogato, attriti: []}
+
+  - {id: 87, nome: "LogoAI Animation", tipo: servizio, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: NICCHIA, promessa: "animazione logo e brand asset con preset", stato: catalogato, attriti: []}
+
+  - {id: 88, nome: "Security Guidance", alias: ["Security Review"], tipo: plugin, fiducia_fonte: alta,
+     confidenza_storica: HIGH, curatela: CORE,
+     promessa: "tre layer: pattern warning sugli edit, review LLM del diff, commit review cross-file",
+     stato: catalogato, attriti: [], note: "plugin ufficiale Anthropic"}
+
+  - {id: 89, nome: "GStack", tipo: skill_suite, fiducia_fonte: media, confidenza_storica: HIGH,
+     curatela: PILOT, promessa: "team startup simulato: ruoli CEO/engineering/design/QA/release",
+     stato: catalogato, attriti: [],
+     note: "organigramma simulato — in tensione col criterio 'un agente nasce da un workflow, non da un organigramma'"}
+
+  - {id: 90, nome: "shadcn MCP", tipo: mcp, fiducia_fonte: alta, confidenza_storica: HIGH, curatela: CORE,
+     promessa: "cerca/legge/installa componenti shadcn in linguaggio naturale", stato: catalogato, attriti: []}
+
+  - {id: 91, nome: "Vercel Web Design Guidelines", tipo: skill, fiducia_fonte: alta,
+     confidenza_storica: HIGH, curatela: CORE,
+     promessa: "audit frontend contro 100+ regole di accessibilità/UX/performance", stato: catalogato,
+     attriti: [], note: "scarica le guideline da main a ogni run: da pin-nare se mai adottata"}
+
+  - {id: 92, nome: "frontend-design", tipo: skill, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: CORE, occorrenze: 2,
+     promessa: "genera interfacce production-grade con identità estetica non generica",
+     stato: catalogato, attriti: [], note: "skill ufficiale Anthropic"}
+
+  - {id: 93, nome: "Chrome DevTools MCP", tipo: mcp, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: CORE, promessa: "network, console, screenshot, performance trace dal browser reale",
+     stato: catalogato, attriti: [], note: "ufficiale Chrome DevTools team"}
+
+  - {id: 94, nome: "21st MCP", alias: ["Magic MCP", "21st.dev MCP"], tipo: mcp, fiducia_fonte: media,
+     confidenza_storica: HIGH, curatela: PILOT,
+     promessa: "ricerca/generazione componenti React/Tailwind da 21st.dev", stato: catalogato, attriti: []}
+
+  - {id: 95, nome: "Composio", tipo: piattaforma, fiducia_fonte: alta, confidenza_storica: HIGH,
+     curatela: CORE, superficie: credenziali,
+     promessa: "integration fabric: discovery, auth, sessioni, action execution su moltissime app",
+     stato: catalogato, attriti: [],
+     note: "in Argo il collante I/O è già deciso: GHL (16/08). Si valuta solo quando GHL smette di coprire un'integrazione necessaria — attrito futuro preciso, non attuale"}
