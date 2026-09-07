@@ -1,0 +1,521 @@
+# INDICE DEI CANDIDATI — Cantiere Skill & Tool
+# v0.1 — 7 settembre 2026
+# Posizione prevista nel repo: knowledge/indice_candidati.yaml
+#
+# Cos'è: il catalogo delle risorse esterne osservate, nel formato che le tre
+# porte leggono. NON è una lista di cose da installare: una voce entra qui
+# per essere confrontabile col registro degli attriti, niente altro.
+#
+# Il campo che decide è `attriti`. Oggi è vuoto ovunque: si riempie
+# nell'accoppiamento manuale del Cantiere 1 e resta l'unica giustificazione
+# per passare da `catalogato` a `in_valutazione`.
+
+formato:
+  campi:
+    id: "numero progressivo, continua la numerazione della master list"
+    nome: ""
+    alias: "nomi precedenti o alternativi (genealogia unica)"
+    tipo: "skill | skill_suite | meta_skill | mcp | plugin | tool | runtime | harness | piattaforma | directory | guida | servizio"
+    fonte: "URL"
+    fiducia_fonte: "alta | media | bassa | da_verificare"
+    # alta  = Anthropic, vendor ufficiale, progetto con storia e manutenzione stabile
+    # media = community nota, manutentore identificabile, repo con storia
+    # bassa = virale recente, manutentore ignoto, nessuna storia
+    # da_verificare = assegnazione rimandata all'ispezione (Porta 3)
+    promessa: "una riga: cosa dice di risolvere"
+    promessa_score: "ex jarvis_score — metadato di curatela, NON criterio di decisione"
+    occorrenze: "quante volte incontrato in contenuti distinti"
+    superficie: "sola_lettura | scrive | esegue | hook | rete | credenziali — compilata dall'ispettore, vuota alla catalogazione"
+    stato: "catalogato | in_valutazione | adottato | tenuto_30gg | disinstallato | scartato"
+    attriti: "[] — id dal registro_attriti. IL campo che decide."
+    sovrapposizioni: "voci dell'indice che promettono la stessa cosa"
+    note: ""
+
+# ---------------------------------------------------------------------------
+# BASELINE 65 — da importare
+# Le voci 1-65 della master list precedente vanno normalizzate in questo
+# stesso formato. Fino ad allora l'indice è parziale.
+# ---------------------------------------------------------------------------
+
+voci:
+
+  - id: 66
+    nome: "SkillSpector"
+    tipo: tool
+    fonte: "https://github.com/nvidia/skillspector"
+    fiducia_fonte: alta        # repo ufficiale NVIDIA
+    promessa: "scansiona una skill prima dell'installazione: injection, esfiltrazione, supply-chain, escalation"
+    promessa_score: 9.8
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Security Guidance"]
+    note: "candidato naturale per l'ispettore della Porta 3 — è l'unico della lista che tocca direttamente questo cantiere"
+
+  - id: 67
+    nome: "ScrapeGraphAI"
+    tipo: tool
+    fonte: "https://github.com/ScrapeGraphAI/Scrapegraph-ai"
+    fiducia_fonte: media
+    promessa: "pipeline di scraping da istruzioni in linguaggio naturale (LLM + graph logic)"
+    promessa_score: 8.9
+    occorrenze: 2
+    superficie: null
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Firecrawl", "Scrapling"]
+
+  - id: 68
+    nome: "Claude Code Guide for Startups"
+    tipo: guida
+    fonte: "https://claude.com/blog/claude-code-guide-for-startups"
+    fiducia_fonte: alta
+    promessa: "pratiche operative Anthropic per usare Claude Code in organizzazioni piccole"
+    promessa_score: 7.4
+    occorrenze: 1
+    superficie: sola_lettura
+    stato: catalogato
+    attriti: []
+    note: "risorsa, non runtime: input possibile per le regole dell'Officina"
+
+  - id: 69
+    nome: "Odysseus AI"
+    tipo: harness
+    fonte: "https://github.com/odysseus-dev/odysseus"
+    fiducia_fonte: da_verificare
+    promessa: "workspace locale completo: chat, agenti, MCP, file, shell, memoria, email, calendario"
+    promessa_score: 7.6
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Ruflo", "StarNet", "Argo stesso"]
+    note: "benchmark architetturale, non componente: somiglia troppo ad Argo per starci dentro"
+
+  - id: 70
+    nome: "CLI-Anything"
+    tipo: tool
+    fonte: "https://github.com/KitJacky/cli-anything"
+    fiducia_fonte: da_verificare
+    promessa: "genera CLI strutturate (e SKILL.md) per software senza API/MCP"
+    promessa_score: 9.6
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+
+  - id: 71
+    nome: "DigitalPlat FreeDomain"
+    tipo: servizio
+    fonte: "https://github.com/DigitalPlatDev/FreeDomain"
+    fiducia_fonte: media
+    promessa: "domini/namespace gratuiti con delega DNS per test e staging"
+    promessa_score: 4.5
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+
+  - id: 72
+    nome: "Free LLM API Resources"
+    tipo: directory
+    fonte: "https://github.com/cheahjs/free-llm-api-resources"
+    fiducia_fonte: media
+    promessa: "catalogo mantenuto di provider LLM con tier gratuiti"
+    promessa_score: 7.5
+    occorrenze: 1
+    superficie: sola_lettura
+    stato: catalogato
+    attriti: []
+
+  - id: 73
+    nome: "Skills CLI"
+    alias: ["npx skills", "skills.sh CLI"]
+    tipo: tool
+    fonte: "https://github.com/vercel-labs/skills"
+    fiducia_fonte: alta        # Vercel Labs, ecosistema attivo
+    promessa: "package manager delle Agent Skills: installa, aggiorna, rimuove su più agenti"
+    promessa_score: 9.8
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    note: "infrastruttura del cantiere stesso (installazione pulita), non una skill da valutare come le altre"
+
+  - id: 74
+    nome: "Find Skills"
+    tipo: meta_skill
+    fonte: "https://www.skills.sh/"
+    fiducia_fonte: media
+    promessa: "l'agente cerca e propone skill esistenti quando incontra un compito specializzato"
+    promessa_score: 9.6
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    note: "si sovrappone alla Porta 2/3 del cantiere: valutare se usarla come connettore di scoperta invece di scriverne uno"
+
+  - id: 75
+    nome: "Superpowers"
+    tipo: skill_suite
+    fonte: "https://github.com/obra/superpowers"
+    fiducia_fonte: media       # manutentore noto (obra), progetto con storia
+    promessa: "metodologia di sviluppo imposta: brainstorm → spec → piano → TDD → review"
+    promessa_score: 9.8
+    occorrenze: 2
+    superficie: null
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["GStack", "metodo cantieri esistente"]
+    note: "attenzione: Argo ha già una metodologia (le sette domande). Da confrontare, non da sommare"
+
+  - id: 76
+    nome: "Impeccable"
+    tipo: skill_suite
+    fonte: "https://impeccable.style/"
+    fiducia_fonte: media
+    promessa: "critica, correzione e rifinitura frontend: UX, accessibilità, typography, motion"
+    promessa_score: 9.3
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["frontend-design", "Vercel Web Design Guidelines"]
+
+  - id: 77
+    nome: "Bloom AI"
+    tipo: piattaforma
+    fonte: "https://www.trybloom.ai/"
+    fiducia_fonte: da_verificare
+    promessa: "brand system canonico da sito/Figma/copy, servito agli agenti via MCP/API"
+    promessa_score: 9.2
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    note: "pertinenza NarraTours reale (coerenza identità visiva), ma nessun attrito registrato oggi la richiede"
+
+  - id: 78
+    nome: "Kira AI Platform"
+    tipo: piattaforma
+    fonte: "https://kiraai.vn/"
+    fiducia_fonte: bassa       # condizioni free tier già cambiate, provider poco tracciato
+    promessa: "API multimodale OpenAI-like con free tier ampio"
+    promessa_score: 6.3
+    occorrenze: 1
+    superficie: credenziali
+    stato: catalogato
+    attriti: []
+
+  - id: 79
+    nome: "Agentic Inbox"
+    tipo: runtime
+    fonte: "https://github.com/cloudflare/agentic-inbox"
+    fiducia_fonte: alta        # Cloudflare
+    promessa: "client email self-hosted con agente che legge, cerca e prepara risposte"
+    promessa_score: 8.8
+    occorrenze: 1
+    superficie: credenziali
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["cantiere email IMAP già in produzione"]
+    note: "deve battere un cantiere GIÀ CHIUSO e funzionante — asticella alta per definizione"
+
+  - id: 80
+    nome: "Kickbacks.ai"
+    tipo: tool
+    fonte: "https://github.com/andrewmccalip/kickbacks.ai"
+    fiducia_fonte: bassa
+    promessa: "monetizza i tempi di attesa dell'IDE con contenuti sponsorizzati"
+    promessa_score: 1.5
+    occorrenze: 1
+    stato: scartato
+    attriti: []
+
+  - id: 81
+    nome: "Email Marketing Bible"
+    tipo: skill
+    fonte: "https://github.com/CosmoBlk/email-marketing-bible"
+    fiducia_fonte: da_verificare
+    promessa: "audit email, flow, copy, deliverability, segmentazione, controllo ESP via MCP"
+    promessa_score: 9.4
+    occorrenze: 1
+    superficie: null
+    stato: catalogato
+    attriti: []
+    note: "pertinente per le campagne Instantly quando ci sarà volume — oggi nessun attrito la chiama"
+
+  - id: 82
+    nome: "GEO SEO"
+    tipo: skill
+    fonte: "https://github.com/zubair-trabzada/geo-seo-claude"
+    fiducia_fonte: da_verificare
+    promessa: "ottimizzazione citabilità in ChatGPT/Claude/Perplexity/AI Overviews"
+    promessa_score: 8.8
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Claude SEO"]
+
+  - id: 83
+    nome: "Marketing Skills"
+    tipo: skill_suite
+    fonte: "https://github.com/coreyhaines31/marketingskills"
+    fiducia_fonte: media       # manutentore noto (Corey Haines)
+    promessa: "suite marketing completa: CRO, copy, SEO, ads, email, analytics, pricing"
+    promessa_score: 9.7
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 84
+    nome: "Langflow"
+    tipo: tool
+    fonte: "https://github.com/langflow-ai/langflow"
+    fiducia_fonte: alta        # progetto grande, storia lunga
+    promessa: "builder visuale per agenti, RAG e workflow, esportabili come API/MCP"
+    promessa_score: 8.3
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    note: "prototipazione; Argo ha scelto infrastruttura custom versionata"
+
+  - id: 85
+    nome: "Ollama"
+    tipo: runtime
+    fonte: "https://ollama.com/"
+    fiducia_fonte: alta
+    promessa: "runtime locale per modelli open, integrabile come backend di Claude Code"
+    promessa_score: 9.7
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    note: "già parcheggiato in CONTESTO §8: 'modelli locali su GPU — un caso reale in cui battono Haiku per costo o privacy'. La voce non riapre il parcheggio"
+
+  - id: 86
+    nome: "Scrapling"
+    tipo: tool
+    fonte: "https://github.com/D4Vinci/Scrapling"
+    fiducia_fonte: media
+    promessa: "scraper adattivo: HTTP, browser, spider, stealth, MCP e Agent Skill"
+    promessa_score: 9.5
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Firecrawl", "ScrapeGraphAI", "Camoufox"]
+
+  - id: 87
+    nome: "Public APIs"
+    tipo: directory
+    fonte: "https://github.com/public-apis/public-apis"
+    fiducia_fonte: alta        # directory storica
+    promessa: "directory comunitaria di API pubbliche per cercare un'API prima di fare scraping"
+    promessa_score: 7.8
+    occorrenze: 1
+    superficie: sola_lettura
+    stato: catalogato
+    attriti: []
+    note: "coerente col criterio §11 del CONTESTO: API ufficiale sempre prima scelta"
+
+  - id: 88
+    nome: "Obsidian Second Brain"
+    tipo: skill_suite
+    fonte: "https://github.com/eugeniughelbur/obsidian-second-brain"
+    fiducia_fonte: da_verificare
+    promessa: "vault Obsidian come memoria persistente auto-aggiornante per agenti"
+    promessa_score: 8.8
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Claude-Mem", "Core DB"]
+    note: "in Argo la memoria che conta sta nel DB (invariante). Qualsiasi memory layer va confrontato con quello, non adottato accanto"
+
+  - id: 89
+    nome: "StarNet"
+    tipo: harness
+    fonte: "https://github.com/androoAGI/starnet"
+    fiducia_fonte: da_verificare
+    promessa: "stazione visuale multi-agent locale: stanze, permessi, budget, night shift"
+    promessa_score: 7.7
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    note: "ispirazione UX per la dashboard parcheggiata (CONTESTO §8), non runtime"
+
+  - id: 90
+    nome: "Ruflo"
+    tipo: harness
+    fonte: "https://github.com/ruvnet/ruflo"
+    fiducia_fonte: media       # manutentore noto (ruvnet), progetto giovane e molto ampio
+    promessa: "orchestrazione multi-agent: swarm, memoria, background workers, routing, 100+ specialisti"
+    promessa_score: 9.9
+    occorrenze: 2
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Router di Argo", "worker", "Core DB"]
+    note: "la lista lo marca 'test critico'. In Argo l'orchestratore è 200 righe PER SCELTA (CONTESTO §4): il benchmark ha senso solo quando il Router smette di bastare — quell'attrito oggi non esiste"
+
+  - id: 91
+    nome: "Archify"
+    tipo: skill
+    fonte: "https://github.com/tt-a1i/archify"
+    fiducia_fonte: da_verificare
+    promessa: "trasforma repository in mappe architetturali verificabili e interattive"
+    promessa_score: 8.9
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 92
+    nome: "Code Review"
+    tipo: plugin
+    fonte: "https://claude.com/plugins/code-review"
+    fiducia_fonte: alta        # plugin ufficiale Anthropic
+    promessa: "cinque reviewer paralleli con filtro per confidence, gate pre-merge"
+    promessa_score: 9.5
+    occorrenze: 2
+    stato: catalogato
+    attriti: []
+    note: "candidato realistico: Leonardo approva a mano ogni edit di Claude Code — se questo è un attrito con un numero, il gate automatico è la risposta"
+
+  - id: 93
+    nome: "Strawberry Browser"
+    tipo: harness
+    fonte: "https://strawberrybrowser.com/for-ai"
+    fiducia_fonte: da_verificare
+    promessa: "browser con agenti nei tab autenticati, azioni parallele, conferma su azioni irreversibili"
+    promessa_score: 8.9
+    occorrenze: 1
+    superficie: credenziali
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Camoufox", "Playwright MCP", "Claude in Chrome"]
+
+  - id: 94
+    nome: "LogoAI Animation"
+    tipo: servizio
+    fonte: "https://www.logoai.com/design/animated-logo"
+    fiducia_fonte: media
+    promessa: "animazione logo e brand asset con preset"
+    promessa_score: 4.8
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 95
+    nome: "Security Guidance"
+    alias: ["Security Review"]
+    tipo: plugin
+    fonte: "https://github.com/anthropics/claude-code/tree/main/plugins/security-guidance"
+    fiducia_fonte: alta        # ufficiale Anthropic
+    promessa: "tre layer: pattern warning sugli edit, review LLM del diff, commit review cross-file"
+    promessa_score: 9.7
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 96
+    nome: "GStack"
+    tipo: skill_suite
+    fonte: "https://github.com/garrytan/gstack"
+    fiducia_fonte: media       # manutentore notissimo, progetto recente
+    promessa: "team startup simulato: ruoli CEO/engineering/design/QA/release/security"
+    promessa_score: 9.6
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Superpowers"]
+    note: "organigramma simulato — in tensione diretta col criterio 'un agente nasce da un workflow, non da un organigramma'"
+
+  - id: 97
+    nome: "shadcn MCP"
+    tipo: mcp
+    fonte: "https://ui.shadcn.com/docs/mcp"
+    fiducia_fonte: alta        # ufficiale shadcn
+    promessa: "cerca, legge e installa componenti shadcn in linguaggio naturale"
+    promessa_score: 9.2
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 98
+    nome: "Vercel Web Design Guidelines"
+    tipo: skill
+    fonte: "https://github.com/vercel-labs/agent-skills"
+    fiducia_fonte: alta        # Vercel Labs
+    promessa: "audit frontend contro 100+ regole di accessibilità, UX, performance"
+    promessa_score: 9.1
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    note: "scarica le guideline da main a ogni run: da pin-nare se mai adottata (supply-chain)"
+
+  - id: 99
+    nome: "frontend-design"
+    tipo: skill
+    fonte: "https://github.com/anthropics/claude-code/blob/main/plugins/frontend-design"
+    fiducia_fonte: alta        # ufficiale Anthropic
+    promessa: "genera interfacce production-grade con identità estetica non generica"
+    promessa_score: 9.2
+    occorrenze: 2
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["Impeccable"]
+
+  - id: 100
+    nome: "Chrome DevTools MCP"
+    tipo: mcp
+    fonte: "https://github.com/ChromeDevTools/chrome-devtools-mcp"
+    fiducia_fonte: alta        # ufficiale Chrome DevTools team
+    promessa: "network, console, screenshot, performance trace e automazione dal browser reale"
+    promessa_score: 9.8
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+
+  - id: 101
+    nome: "21st MCP"
+    alias: ["Magic MCP"]
+    tipo: mcp
+    fonte: "https://github.com/21st-dev/magic-mcp"
+    fiducia_fonte: media
+    promessa: "ricerca e generazione componenti React/Tailwind dall'ecosistema 21st.dev"
+    promessa_score: 8.9
+    occorrenze: 1
+    stato: catalogato
+    attriti: []
+    sovrapposizioni: ["shadcn MCP"]
+
+  - id: 102
+    nome: "Composio"
+    tipo: piattaforma
+    fonte: "https://github.com/composiohq/composio"
+    fiducia_fonte: alta        # progetto grande con storia
+    promessa: "integration fabric: discovery, auth, sessioni e action execution su moltissime app"
+    promessa_score: 9.9
+    occorrenze: 1
+    superficie: credenziali
+    stato: catalogato
+    attriti: []
+    note: "in Argo il collante I/O è già deciso: GHL (decisione chiusa 16/08). Composio si valuta solo quando GHL smette di coprire un'integrazione necessaria — è un attrito futuro preciso, non uno attuale"
+
+# ---------------------------------------------------------------------------
+# AGGIORNAMENTI A VOCI BASELINE (non aumentano il totale)
+# Da fondere quando le 65 vengono importate.
+# ---------------------------------------------------------------------------
+
+aggiornamenti_baseline:
+  - nome: "Agent Reach"
+    occorrenze_aggiuntive: 1
+    promessa_score: 9.3
+    nota: "layer di lettura/search (X, Reddit, YouTube, GitHub, RSS), non browser interattivo. Candidato connettore per il radar (Porta 2)"
+  - nome: "Camoufox"
+    occorrenze_aggiuntive: 1
+    promessa_score: 9.1
+  - nome: "Claude-Mem"
+    occorrenze_aggiuntive: 1
+    promessa_score: 9.0
+  - nome: "Claude SEO"
+    occorrenze_aggiuntive: 1
+    promessa_score: 9.5
