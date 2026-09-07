@@ -40,11 +40,13 @@ accettato citato in STATO.md, non un incidente contato.*
 | A08 | Contatti con email-placeholder scritta prima della regola generale, ripuliti a mano (6 recuperati, 2 rimasti vuoti) | Lead-gen Roma (estrazione email) | 8 (commit `57273db`) | ? | chiuso | |
 | A09 | Alert Telegram IMAP senza dedup: una casella down genera un flood di messaggi ("centinaia", numero esatto non nel commit) | Cantiere 2 (email IMAP) | 1 incidente noto (frequenza reale prima del fix sconosciuta) | ? | chiuso (fix 04/09, commit `1941229`) | |
 | A10 | Bug di estrazione URL Facebook: troncamento `/pages`, `/people`, `/pages/category`; slug numerico `/1278` trattato come pagina vera | Lead-gen Roma (estrazione social) | 2 bug distinti (STATO.md:124-129, 145-156; commit `2f118fe`) | ? | chiuso | |
-| A11 | Collaudo drafter/filtro warmup: tono non conforme (lei/tu poi lei/voi) + filtro warmup non strutturale — 3 correzioni lo stesso giorno prima del deploy | Cantiere risposte email | 3 (commit `674bf7f`, `eea9796`, `7c49c5b`, tutti 03/09) | ? | chiuso — vedi SOSPESO 5: sono correzioni pre-deploy, non guasti post-produzione | |
+| A11 | Collaudo drafter/filtro warmup: tono non conforme (lei/tu poi lei/voi) + filtro warmup non strutturale — 3 correzioni lo stesso giorno prima del deploy | Cantiere risposte email | 3 (commit `674bf7f`, `eea9796`, `7c49c5b`, tutti 03/09) | ? | chiuso — costo di collaudo | |
 | A12 | Approvazioni corrette dall'operatore prima di approvare (stato `modificata`) | Cantiere risposte email | 2 (approvals.stato='modificata') | ? | accettato — è lo scopo del gate, non un difetto | |
 | A13 | Approvazioni ferme in `in_attesa` da oltre 24h senza `scadenza` impostata | Cantiere risposte email | 2 (id 4 dal 23/08, id 10 dal 03/09) | ? | aperto — conferma il seed A02 con un numero | |
 | A14 | Job `test_invio_dm` falliti: collaudo manuale che sostituisce il drafter DM mai scritto | Cantiere 3 (DM IG/FB) | 2 (jobs.tipo='test_invio_dm', stato='failed') | ? | aperto — drafter DM ancora mancante (STATO.md) | |
 | A15 | Sotto-quadrante Places saturo anche a bisezione massima (`prati_borgo#q0#q3`) | Lead-gen Roma (raccolta Places) | 1 | ? | accettato (STATO.md:19-22) | |
+| A24 | Filtro warmup Instantly assente sul connettore IMAP: email di warmup non filtrate, osservato sui log prima del fix | Cantiere 2 (email IMAP) | 1 (fix, commit `d95d894`, 27/08 — confermato dall'operatore: problema già osservato sui log) | ? | chiuso | |
+| A25 | Script export lead-gen "ad hoc" andava sistemato a mano a ogni export (problemi con X, non specificato) | Lead-gen Roma (export Instantly) | ? — vedi SOSPESO 11 | ? | chiuso (sostituito da `scripts/export_instantly.py`, commit `87dcfab`) | |
 | A16 | Tetto giornaliero LLM in-memory: si azzera a ogni riavvio worker | Cantiere risposte email | ? | ? | aperto (STATO.md:511-516) | |
 | A17 | Classificazione/bozza fallita non viene mai ritentata (guardia idempotenza scritta prima) | Cantiere risposte email | ? | ? | accettato — trade-off scelto (STATO.md:517-523) | |
 | A18 | Guardia idempotenza scritta prima dell'invio: rischio messaggio registrato ma mai partito | tutti i canali (email/DM) | ? | ? | aperto (STATO.md:530-540) | |
@@ -63,25 +65,37 @@ per riferimento; le domande su come chiuderle sono in SOSPESI.
 
 ## SOSPESI
 
-1. Cantiere 2 (IMAP) e "cantiere risposte" non hanno mai un commit/nota di
-   chiusura esplicita in STATO.md, e CLAUDE.md dichiara ancora "Cantiere attivo:
-   2 — email" mentre STATO.md descrive il secondo pezzo (classificazione LLM +
-   bozze) come "collegato al traffico vero". Vanno considerati chiusi ai fini
-   del registro (come ho fatto sopra, A11-A23) o esclusi perché ancora attivi?
-2. Commit `d95d894` ("Filtro warmup Instantly sul connettore IMAP", 27/08) è un
-   fix di un difetto reale osservato o una feature nuova? Se fix, va aggiunto
-   come attrito (Volte=1).
-3. Commit `87dcfab` ("scripts/export_instantly.py", 31/08) sostituisce uno
-   script "ad hoc" del cantiere lead-gen già chiuso: conta come costo evitato,
-   o è normale iterazione di feature (esclusa)?
+1. [RISOLTO 07/09] Cantiere 2 (IMAP) e "cantiere risposte" non hanno mai un
+   commit/nota di chiusura esplicita in STATO.md, e CLAUDE.md dichiara ancora
+   "Cantiere attivo: 2 — email" mentre STATO.md descrive il secondo pezzo
+   (classificazione LLM + bozze) come "collegato al traffico vero". Vanno
+   considerati chiusi ai fini del registro (come ho fatto sopra, A11-A23) o
+   esclusi perché ancora attivi?
+   **Risposta:** restano chiuse ai fini del registro: sono attive ma stabili,
+   in produzione.
+2. [RISOLTO 07/09] Commit `d95d894` ("Filtro warmup Instantly sul connettore
+   IMAP", 27/08) è un fix di un difetto reale osservato o una feature nuova?
+   Se fix, va aggiunto come attrito (Volte=1).
+   **Risposta:** è un fix, il warmup Instantly era già osservato sui log.
+   → aggiunto come A24 in "Attriti registrati".
+3. [RISOLTO 07/09] Commit `87dcfab` ("scripts/export_instantly.py", 31/08)
+   sostituisce uno script "ad hoc" del cantiere lead-gen già chiuso: conta come
+   costo evitato, o è normale iterazione di feature (esclusa)?
+   **Risposta:** è un attrito — lo script vecchio andava sistemato a mano a
+   ogni export / aveva dato problemi con X (dettaglio non specificato).
+   → aggiunto come A25 in "Attriti registrati"; Volte e "X" restano SOSPESI
+   (vedi SOSPESO 11).
 4. Il flood di alert Telegram (A09) è documentato come "centinaia di messaggi"
    senza numero esatto, un solo incidente noto. Quante volte si è già
    verificato prima del fix del 04/09? Non esiste uno storico Telegram
    consultabile in questa sessione — dove si troverebbe (export chat, log bot)?
-5. I tre fix di collaudo del drafter (A11, tutti 03/09, stesso giorno del
-   deploy) sono correzioni pre-produzione, non guasti in produzione. Li conto
-   come attrito (costo del collaudo) o li escludo perché "il collaudo ha
-   funzionato come doveva"?
+5. [RISOLTO 07/09] I tre fix di collaudo del drafter (A11, tutti 03/09, stesso
+   giorno del deploy) sono correzioni pre-produzione, non guasti in
+   produzione. Li conto come attrito (costo del collaudo) o li escludo perché
+   "il collaudo ha funzionato come doveva"?
+   **Risposta:** contali come attrito, costo di collaudo, stato chiuso. Se il
+   pattern "fix nel giorno del deploy" ricorre su altri cantieri, è un
+   attrito ricorrente tra cantieri. → vedi nuovo SOSPESO 12.
 6. A01, A05 (Regia sonora/Regista): girano su PC Windows, fuori perimetro di
    questa sessione — da contare sul PC, nessun dato qui.
 7. A03 (setup ripetuto ad ogni sessione Claude Code): vale anche per le sessioni
@@ -98,6 +112,15 @@ per riferimento; le domande su come chiuderle sono in SOSPESI.
     né nei file SQL, né nel DB live, né nel codice. Va creata in futuro, o la
     funzione più vicina (`alert_inviati` + `approvals.stato` + `jobs.stato`)
     basta così com'è?
+11. A25: quante volte lo script vecchio è stato sistemato a mano prima di
+    essere sostituito (quanti export)? E qual è "X" — quale problema specifico
+    dava? Servono per completare Volte e la descrizione di A25.
+12. Il pattern di A11 ("fix il giorno stesso del deploy") ricorre in altri
+    cantieri oltre a "risposte email"? Non ancora verificato in questa sessione
+    — richiederebbe di incrociare, per ogni cantiere, la data dei commit di
+    chiusura/deploy con eventuali fix associati allo stesso giorno. Se ricorre,
+    diventa un attrito trasversale (es. "il collaudo del giorno stesso del
+    deploy trova sempre N correzioni") da aggiungere come riga a sé.
 
 ---
 
