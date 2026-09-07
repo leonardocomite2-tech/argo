@@ -49,9 +49,9 @@ voci:
     occorrenze: 1
     superficie: null
     stato: catalogato
-    attriti: []
+    attriti: [A06]
     sovrapposizioni: ["Security Guidance"]
-    note: "candidato naturale per l'ispettore della Porta 3 — è l'unico della lista che tocca direttamente questo cantiere"
+    note: "candidato naturale per l'ispettore della Porta 3 — è l'unico della lista che tocca direttamente questo cantiere — infrastruttura Porta 3 di questo cantiere (ispettore candidati)"
 
   - id: 67
     nome: "ScrapeGraphAI"
@@ -141,7 +141,7 @@ voci:
     superficie: null
     stato: catalogato
     attriti: []
-    note: "infrastruttura del cantiere stesso (installazione pulita), non una skill da valutare come le altre"
+    note: "infrastruttura del cantiere stesso (installazione pulita), non una skill da valutare come le altre — infrastruttura Porta 3 di questo cantiere (install/rimozione pulita)"
 
   - id: 74
     nome: "Find Skills"
@@ -153,7 +153,7 @@ voci:
     occorrenze: 1
     superficie: null
     stato: catalogato
-    attriti: []
+    attriti: [A06]
     note: "si sovrappone alla Porta 2/3 del cantiere: valutare se usarla come connettore di scoperta invece di scriverne uno"
 
   - id: 75
@@ -302,8 +302,9 @@ voci:
     promessa_score: 9.5
     occorrenze: 1
     stato: catalogato
-    attriti: []
+    attriti: [A10]
     sovrapposizioni: ["Firecrawl", "ScrapeGraphAI", "Camoufox"]
+    note: "match debole — 2 bug risolti con fix interno"
 
   - id: 87
     nome: "Public APIs"
@@ -376,8 +377,8 @@ voci:
     promessa_score: 9.5
     occorrenze: 2
     stato: catalogato
-    attriti: []
-    note: "candidato realistico: Leonardo approva a mano ogni edit di Claude Code — se questo è un attrito con un numero, il gate automatico è la risposta"
+    attriti: [A07]
+    note: "candidato realistico: Leonardo approva a mano ogni edit di Claude Code — se questo è un attrito con un numero, il gate automatico è la risposta — match debole — fix da un commit, tool non giustificato dal solo A07"
 
   - id: 93
     nome: "Strawberry Browser"
@@ -509,7 +510,7 @@ aggiornamenti_baseline:
   - nome: "Agent Reach"
     occorrenze_aggiuntive: 1
     promessa_score: 9.3
-    nota: "layer di lettura/search (X, Reddit, YouTube, GitHub, RSS), non browser interattivo. Candidato connettore per il radar (Porta 2)"
+    nota: "layer di lettura/search (X, Reddit, YouTube, GitHub, RSS), non browser interattivo. Candidato connettore per il radar (Porta 2) — accoppiato ad A06 (candidato connettore radar); id definitivo all'import della baseline 65"
   - nome: "Camoufox"
     occorrenze_aggiuntive: 1
     promessa_score: 9.1
