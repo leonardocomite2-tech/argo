@@ -239,14 +239,15 @@ voci:
      attriti: [], note: "model routing parcheggiato (CONTESTO §8)"}
 
   - {id: 58, nome: "Google Agent Skills", tipo: directory, fiducia_fonte: alta, confidenza_storica: HIGH,
-     curatela: PILOT, promessa: "Agent Skills per prodotti e tecnologie Google", stato: catalogato, attriti: []}
+     curatela: PILOT, promessa: "Agent Skills per prodotti e tecnologie Google", stato: catalogato, attriti: [],
+     note: "fonte candidata radar (P1, giro 01)"}
 
   # ========== COMPLETAMENTO BASELINE 59-65 (RECONSTRUCTED) ==========
 
   - {id: 59, nome: "SkillSpector", tipo: tool, fiducia_fonte: alta, confidenza_storica: RECONSTRUCTED,
      curatela: CORE, promessa: "scansiona una skill prima dell'installazione: injection, esfiltrazione, supply-chain",
-     stato: catalogato, attriti: [],
-     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (ispettore candidati) — repo ufficiale NVIDIA"}
+     stato: in_valutazione, attriti: [],
+     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (ispettore candidati) — repo ufficiale NVIDIA — primo task Cantiere 2: ispezione in sandbox"}
 
   - {id: 60, nome: "ScrapeGraphAI", tipo: tool, fiducia_fonte: media, confidenza_storica: RECONSTRUCTED,
      curatela: PILOT, occorrenze: 2, promessa: "pipeline di scraping da istruzioni in linguaggio naturale",
@@ -272,15 +273,16 @@ voci:
 
   - {id: 65, nome: "Free LLM API Resources", tipo: directory, fiducia_fonte: media,
      confidenza_storica: RECONSTRUCTED, curatela: RISORSA,
-     promessa: "catalogo mantenuto di provider LLM con tier gratuiti", stato: catalogato, attriti: []}
+     promessa: "catalogo mantenuto di provider LLM con tier gratuiti", stato: catalogato, attriti: [],
+     note: "fonte candidata radar (P1, giro 01)"}
 
   # ========== NUOVE VOCI 66-95 (deduplicazione corretta) ==========
 
   - {id: 66, nome: "Skills CLI", alias: ["npx skills"], tipo: tool, fiducia_fonte: alta,
      confidenza_storica: HIGH, curatela: CORE,
      promessa: "package manager delle Agent Skills: installa/aggiorna/rimuove su più agenti",
-     stato: catalogato, attriti: [],
-     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (installazione/rimozione pulita) — Vercel Labs"}
+     stato: in_valutazione, attriti: [],
+     note: "INFRASTRUTTURA PORTA 3 di questo cantiere (installazione/rimozione pulita) — Vercel Labs — primo task Cantiere 2: ispezione in sandbox"}
 
   - {id: 67, nome: "Find Skills", tipo: meta_skill, fiducia_fonte: media, confidenza_storica: HIGH,
      curatela: CORE, promessa: "l'agente cerca e propone skill esistenti per il compito incontrato",
@@ -291,7 +293,7 @@ voci:
      curatela: CORE, occorrenze: 2,
      promessa: "metodologia imposta: brainstorm → spec → piano → TDD → review",
      stato: catalogato, attriti: [],
-     note: "Argo ha già una metodologia (le sette domande): da confrontare, non da sommare"}
+     note: "Argo ha già una metodologia (le sette domande): da confrontare, non da sommare — P3 giro 01: da leggere (non installare) alla scrittura della skill nuovo-cantiere"}
 
   - {id: 69, nome: "Impeccable", tipo: skill_suite, fiducia_fonte: media, confidenza_storica: HIGH,
      curatela: CORE, promessa: "critica, correzione e rifinitura frontend: UX, accessibilità, typography",
@@ -299,8 +301,8 @@ voci:
 
   - {id: 70, nome: "Bloom AI", tipo: piattaforma, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
      curatela: PILOT, promessa: "brand system canonico da sito/Figma/copy, servito agli agenti via MCP",
-     stato: catalogato, attriti: [],
-     note: "pertinenza NarraTours reale (coerenza identità alla seconda città), ma nessun attrito la richiede oggi"}
+     stato: in_valutazione, attriti: [],
+     note: "pertinenza NarraTours reale (coerenza identità alla seconda città), ma nessun attrito la richiede oggi — adozione anticipata decisa dall'operatore 07/09 — percorso: free tier → prova su asset reale → $20/mese solo se convince (vedi evoluzioni_giro_01.md)"}
 
   - {id: 71, nome: "Kira AI Platform", tipo: piattaforma, fiducia_fonte: bassa, confidenza_storica: HIGH,
      curatela: PILOT, promessa: "API multimodale OpenAI-like con free tier ampio", stato: catalogato,
@@ -318,7 +320,7 @@ voci:
      confidenza_storica: HIGH, curatela: CORE,
      promessa: "audit email, flow, copy, deliverability, segmentazione, ESP via MCP",
      stato: catalogato, attriti: [],
-     note: "pertinente per Instantly quando ci sarà volume — oggi nessun attrito la chiama"}
+     note: "pertinente per Instantly quando ci sarà volume — oggi nessun attrito la chiama — parcheggio con condizione: Instantly converte e volume verso 1.000 email/mese"}
 
   - {id: 75, nome: "GEO SEO", tipo: skill, fiducia_fonte: da_verificare, confidenza_storica: HIGH,
      curatela: PILOT, promessa: "ottimizzazione citabilità in ChatGPT/Claude/Perplexity/AI Overviews",
@@ -344,7 +346,7 @@ voci:
   - {id: 80, nome: "Public APIs", tipo: directory, fiducia_fonte: alta, confidenza_storica: HIGH,
      curatela: RISORSA, promessa: "directory di API pubbliche: cercare un'API prima di fare scraping",
      stato: catalogato, attriti: [], superficie: sola_lettura,
-     note: "coerente col criterio CONTESTO §11: API ufficiale sempre prima scelta"}
+     note: "coerente col criterio CONTESTO §11: API ufficiale sempre prima scelta — fonte candidata radar (P1, giro 01)"}
 
   - {id: 81, nome: "Obsidian Second Brain", tipo: skill_suite, fiducia_fonte: da_verificare,
      confidenza_storica: HIGH, curatela: PILOT,
