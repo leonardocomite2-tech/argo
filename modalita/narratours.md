@@ -35,9 +35,16 @@ baseline aveva rilevato quella famiglia). Le due osservazioni sono in apparente
 contraddizione: non risolta in questo passo, da bonificare in un intervento dedicato
 futuro — non "di passaggio". **Il brand di riferimento resta Playfair Display + DM Sans;
 Inter non appartiene al brand.**
-[DA VERIFICARE: perché il `!important` su Inter non vince nel computed style misurato sulle
-pagine tour? Quale regola ha più specificità, o il Body tracking code non viene iniettato
-ovunque?]
+
+**Spiegazione candidata (non verificata)**: `body *` ha specificità minima (tipo +
+universale); a parità di `!important` vince la regola più specifica, e i CSS dei blocchi
+del builder usano quasi certamente selettori di classe — che battono `body *` legittimamente,
+senza bisogno di un altro `!important`. Se questo è corretto, non c'è nessun mistero: è
+cascata CSS normale. **Da confermare alla prima bonifica guardando un selettore reale
+(devtools sulla pagina pubblicata); fino ad allora non indagare oltre — non è né urgente né
+bloccante.**
+[DA VERIFICARE: la specificità-per-classe spiega davvero il caso, o il Body tracking code
+non viene iniettato ovunque?]
 
 **Tono**: CLAUDE.md fissa il tono per email/SMS/messaggi in uscita verso host e prospect:
 lei cordiale, mai formalismi da ufficio (deciso 18/08). **Questo governa la comunicazione
@@ -170,14 +177,23 @@ direttamente con gli eventi di rete di Playwright, non con un audit Lighthouse.
 cd /root/argo/.claude/skills/designer
 export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-node scripts/cattura.mjs <url-o-file-html> [--domains=narra-tours.com] [--out=output]
-node scripts/pavimento.mjs <url-o-file-html> [--domains=narra-tours.com] [--budget-kb=NNN] [--out=output]
+node scripts/cattura.mjs <url-o-file-html> [--domains=...] [--out=output]
+node scripts/pavimento.mjs <url-o-file-html> [--domains=...] [--budget-kb=NNN] [--out=output]
 ```
-Navigazione limitata per default a `narra-tours.com`. **Quando il lavoro di pagina userà
-l'anteprima GHL** (`sites.leadconnectorhq.com`, regola 3 in §2), passare
-`--domains=narra-tours.com,sites.leadconnectorhq.com` — il default resta solo
-`narra-tours.com`, altrimenti lo script rifiuta la navigazione. Output (screenshot, snapshot
-di accessibilità, report JSON) in `output/` (ignorata da git).
+Navigazione consentita per default a `narra-tours.com` **e** `sites.leadconnectorhq.com`
+(l'anteprima GHL, regola 3 in §2, è flusso standard di verifica — non deve dipendere da un
+flag da ricordare). `--domains` resta disponibile per estendere l'elenco a casi eccezionali.
+Output (screenshot, snapshot di accessibilità, report JSON, log CSV) in `output/` (ignorata
+da git).
+
+**Log CSV** (`output/log_runs.csv`, implementato in `cattura.mjs` e `pavimento.mjs`): una
+riga per run — timestamp ISO, script, URL/file, RSS massimo Chromium (MiB), RAM available
+minima (MiB), peso pagina in KB (`n.d.` per `cattura.mjs`, che non misura il peso), esito
+pavimento (`PASS`/`FAIL`/`n.a.` per `cattura.mjs`), durata (s). Verificato con una run reale
+il 09/09/2026: `1175` MiB RSS massimo, `1675` MiB RAM available minima, `8687` KB, `FAIL`,
+`70.0` s — sotto la soglia di migrazione (1,2 GB / 500 MB) ma con margine più stretto della
+prima misura (`baseline_narratours.md` aveva registrato 1063 MiB/1844 MiB su una run più
+leggera, solo screenshot senza axe-core+5 breakpoint).
 
 **Discovery skill Claude Code**: verificato che `node_modules/` dentro
 `.claude/skills/designer/` (22 MB, 214 file) non ha causato warning né rallentamenti
@@ -211,8 +227,10 @@ SKILL.md) quando il Designer farà il primo lavoro sopra soglia.
   nell'head servito? (§2, regola 4 — lo verifica il ciclo visivo al primo uso)
 - L'URL `/preview/` riflette la bozza salvata anche quando la pagina pubblicata è diversa,
   o in qualche caso mostra il pubblicato? (si verifica col primo pezzo reale)
-- Perché Inter (`!important` nel CSS globale) non vince nel computed style misurato sulle
-  pagine tour, che rendono Playfair Display/DM Sans? (§1 — debito tecnico)
+- Inter (`!important` nel CSS globale) non vince nel computed style misurato sulle pagine
+  tour, che rendono Playfair Display/DM Sans (§1 — debito tecnico). Spiegazione candidata
+  registrata: specificità di classe nei blocchi batte `body *` a parità di `!important`. Da
+  confermare guardando un selettore reale alla prima bonifica — non indagare prima.
 
 ## Nota fuori struttura
 
