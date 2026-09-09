@@ -1,0 +1,356 @@
+<!--
+  Posizione nel builder: CONFERMATA (10/09/2026, Leonardo) — Footer
+  Tracking della pagina. Condiviso a livello sito, come l'Header.
+  Presente su ENTRAMBI i layout (desktop e mobile) — non ha varianti.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>NarraTours — Footer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; background: #0f0a06; }
+
+.nt-footer {
+  background: #0f0a06;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ── CTA strip above footer ── */
+.nt-footer-cta-strip {
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 40px 32px;
+  text-align: center;
+}
+
+.nt-footer-cta-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c49a3c;
+  margin-bottom: 14px;
+  display: block;
+}
+
+.nt-footer-cta-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(22px, 3.5vw, 32px);
+  font-weight: 700;
+  color: #faf9f6;
+  line-height: 1.15;
+  margin-bottom: 24px;
+  letter-spacing: -0.02em;
+}
+.nt-footer-cta-title em { font-style: italic; color: #e8c46a; }
+
+.nt-footer-cta-btns {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.nt-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 13px 26px;
+  border-radius: 50px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+
+.nt-footer-btn.primary {
+  background: #564434;
+  color: #faf9f6;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.28);
+}
+.nt-footer-btn.primary:hover { background: #3d2e1f; }
+
+.nt-footer-btn.secondary {
+  background: rgba(250,249,246,0.06);
+  border: 1px solid rgba(250,249,246,0.14);
+  color: rgba(250,249,246,0.65);
+}
+.nt-footer-btn.secondary:hover {
+  background: rgba(250,249,246,0.10);
+  color: #faf9f6;
+}
+
+/* ── Main footer body ── */
+.nt-footer-body {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 52px 32px 40px;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 40px;
+}
+
+/* Brand column */
+.nt-footer-brand {}
+
+.nt-footer-logo {
+  margin-bottom: 16px;
+  display: inline-block;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 18px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+.nt-footer-logo img {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+
+.nt-footer-tagline {
+  font-family: 'Playfair Display', serif;
+  font-size: 14px;
+  font-style: italic;
+  color: rgba(250,249,246,0.42);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  max-width: 220px;
+}
+
+.nt-footer-social {
+  display: flex;
+  gap: 10px;
+}
+
+.nt-footer-social-link {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+  font-size: 14px;
+  color: rgba(250,249,246,0.55);
+  transition: all 0.2s;
+}
+.nt-footer-social-link:hover {
+  background: rgba(255,255,255,0.12);
+  color: #faf9f6;
+  border-color: rgba(255,255,255,0.18);
+}
+
+/* Nav columns */
+.nt-footer-col {}
+
+.nt-footer-col-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(250,249,246,0.35);
+  margin-bottom: 16px;
+  display: block;
+}
+
+.nt-footer-col-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nt-footer-col-links a {
+  font-size: 13px;
+  color: rgba(250,249,246,0.55);
+  text-decoration: none;
+  transition: color 0.18s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.nt-footer-col-links a:hover { color: #faf9f6; }
+
+.nt-footer-col-links a .soon-badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 50px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+  color: rgba(250,249,246,0.28);
+}
+
+.nt-footer-col-links a .live-badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 50px;
+  background: rgba(30,160,90,0.14);
+  border: 1px solid rgba(30,160,90,0.25);
+  color: #4ec98a;
+}
+
+/* ── Bottom bar ── */
+.nt-footer-bottom {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 18px 32px calc(18px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.nt-footer-copy {
+  font-size: 11px;
+  color: rgba(250,249,246,0.25);
+  line-height: 1.5;
+}
+
+.nt-footer-legal {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.nt-footer-legal a {
+  font-size: 11px;
+  color: rgba(250,249,246,0.25);
+  text-decoration: none;
+  transition: color 0.18s;
+}
+.nt-footer-legal a:hover { color: rgba(250,249,246,0.55); }
+
+/* ── MOBILE ── */
+@media (max-width: 760px) {
+  .nt-footer-cta-strip { padding: 36px 24px; }
+  .nt-footer-cta-btns { flex-direction: column; align-items: center; }
+  .nt-footer-btn { width: 100%; max-width: 300px; justify-content: center; }
+
+  .nt-footer-body {
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    padding: 40px 24px 32px;
+  }
+
+  .nt-footer-brand {
+    grid-column: 1 / -1;
+  }
+
+  .nt-footer-bottom {
+    padding: 16px 24px calc(16px + env(safe-area-inset-bottom, 0px));
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+</style>
+</head>
+<body>
+
+<footer class="nt-footer" role="contentinfo">
+
+  <!-- ── CTA strip ── -->
+  <div class="nt-footer-cta-strip">
+    <span class="nt-footer-cta-eyebrow">Ready to explore?</span>
+    <h2 class="nt-footer-cta-title">
+      Rome is waiting.<br><em>Your story starts now.</em>
+    </h2>
+    <div class="nt-footer-cta-btns">
+      <a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;" class="nt-footer-btn primary">↑ Back to top</a>
+      <a href="#how-it-works" class="nt-footer-btn secondary">Watch how it works</a>
+    </div>
+  </div>
+
+  <!-- ── Main body ── -->
+  <div class="nt-footer-body">
+
+    <!-- Brand -->
+    <div class="nt-footer-brand">
+      <a href="https://narra-tours.com/home-en" class="nt-footer-logo" aria-label="NarraTours home">
+        <img src="https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/cNtBobvaqLqRBUVFSOkK/media/69ece27a9fe87a9994e8d95c.png"
+             alt="NarraTours">
+      </a>
+      <p class="nt-footer-tagline">
+        Don't just visit cities.<br>Listen to them.
+      </p>
+      <div class="nt-footer-social" aria-label="Social media">
+        <a href="#" class="nt-footer-social-link" aria-label="Instagram">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4.5"/><circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none"/></svg>
+        </a>
+        <a href="#" class="nt-footer-social-link" aria-label="TikTok">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.32 6.32 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34v-7a8.16 8.16 0 0 0 4.77 1.52V6.4a4.85 4.85 0 0 1-1-.29z"/></svg>
+        </a>
+        <a href="#" class="nt-footer-social-link" aria-label="YouTube">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46A2.78 2.78 0 0 0 1.46 6.42 29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58 2.78 2.78 0 0 0 1.95 1.96C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.96-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" fill="currentColor" stroke="none"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- Cities -->
+    <div class="nt-footer-col">
+      <span class="nt-footer-col-title">Cities</span>
+      <div class="nt-footer-col-links">
+        <a href="https://narra-tours.com/rome-en">
+          Rome <span class="live-badge">Live</span>
+        </a>
+        <a href="#">Paris <span class="soon-badge">Soon</span></a>
+        <a href="#">Barcelona <span class="soon-badge">Soon</span></a>
+        <a href="#">Florence <span class="soon-badge">Soon</span></a>
+        <a href="#">London <span class="soon-badge">Soon</span></a>
+      </div>
+    </div>
+
+    <!-- Explore -->
+    <div class="nt-footer-col">
+      <span class="nt-footer-col-title">Explore</span>
+      <div class="nt-footer-col-links">
+        <a href="https://narra-tours.com/home-en">Home</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#bundles">Bundles</a>
+        <a href="#">For Airbnb Hosts</a>
+        <a href="#">Gift a Tour</a>
+      </div>
+    </div>
+
+    <!-- Info -->
+    <div class="nt-footer-col">
+      <span class="nt-footer-col-title">Info</span>
+      <div class="nt-footer-col-links">
+        <a href="https://narra-tours.com//about-narratours">About NarraTours</a>
+        <a href="https://narra-tours.com//faq">FAQ</a>
+        <a href="https://narra-tours.com//contact-us">Contact us</a>
+        <a href="https://narra-tours.com//refund-policy">Refund policy</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Bottom bar ── -->
+  <div class="nt-footer-bottom">
+    <p class="nt-footer-copy">
+      © 2025 NarraTours. All rights reserved.
+    </p>
+    <nav class="nt-footer-legal" aria-label="Legal links">
+      <a href="https://narra-tours.com//privacy-policy">Privacy Policy</a>
+      <a href="https://narra-tours.com//terms-of-use">Terms of Use</a>
+      <a href="https://narra-tours.com//cookie-policy">Cookie Policy</a>
+    </nav>
+  </div>
+
+</footer>
+
+</body>
+</html>
