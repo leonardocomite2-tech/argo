@@ -1,0 +1,286 @@
+versione: 1
+generata: 2026-09-09
+nota: >
+  Bozza generata dal codice (cantiere Panoptes-Mappa, passo 1), in attesa di
+  correzione manuale di Leonardo. I confini reali nel codice non coincidono
+  con le "quattro pipeline" nominate all'apertura del cantiere: sono cinque,
+  non quattro — vedi STATO.md, sessione 9/9/2026, per le tre decisioni che
+  hanno fissato questi confini. Ogni campo non determinabile dal codice è
+  DA_VERIFICARE con nota sul perché.
+
+pipeline:
+  - nome: poster_host
+    stato: produzione
+    sede: vps
+    attivazione: "webhook POST /webhook/ghl/form"
+    produce:
+      - poster PNG generato su misura (host_code) e inviato come allegato JPEG
+      - email all'host (poster pronto, avviso codice invalido, depliant digitale differito 24h)
+      - righe in messages (poster, avviso, depliant)
+      - job accodati (avvisa_codice_invalido, genera_poster, invia_depliant)
+      - alert Telegram se il codice ricevuto ha caratteri non validi o è troppo lungo
+    codice:
+      - backend/main.py (route POST /webhook/ghl/form, righe 47-177)
+      - worker/loop.py (handler genera_poster 151-216, avvisa_codice_invalido 219-261, invia_depliant 264-311)
+      - media/poster.py
+      - templates/poster_base.png
+      - templates/Montserrat-Bold.ttf
+      - connectors/testi.py
+    tabelle:
+      legge: [events]
+      scrive: [messages, jobs]
+    condivisi: [mailer, telegram_notifica]
+    env:
+      - GHL_WEBHOOK_SECRET
+      - SMTP_USER
+      - SMTP_HOST
+      - SMTP_PORT
+      - SMTP_PASS
+      - MAIL_FROM_NAME
+    esterni: [SMTP/Gmail, Telegram]
+    contratti: []
+    evidenza:
+      - "route: backend/main.py:47-177 (POST /webhook/ghl/form)"
+      - "auth: backend/main.py:49-50 (header X-Argo-Secret vs GHL_WEBHOOK_SECRET)"
+      - "dedup_key: backend/main.py:115,120-127,151,156-163 (ghl:{submission_id}:{host_code}, ON CONFLICT DO NOTHING RETURNING id)"
+      - "job accodati: backend/main.py:135 (avvisa_codice_invalido), 171 (genera_poster)"
+      - "handler genera_poster: worker/loop.py:151-216, legge events 159-163, scrive messages con guardia ON CONFLICT (thread_id,canale,direzione) 186-193, accoda invia_depliant fra 24h 210-214"
+      - "handler avvisa_codice_invalido: worker/loop.py:219-261"
+      - "handler invia_depliant: worker/loop.py:264-311, thread_id distinto f\"{event_id}:depliant\" per non collidere col thread del poster (nota esplicita a loop.py:285-289) — eccezione email transazionale documentata in CLAUDE.md, non passa da approvals"
+      - "self-contained: worker/loop.py — nessuna di queste tre funzioni tocca contacts/identities/approvals"
+      - "generazione immagine: media/poster.py:18-40 (auto-fit font 80->20, box (994,2580)-(1423,2680), font Montserrat-Bold)"
+      - "invio: connectors/mailer.py invia_email, chiamata a worker/loop.py:205,260; invia_email_reply_box per il depliant, worker/loop.py:309"
+      - "alert su codice invalido malformato: backend/main.py:87-91,98-102 (notifica Telegram — il JS di sanificazione del form potrebbe essere rotto)"
+
+  - nome: risposte_email
+    stato: produzione
+    sede: vps
+    attivazione: "poll IMAP job perenne leggi_email (ogni 2 minuti, riaccodato da sé) + poll jobs del worker (ogni 5s)"
+    produce:
+      - righe in messages (email in ingresso classificata, eventuale risposta in uscita)
+      - riga in approvals + richiesta di approvazione su Telegram, se la categoria è interessato/domanda con confidenza sufficiente
+      - email di risposta inviata all'host/prospect, dopo approvazione
+      - riga in soppressioni per bounce definitivo o categoria di disiscrizione/non_interessato
+      - aggiornamento contacts.stato per disiscrizione/non_interessato
+    codice:
+      - worker/loop.py (leggi_email 314-413, notifica_risposta 916-967, invia_risposta 1210-1388 ramo email, test_approvazione 1391-1459)
+      - connectors/imap_reader.py (filtri deterministici: bounce/warmup/admin Google, classifica_messaggio)
+      - connectors/mailer.py (invia_risposta_email)
+    tabelle:
+      legge: [events]
+      scrive: [messages, soppressioni, contacts, approvals, jobs]
+    condivisi:
+      - valuta_e_rispondi
+      - classificatore
+      - drafter
+      - approvazione_telegram
+      - mailer
+      - alert_una_volta
+    env:
+      - IMAP_HOST
+      - IMAP_PORT
+      - MAILBOX_1_USER
+      - MAILBOX_1_PASS
+      - WARMUP_TAG
+      - REPLY_SMTP_USER
+      - REPLY_SMTP_HOST
+      - REPLY_SMTP_PORT
+      - REPLY_SMTP_PASS
+      - REPLY_FROM_NAME
+    esterni: [IMAP, SMTP/Gmail, Anthropic API (Haiku, via classificatore/drafter condivisi), Telegram]
+    contratti: []
+    evidenza:
+      - "catena reale nel codice: leggi_email -> notifica_risposta -> _valuta_e_rispondi (condivisa) -> approvazione Telegram -> invia_risposta (ramo email). 'Lettura IMAP' e 'risposte email' nominate come due pipeline separate nel prompt originale sono la stessa catena — DECISIONE confermata con Leonardo il 9/9/2026 (STATO.md)"
+      - "leggi_email: worker/loop.py:314-413, chiama connectors.imap_reader.leggi_nuove() (316) per i filtri deterministici"
+      - "dedup_key: worker/loop.py:330-344,373-381 — imap:{message_id} o imap-sint:{sha256(...)} se manca Message-ID, ON CONFLICT (dedup_key) DO NOTHING"
+      - "bounce definitivo -> soppressioni: worker/loop.py:392-398 (ON CONFLICT (tipo,valore) DO NOTHING)"
+      - "riaccodo perenne ogni 2 minuti: worker/loop.py:408-413, auto-guarito da garantisci_leggi_email (loop.py:1554-1562, componente di manutenzione_sistema)"
+      - "notifica_risposta: worker/loop.py:916-967, legge events 924-928, scrive messages direzione 'in' con guardia ON CONFLICT (thread_id,canale,direzione) 939-945"
+      - "_valuta_e_rispondi (condivisa): worker/loop.py:977-1134 — classificazione Haiku (brain.classifier.classifica, 989), soglia confidenza SOGLIA_CONFIDENZA_BOZZA>0.7 (loop.py:972), bozza (brain.drafter.redigi_bozza, 1068), scrittura approvals (1088-1099), chiedi_approvazione Telegram (1102)"
+      - "categoria di soppressione -> soppressioni + UPDATE contacts SET stato='non_interessato': worker/loop.py:1023-1027,1037-1045"
+      - "invia_risposta ramo email: worker/loop.py:1287-1327, legge approvals+messages JOIN events (1218-1277), guardia stato IN ('approvata','modificata') (1228-1232), scrive messages con stessa guardia ON CONFLICT, invia con connectors.mailer.invia_risposta_email usando password_per() (connectors.imap_reader) per la casella originale, Reply-To = env REPLY_SMTP_USER (loop.py:1317)"
+      - "errore di classificazione/bozza terminale, mai ritentato: DECISIONI APERTE in STATO.md — la guardia su messages è scritta prima della classificazione, un retry del job vede 'già notificato' ed esce senza richiamare l'LLM"
+
+  - nome: dm_instagram_facebook
+    stato: produzione
+    sede: vps
+    attivazione: "webhook POST /webhook/ghl/dm"
+    produce:
+      - notifica Telegram del DM ricevuto (canale, mittente, countdown scadenza, anteprima testo)
+      - riga in approvals + richiesta di approvazione, stessa logica delle email
+      - risposta DM inviata via GHL dopo approvazione
+    codice:
+      - backend/main.py (route POST /webhook/ghl/dm, righe 180-273)
+      - worker/loop.py (notifica_dm 1136-1194, invia_risposta 1210-1388 ramo instagram/facebook, test_approvazione_dm 1462-1531, test_invio_dm 1534-1551)
+      - connectors/ghl.py (invia_messaggio)
+    tabelle:
+      legge: [events]
+      scrive: [messages, approvals, jobs]
+    condivisi:
+      - valuta_e_rispondi
+      - classificatore
+      - drafter
+      - approvazione_telegram
+      - alert_una_volta
+    env:
+      - GHL_WEBHOOK_SECRET
+      - GHL_API_TOKEN
+      - GHL_API_VERSION
+    esterni: [GHL/GoHighLevel, Anthropic API (Haiku, via classificatore/drafter condivisi), Telegram]
+    contratti: []
+    evidenza:
+      - "route: backend/main.py:180-273 (POST /webhook/ghl/dm), auth header X-Argo-Secret vs GHL_WEBHOOK_SECRET (182-183)"
+      - "reply_channel è un valore statico scritto a mano nel workflow GHL, non deriva dal canale reale: nota esplicita in backend/main.py:22-24, normalizzato da _normalizza_canale_dm (main.py:21-30)"
+      - "DA_VERIFICARE: non esiste conversation_id né id univoco di messaggio nel payload GHL (STATO.md, sezione dedup_key DM) — dedup_key = 'ghl-dm:' + contact_id + ':' + triggered_at è un valore grezzo non interpretato, segnalato in STATO.md come 'da rivedere' una volta osservato traffico reale"
+      - "dedup_key: backend/main.py:237,254-262 (ghl-dm:{contact_id}:{triggered_at})"
+      - "job accodato: backend/main.py:269-271 (notifica_dm)"
+      - "handler notifica_dm: worker/loop.py:1136-1194, legge events (1144-1150, incluso contact_id esterno GHL non risolto su contacts — nota a 1161-1165), scrive messages con contact_id NULL (1166-1175), chiama _valuta_e_rispondi passando contatto_where_col='ghl_contact_id'"
+      - "invia_risposta ramo DM: worker/loop.py:1329-1386, guardia scadenza specifica DM (UPDATE approvals SET stato='scaduta' ... WHERE stato IN ('approvata','modificata'), loop.py:1247-1255), invio via connectors.ghl.invia_messaggio (1347), salvataggio conversationId/messageId in messages.payload (1356-1365)"
+      - "handler di test (non produzione, ma stesso codice): test_approvazione_dm worker/loop.py:1462-1531, test_invio_dm worker/loop.py:1534-1551 (quest'ultimo non tocca il DB, lo dice esplicitamente a 1536-1538)"
+
+  - nome: manutenzione_sistema
+    stato: produzione
+    sede: vps
+    attivazione: >
+      poll nel loop principale del worker (ogni 5s: tre garantisci_* +
+      recover_orphaned_jobs + migra_job_notifica_risposta all'avvio) +
+      poll controlli_periodici (ogni 15 minuti) + orario fisso
+      digest_serale (22:00 Europe/Rome)
+    produce:
+      - alert Telegram (approvazioni bloccate >6h, poster mancante entro 30 min, volume anomalo >50 eventi/ora, scadenza approvals vicina entro 2h)
+      - chiusura autonoma di approvals scadute
+      - digest testuale serale via Telegram
+      - riaccodo automatico dei job perenni se mancanti (self-healing)
+    codice:
+      - worker/loop.py (controlli_periodici 895-913 e le quattro funzioni _controllo_*, digest_serale 619-746, componi_digest_serale 441-616, garantisci_leggi_email 1554-1562, garantisci_controlli_periodici 1565-1573, garantisci_digest_serale 1576-1601, migra_job_notifica_risposta 1604-1613, recover_orphaned_jobs 1616-1625, main() 1628-1647)
+    tabelle:
+      legge: [jobs, events, messages, approvals, soppressioni]
+      scrive: [alert_inviati, approvals, jobs]
+    condivisi: [alert_una_volta, telegram_notifica]
+    env: []
+    esterni: [Telegram]
+    contratti: []
+    evidenza:
+      - "DA_VERIFICARE / SOSPESO: questo flusso non è uno dei quattro nominati all'apertura del cantiere — non è innescato da un evento di dominio (poster/email/DM), opera sul sistema stesso (job, alert, digest). Trattato come quinta scheda pipeline, non come componente condiviso: DECISIONE confermata con Leonardo il 9/9/2026 (STATO.md)"
+      - "loop principale ogni 5s: worker/loop.py:1643 (time.sleep(5)), claim_job worker/loop.py:68-95 (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE stato='running')"
+      - "controlli_periodici ogni 15 min: worker/loop.py:895-913, orchestratore di _controllo_approvazioni_bloccate (767-789), _controllo_poster_mancante (792-813), _controllo_volume_anomalo (816-838), _controllo_scadenza_vicina (841-892, chiude autonomamente con UPDATE approvals SET stato='scaduta' WHERE stato IN ('in_attesa','in_modifica') 884-892)"
+      - "digest_serale: worker/loop.py:619-746, legge approvals/jobs/events/messages/soppressioni/alert_inviati in sola lettura (622-724), riaccoda sé stesso alle 22:00 (738-743, prossimo_orario_digest)"
+      - "idempotenza propria: _alert_una_volta worker/loop.py:749-764 (INSERT INTO alert_inviati ... ON CONFLICT DO NOTHING RETURNING chiave) — non è dedup_key su events né guardia di stato operatore, è un terzo meccanismo"
+      - "self-healing: garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py:1554-1601, SELECT 1 FROM jobs WHERE tipo=%s AND stato IN ('pending','running'), reinseriscono il job se assente, eseguite a ogni giro del loop)"
+      - "recover_orphaned_jobs: worker/loop.py:1616-1625, UPDATE jobs SET stato='pending' WHERE stato='running' all'avvio — presuppone un solo worker, commento esplicito a 1617-1620"
+      - "migra_job_notifica_risposta: worker/loop.py:1604-1613, migrazione una tantum all'avvio (rinomina job classifica_messaggio -> notifica_risposta), non più rilevante a regime ma resta nel codice"
+
+  - nome: lead_gen_host
+    stato: produzione
+    sede: vps
+    attivazione: "comando manuale nel container worker (docker compose exec worker python -m scripts.X), uno script alla volta — non è a job/eventi come le altre quattro pipeline"
+    produce:
+      - file grezzi in out/places/ (non nel repo, .gitignore)
+      - contatti prospect in contacts (con attributi JSONB) e identities
+      - file CSV punteggiati in out/export/ (non nel repo)
+      - email/social arricchiti sui contatti esistenti (attributi.email_altre, attributi.instagram, attributi.facebook)
+      - CSV per campagna Instantly (instantly_ondataN.csv)
+    codice:
+      - scripts/cerca_places.py
+      - scripts/risolvi.py
+      - scripts/export_prospect.py
+      - scripts/estrai_email.py
+      - scripts/estrai_social.py
+      - scripts/export_instantly.py
+      - connectors/places.py
+      - db/migrations/005_prospect.sql
+      - .claude/skills/leadgen-citta/SKILL.md
+    tabelle:
+      legge: [events, contacts, soppressioni]
+      scrive: [contacts, identities]
+    condivisi: [telegram_notifica]
+    env:
+      - PLACES_API_KEY
+      - PG_PASSWORD
+    esterni: [Google Places API]
+    contratti: []
+    evidenza:
+      - "SOSPESO: pipeline non a eventi/webhook come le altre quattro (script lanciati a mano, non job) — inclusa come sesta scheda su richiesta esplicita di Leonardo (9/9/2026), fuori dal perimetro delle 'quattro pipeline' nominate all'apertura del cantiere email"
+      - "zero LLM, mai fusioni automatiche: STATO.md, sezione resolver — chiavi forti fondono, chiave debole solo segnala, conflitto loggato"
+      - "tabelle: grep letterale contacts/identities/events/soppressioni in scripts/*.py e connectors/places.py — risolvi.py (contacts/identities/events, righe 1,30,87,103,117,123,137,154,165,179,243,254), estrai_email.py (contacts/identities, righe 9,33,71-194,254), estrai_social.py (contacts, righe 30,95-188), export_prospect.py (contacts/identities/events, righe 44,84-86), export_instantly.py (contacts/soppressioni, righe 2,76,107,115); cerca_places.py non tocca alcuna tabella (scrive solo file)"
+      - "connectors/normalizza.py e connectors/fetch.py usati solo da script di questa pipeline (oltre che da tests/) — regola del due non soddisfatta, restano nel campo codice della scheda, non in condivisi"
+      - "env: connectors/places.py:69 (PLACES_API_KEY), tutti gli script leggono PG_PASSWORD (es. scripts/risolvi.py:30)"
+      - "alert Telegram da risolvi.py: import connectors.telegram (scripts/risolvi.py:19) — unico punto di condivisione reale con le altre pipeline, quindi telegram_notifica è condiviso anche da questa scheda"
+      - "DA_VERIFICARE: soglie di business (DOMINIO_MAX_STRUTTURE_CONDIVISE, punteggio export, blocklist placeholder) non riverificate riga per riga in questa sessione — fonte primaria STATO.md, non ricontrollate nel codice per questo passo (fuori scope: solo tabelle/env/servizi esterni)"
+
+condivisi:
+  - nome: valuta_e_rispondi
+    codice: ["worker/loop.py:977-1134"]
+    usato_da: [risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "funzione interna condivisa, non un handler di job: chiamata da notifica_risposta (loop.py:967) e da notifica_dm (loop.py: dentro 1136-1194)"
+      - "orchestra classificazione (brain.classifier.classifica, 989), soglia SOGLIA_CONFIDENZA_BOZZA>0.7 (972), bozza (brain.drafter.redigi_bozza, 1068), scrittura approvals (1088-1099), chiedi_approvazione Telegram (1102)"
+
+  - nome: invia_risposta
+    codice: ["worker/loop.py:1210-1388"]
+    usato_da: [risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "unico handler di job tipo invia_risposta, biforcato per messages.canale (letto via JOIN con events, non serve messages.contact_id): ramo email 1287-1327, ramo instagram/facebook 1329-1386"
+      - "guardia stato IN ('approvata','modificata') comune a entrambi i rami: loop.py:1228-1232"
+
+  - nome: classificatore
+    codice: ["brain/classifier.py", "connectors/llm.py"]
+    usato_da: [risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "brain/classifier.py:47-75, enum chiuso CATEGORIE di 7 valori (righe 5-13), ClassificazioneErrore su JSON non valido o categoria fuori enum (righe 42-44,64,71)"
+      - "chiamato da _valuta_e_rispondi: worker/loop.py:989 — condiviso fra email (via notifica_risposta) e DM (via notifica_dm)"
+      - "modello: connectors/llm.py:17 (claude-haiku-4-5-20251001), tetto giornaliero LLM_TETTO_GIORNALIERO con notifica Telegram al superamento (connectors/llm.py:66,72-75)"
+      - "errore di classificazione mai ritentato a livello job: guardia di idempotenza su messages scritta prima della classificazione (DECISIONI APERTE, STATO.md)"
+
+  - nome: drafter
+    codice: ["brain/drafter.py"]
+    usato_da: [risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "brain/drafter.py:53-87, legge knowledge/conoscenza.md come base di conoscenza (righe 6-7,54), risponde solo con fatti presenti nel testo, mai inventa (system prompt righe 9-14)"
+      - "chiamato da _valuta_e_rispondi: worker/loop.py:1068 — condiviso email/DM"
+      - "tono lei singolare, mai tu/voi, dettagliato nel prompt (drafter.py:19-31) — coerente con CLAUDE.md, tono deciso 18/08"
+
+  - nome: approvazione_telegram
+    codice:
+      - "backend/main.py:407-423 (route POST /webhook/telegram)"
+      - "backend/main.py:283-377 (_gestisci_callback_telegram)"
+      - "backend/main.py:380-404 (_gestisci_modifica_telegram)"
+      - "connectors/telegram.py (chiedi_approvazione, rispondi_callback, chiedi_testo_corretto)"
+    usato_da: [risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "idempotenza via UPDATE...WHERE stato=atteso...RETURNING id sulla riga approvals, non dedup_key: main.py:299-306 (appr), 317-323 (rifiu), 339-346 (modif), 394-401 (correzione testo) — eccezione dichiarata in CLAUDE.md (comandi operatore non sono eventi di dominio)"
+      - "accoda job invia_risposta dopo ogni decisione: _accoda_invia_risposta main.py:276-280, chiamata a 309,326,404"
+      - "usata sia dalle approvals create da _valuta_e_rispondi per email sia per DM — main.py non distingue il canale, agisce solo sulla tabella approvals"
+      - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:409)"
+
+  - nome: mailer
+    codice: ["connectors/mailer.py"]
+    usato_da: [poster_host, risposte_email]
+    evidenza:
+      - "invia_email/invia_email_reply_box usate da poster_host (worker/loop.py:205,260,309); invia_risposta_email usata da risposte_email (worker/loop.py:1318)"
+      - "env distinti per i due usi: SMTP_* per poster_host, REPLY_SMTP_* per risposte_email (connectors/mailer.py:12,19,21,30,34,36)"
+
+  - nome: telegram_notifica
+    codice: ["connectors/telegram.py:12-17 (notifica)"]
+    usato_da: [poster_host, risposte_email, dm_instagram_facebook, manutenzione_sistema, lead_gen_host]
+    evidenza:
+      - "chiamata da praticamente ogni handler del worker e da backend/main.py per alert operativi — grep conferma import in worker/loop.py, backend/main.py, connectors/llm.py, backup/invia_backup.py, scripts/risolvi.py"
+      - "env: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID (connectors/telegram.py:13-14)"
+
+  - nome: alert_una_volta
+    codice: ["worker/loop.py:749-764"]
+    usato_da: [manutenzione_sistema, risposte_email, dm_instagram_facebook]
+    evidenza:
+      - "usata da tutti i controlli periodici (manutenzione_sistema) e dentro invia_risposta per alert di invio fallito — condivisa anche dalle pipeline di risposta, non solo da manutenzione_sistema"
+      - "idempotenza propria: INSERT INTO alert_inviati (chiave) VALUES (%s) ON CONFLICT DO NOTHING RETURNING chiave (worker/loop.py:749-764) — meccanismo distinto da dedup_key su events e da UPDATE...WHERE stato=atteso"
+
+fuori_repo:
+  - nome: regista_sonora
+    sede: windows
+    scheda: da_dichiarare
+  - nome: monta_audio
+    sede: windows
+    scheda: da_dichiarare
+  - nome: export_leadgen_windows
+    sede: windows
+    scheda: da_dichiarare

@@ -600,3 +600,17 @@ Conseguenza voluta: un host che invia più codici validi diversi riceve un
 poster per ciascuno (l'invariante "un poster per host" diventa "un poster
 per host+codice"). Stesso contatto che rimanda lo stesso codice (valido o
 vuoto) → scartato come prima, nessuna email duplicata.
+
+## Sessione 9/9/2026 — Cantiere Panoptes-Mappa, passo 1
+
+**DEROGA regola del cantiere unico (9/9/2026, decisione di Leonardo):** cantiere Panoptes-Mappa aperto in parallelo a Regista Sonora v10. Motivo: macchine e repo separati (VPS vs PC Windows), zero interferenza, lavoro nei tempi morti d'ascolto del Regista. Prevista dal PIANO_OPERATIVO §1 ("se ne servono due in parallelo, si fa — annotandolo").
+
+Prodotta la prima bozza `knowledge/mappa_sistema.yaml`, generata dal codice (sola lettura, nessun file di codice/config toccato). Cinque schede pipeline, non quattro come nominate all'apertura del cantiere — il codice mostra confini diversi, tre decisioni prese con Leonardo durante il piano:
+
+- **`risposte_email`** unifica "lettura email IMAP" e "risposte email": nel codice è un'unica catena (`leggi_email → notifica_risposta → _valuta_e_rispondi → invia_risposta`), non due pipeline.
+- **`manutenzione_sistema`** (nuova, non nominata): self-healing job + controlli periodici (15 min) + digest serale (22:00) — ha trigger ed effetti propri (alert Telegram, chiusura autonoma scadenze), non solo infrastruttura silenziosa.
+- **`lead_gen_host`** (nuova, non nominata): cantiere lead-gen già chiuso operativamente, incluso su richiesta esplicita perché è codice reale e attivo nel repo, anche se ad attivazione manuale (script, non job/eventi).
+
+`DA_VERIFICARE`/SOSPESO per scheda: `poster_host` 0, `risposte_email` 0, `dm_instagram_facebook` 1 (dedup_key su `triggered_at` grezzo, già noto), `manutenzione_sistema` 1 (l'inclusione stessa come scheda a sé, non componente condiviso — segnalata come nota, non bloccante), `lead_gen_host` 2 (pipeline manuale non a eventi; soglie di business non riverificate in questa sessione, fuori scope). Otto componenti in `condivisi` (`valuta_e_rispondi`, `invia_risposta`, `classificatore`, `drafter`, `approvazione_telegram`, `mailer`, `telegram_notifica`, `alert_una_volta`), tutti verificati con la regola del due via cross-import. `db_connect` escluso da `condivisi` per scelta (infrastruttura DB generica, non componente di dominio). `fuori_repo`: `regista_sonora`, `monta_audio`, `export_leadgen_windows` (Windows, `scheda: da_dichiarare`).
+
+Campo `contratti` lasciato vuoto in ogni scheda come da istruzione — proposte riportate solo in chat, da confermare con Leonardo.
