@@ -1,11 +1,17 @@
-versione: 2
-generata: 2026-09-09
+versione: 3
+generata: 2026-09-10
 nota: >
-  Cantiere Panoptes-Mappa, passo 2: corretta sui punti dove la bozza del
-  passo 1 era incompleta o incoerente (vedi STATO.md, sessione 9/9/2026,
-  passo 2, per il resoconto completo), e riempito il campo `contratti` —
-  la ragione per cui questa mappa esiste. Un contratto è un'affermazione
-  che un'altra parte del sistema può assumere vera senza verificarla.
+  Cantiere Argo — la voce, fondamenta (10/9/2026): aggiunta la sesta scheda
+  pipeline `argo_voce` (stato `fondamenta`, nessun codice applicativo
+  ancora) con le tabelle `osservazioni`/`mandati`
+  (db/migrations/006_osservazioni_mandati.sql) e i due contratti AV01/AV02.
+  Solo fondamenta di schema in questa sessione: zero LLM, zero bot, zero
+  codice applicativo — dettagli in STATO.md. Passo precedente (v2,
+  9/9/2026): corretta sui punti dove la bozza del passo 1 era incompleta o
+  incoerente (vedi STATO.md, sessione 9/9/2026, passo 2), e riempito il
+  campo `contratti` — la ragione per cui questa mappa esiste. Un contratto
+  è un'affermazione che un'altra parte del sistema può assumere vera senza
+  verificarla.
 
 legenda_garantito_da: >
   Valori ammessi per `garantito_da`, in ordine di forza: riferimento a
@@ -300,6 +306,87 @@ pipeline:
       - "env: connectors/places.py:69 (PLACES_API_KEY) — PG_PASSWORD rimosso dalla scheda al passo 2: è env di infrastruttura generica (letta da ogni db_connect() del repo), va in infrastruttura:, non ripetuta per pipeline (regola A2)"
       - "alert Telegram da risolvi.py: import connectors.telegram (scripts/risolvi.py:19) — unico punto di condivisione reale con le altre pipeline, quindi telegram_notifica è condiviso anche da questa scheda"
       - "DA_VERIFICARE: soglie di business (DOMINIO_MAX_STRUTTURE_CONDIVISE, punteggio export, blocklist placeholder) non riverificate riga per riga in questa sessione oltre a LG01-LG03 sopra — fonte primaria STATO.md"
+
+  - nome: argo_voce
+    stato: lettori
+    nota_stato: >
+      Fondamenta chiuse 10/9/2026 (schema + identità). Questa sessione
+      (10/9/2026) ha aggiunto i primi lettori: sei funzioni di sola lettura
+      in argo/stato.py più un harness CLI (scripts/argo/stato_cli.py) per
+      vederne l'output. Ancora nessun bot, nessun LLM, nessuno scheduler —
+      l'harness si lancia a mano da host. tabelle.scrive resta vuoto: solo
+      SELECT, mai una scrittura.
+    sede: vps
+    attivazione: "nessuna automatica — harness CLI lanciato a mano da host (scripts/argo/stato_cli.py), nessun webhook/bot/scheduler"
+    produce:
+      - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
+    codice:
+      - "db/migrations/006_osservazioni_mandati.sql"
+      - "knowledge/argo/SOUL.md"
+      - "knowledge/argo/IDENTITY.md"
+      - "knowledge/argo/USER.md"
+      - "argo/stato.py"
+      - "scripts/argo/stato_cli.py"
+    tabelle:
+      legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
+      scrive: []
+    verifica:
+      indecidibile:
+        - campo: tabelle.legge
+          valore: approvals
+          motivo: >
+            argo/stato.py non usa psycopg/cur.execute(): la SQL viene passata
+            come stringa a `docker exec argo-db-1 psql -c "..."` via
+            subprocess (deviazione dichiarata, vedi evidenza sopra).
+            verifica_mappa.py cerca solo pattern cur.execute(...), quindi non
+            vede nessuna delle sei tabelle lette da questo file — non è un
+            'non trovato' silenzioso, è un modo di leggere il DB che lo
+            script non sa ancora riconoscere. Lette a mano in questa
+            sessione (10/9/2026): approvazioni_in_attesa() legge approvals.
+        - campo: tabelle.legge
+          valore: messages
+          motivo: >
+            stesso motivo di 'approvals' sopra — approvazioni_in_attesa()
+            fa JOIN su messages per risalire a mittente/oggetto via events.
+        - campo: tabelle.legge
+          valore: events
+          motivo: >
+            stesso motivo di 'approvals' sopra — approvazioni_in_attesa()
+            fa JOIN su events (via messages.thread_id) per mittente/oggetto.
+        - campo: tabelle.legge
+          valore: jobs
+          motivo: >
+            stesso motivo di 'approvals' sopra — job_falliti() legge jobs
+            (falliti aggregati, running, pending oltre soglia).
+        - campo: tabelle.legge
+          valore: alert_inviati
+          motivo: >
+            stesso motivo di 'approvals' sopra — escalation_aperte() legge
+            alert_inviati come proxy dichiarato (vedi evidenza sopra).
+        - campo: tabelle.legge
+          valore: osservazioni
+          motivo: >
+            stesso motivo di 'approvals' sopra — osservazioni_nuove() legge
+            osservazioni WHERE stato='nuova'.
+    condivisi: []
+    env: []
+    esterni: []
+    contratti:
+      - id: AV01
+        enunciato: "Nessun mandato entra in mandati senza un messaggio di Leonardo che lo origina"
+        garantito_da: "db/migrations/006_osservazioni_mandati.sql:18 (origine_msg TEXT NOT NULL — vincolo di schema, un INSERT senza origine_msg fallisce sempre; nessun codice applicativo lo popola ancora)"
+      - id: AV02
+        enunciato: "Panoptes deposita in osservazioni; solo Argo aggiorna osservazioni.stato"
+        garantito_da: nessuno
+    evidenza:
+      - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
+      - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
+      - "AV01 è oggi un vincolo di schema, non di codice: nessun processo scrive ancora in mandati — pronto per quando Argo verrà costruito (prossimo cantiere)."
+      - "AV02 garantito_da: nessuno — enunciato aspirazionale, stile RE02/DM02: lista dei test del prossimo cantiere, non un difetto della mappa."
+      - "DEVIAZIONE (10/9/2026, decisione di Leonardo): argo/stato.py non usa psycopg diretto come il resto del repo — legge il DB via 'docker exec argo-db-1 psql' da subprocess, per poter girare interamente su host (dove STATO.md e .git sono raggiungibili nativamente; il Dockerfile non li copia nell'immagine). Deviazione dichiarata per un tool diagnostico sola-lettura lanciato a mano, non per codice di pipeline."
+      - "'escalations' non esiste nello schema, né nel DB, né nel codice — confermato anche in knowledge/registro_attriti.md:115. escalation_aperte() (argo/stato.py) legge alert_inviati come proxy dichiarato (finestra 24h, prefisso della chiave mappato a categoria): quella tabella è un log 'inviato una volta' senza stato aperto/risolto, e alcuni alert reali (tetto giornaliero LLM in connectors/llm.py, notifica di job fallito in worker/loop.py:124, alert ad-hoc di backend/main.py) non ci passano mai — copertura dichiarata parziale, non nascosta."
+      - "jobs non ha updated_at/started_at, solo created_at: job_falliti() (argo/stato.py) lo dichiara come limite (copertura parziale) invece di far finta di sapere da quando un job 'running' è davvero bloccato."
+      - "collaudo dal vivo (10/9/2026): 111 job failed reali nel DB (109 digest_serale con lo stesso errore storico thread_id::int, già noto), un'approvazione ferma da giorni (id=10), zero osservazioni/mandati (nessun writer ancora) — output completo in STATO.md, sessione del giorno."
 
 condivisi:
   - nome: valuta_e_rispondi

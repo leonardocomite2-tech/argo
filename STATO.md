@@ -1016,9 +1016,12 @@ fidarsi della verifica automatica:**
   troppo"), non un bug.
 
 **Chiusura: non ancora (10/9/2026).** Il cantiere Panoptes-Mappa non è
-chiuso: mancano la settimana di uso reale (verificare che `impatti.py`/
-`verifica_mappa.py` vengano davvero consultati prima di una modifica, non
-solo che esistano) e la formalizzazione del test di accettazione.
+chiuso, ma non per lavoro tecnico residuo: la formalizzazione del test di
+accettazione è soddisfatta (vedi sotto, esito "pieno", commit `53b53a4`) e
+non è più tra le cose mancanti. Resta solo la settimana di uso reale
+(verificare che `impatti.py`/`verifica_mappa.py` vengano davvero consultati
+prima di una modifica, non solo che esistano) — **chiusura prevista
+17/9/2026, salvo incoerenze emerse dall'uso**.
 
 Un primo test è stato eseguito il 10/9/2026 con esito positivo, ma non in
 condizioni di sessione indipendente: alla domanda naturale "cosa rischio se
@@ -1046,6 +1049,17 @@ webhook), non su una lettura ad-hoc del codice scollegata dalla mappa.
 Esito positivo. **Esito complessivo del test di accettazione: pieno**, non
 più parziale — copre sia "lo strumento produce l'informazione giusta" sia
 "una sessione senza contesto pregresso la scopre e la usa da sola".
+
+**Deroga alla regola del cantiere unico (10/9/2026, decisione di
+Leonardo):** Panoptes-Mappa è bloccato solo dal calendario (l'attesa della
+settimana di uso reale sopra), non da lavoro tecnico residuo — condizione
+prevista dal PIANO_OPERATIVO §1 per i cantieri bloccati da attese. Il
+prossimo cantiere, **Argo — la voce**, si apre in parallelo.
+
+**Documento di cantiere:** vive su un'altra macchina, non in questo repo
+(coerente con la DEROGA del 9/9/2026 su Regista Sonora — macchine e repo
+separati). Non cercato in questo repo; la sua chiusura formale resta a
+carico di Leonardo.
 
 ## Sessione 2026-09-10 — Cantiere Designer, passo 2 Fase B
 
@@ -1319,3 +1333,242 @@ File toccati: `pagine/yourservice-it/blocco_01.html`,
 `modalita/baseline_narratours.md`, `modalita/narratours.md`, questa
 sezione di `STATO.md`. Commit locale a fine sessione, niente push, nessuna
 modifica al sito live.
+
+## Sessione 2026-09-10 — Cantiere Argo — la voce, fondamenta
+
+Cantiere nuovo, aperto in parallelo a Panoptes-Mappa (deroga già annotata
+sopra: Panoptes è bloccato solo dal calendario, non da lavoro tecnico
+residuo). **Cos'è Argo — la voce** (dettaglio in `knowledge/argo/IDENTITY.md`):
+l'unica entità con cui Leonardo parla. Non coordina il sistema (quello resta
+Panoptes): capisce le intenzioni di Leonardo e le traduce in mandati verso
+l'orchestratore, legge lo stato del sistema e ne riferisce una cosa alla
+volta. Guardrail centrale: **Argo traduce, non origina** — ogni mandato deve
+essere riconducibile a un messaggio esplicito di Leonardo.
+
+Sessione di sole fondamenta: **zero LLM, zero bot, zero Telegram**, come da
+istruzione. Fatto:
+- Migrazione `db/migrations/006_osservazioni_mandati.sql`: tabelle
+  `osservazioni` (append-only, scrive Panoptes, legge Argo; `stato`
+  `nuova|riferita|archiviata`, unico campo che Argo cambia; `dedup_key`
+  unica; indice su `stato`) e `mandati` (scrive Argo verso l'orchestratore;
+  `origine_msg NOT NULL` è il guardrail "Argo traduce, non origina" reso
+  vincolo di schema; indice parziale su `esito IS NULL` per i mandati
+  ancora aperti, stesso pattern di `messages_thread_canale_direzione_uniq`).
+  Applicata (`docker exec -i argo-db-1 psql -U argo -d argo < ...`) e
+  verificata con `\d osservazioni`/`\d mandati`. `db/schema.sql` aggiornato
+  in coda con le stesse due tabelle, come dopo ogni migrazione precedente.
+- File di identità in `knowledge/argo/`: `SOUL.md`, `IDENTITY.md`,
+  `USER.md` — contenuto fornito da Leonardo, creati testuali senza
+  riscritture.
+- `knowledge/mappa_sistema.yaml` (v2→v3): nuova sesta scheda pipeline
+  `argo_voce` (stato `fondamenta`, `tabelle.legge/scrive` intenzionalmente
+  vuote — nessun file `.py` le tocca ancora, `codice` elenca solo la
+  migrazione e i tre file di identità) con due contratti: **AV01**
+  ("nessun mandato senza `origine_msg`", garantito dal vincolo NOT NULL,
+  `db/migrations/006_osservazioni_mandati.sql:18`) e **AV02** ("solo Argo
+  aggiorna `osservazioni.stato`", `garantito_da: nessuno` — enunciato
+  aspirazionale, stesso trattamento di RE02/DM02: lista dei test/eval del
+  prossimo cantiere, non un difetto della mappa). `verifica_mappa.py`
+  rilanciato sull'intera mappa: **exit 0**, 14 schede verificate, nessuna
+  divergenza (solo i 2 indecidibili e i 2 indecidibili-attesi già noti di
+  `lead_gen_host`).
+- Revisione guardrail (subagent `guardrail-review`) sul diff: nessuna
+  violazione bloccante (niente segreti, niente ORM/Alembic, niente bypass
+  di `approvals`, AV01 verificato riga per riga contro il file reale). Un
+  punto segnalato per il prossimo cantiere, riportato sotto in "Resta da
+  fare": `mandati` non ha oggi alcun meccanismo di idempotenza (niente
+  `dedup_key`, niente claim atomico) — non un problema ora (nessun writer
+  esiste), ma da risolvere prima che Argo scriva mandati veri, altrimenti
+  un retry/riavvio potrebbe duplicarli.
+
+**DEROGA alle sei tabelle base dello schema (10/9/2026, motivata).** Lo
+schema iniziale (`contacts, identities, events, messages, approvals, jobs`)
+è cresciuto nel tempo (`alert_inviati`, `soppressioni`, colonne prospect) ma
+sempre dentro la semantica già esistente di quelle tabelle. `osservazioni` e
+`mandati` sono le prime due tabelle per un sottosistema diverso — Argo,
+l'interlocutore — e non si adattano a quella semantica: `events` è per
+eventi di dominio con `dedup_key` da trigger esterni (webhook, IMAP), non
+per segnalazioni interne di Panoptes; `messages` traccia le conversazioni
+con host/prospect, non la comunicazione tra sottosistemi interni. Due
+tabelle nuove, motivate da un dominio nuovo, non un'astrazione prematura.
+
+**DEROGA puntuale alla convenzione "niente CHECK" (10/9/2026, decisione di
+Leonardo, motivata).** Nessuna tabella del repo usava finora un vincolo
+`CHECK` (gli enum di stato — `approvals.stato`, `jobs.stato` — sono sempre
+stati enforcement applicativo, mai a livello di schema). `osservazioni.stato`
+e `mandati.tipo` sono la prima eccezione: due `CHECK` (`stato IN ('nuova',
+'riferita','archiviata')`, `tipo IN ('consultazione','esecuzione')`).
+Motivo: sono gli enum su cui poggia direttamente il guardrail "Argo traduce,
+non origina" — un `tipo` fuori enum aprirebbe una terza categoria di mandato
+mai prevista, senza che nulla lo impedisca a livello di schema (a differenza
+degli altri enum del repo, che non reggono un guardrail di sicurezza ma solo
+uno stato applicativo). Deroga puntuale, non una nuova convenzione generale:
+resta da valutare caso per caso altrove.
+
+**Resta da fare** (prossimo cantiere, fuori scope di questa sessione): bot
+Telegram separato per Argo (il bot meccanico esistente non si tocca);
+connettore LLM per capire i messaggi di Leonardo e tradurli in mandati;
+implementazione dei tre modi (instrada/avvisa/orienta, dettaglio in
+IDENTITY.md) che leggono `approvals`/`jobs`/`escalations`/`osservazioni`/
+`STATO.md`/git; popolamento reale di `USER.md` con l'uso, col consenso di
+Leonardo ad ogni voce (regola 1 del file stesso).
+**Segnalato dalla revisione guardrail**: `mandati` non ha oggi nessun
+meccanismo di idempotenza (`dedup_key` o claim atomico) — quando Argo
+scriverà mandati veri da messaggi di Leonardo, un retry/riavvio potrebbe
+scriverne due per lo stesso messaggio. Non un difetto della migrazione
+(nessun writer esiste ancora, coerente con l'invariante "ogni handler deve
+poter girare due volte senza danni" che oggi non si applica perché non c'è
+alcun handler), ma va risolto prima di scrivere il codice che popola questa
+tabella.
+
+File toccati: `db/migrations/006_osservazioni_mandati.sql` (nuovo),
+`db/schema.sql`, `knowledge/argo/{SOUL,IDENTITY,USER}.md` (nuovi),
+`knowledge/mappa_sistema.yaml`, questa sezione di `STATO.md`. Nessun
+commit, nessun push (lo fa Leonardo, istruzione esplicita).
+
+## Sessione 2026-09-10/11 — Cantiere Argo — la voce, lettori di stato
+
+Prosecuzione delle fondamenta (sopra): prima di un bot o un connettore LLM,
+Argo deve poter leggere lo stato reale del sistema. Sessione di sola
+lettura: zero LLM, zero Telegram, zero bot, nessuna scrittura su nessuna
+tabella (nemmeno `osservazioni.stato`).
+
+**Decisione con Leonardo — accesso al DB dell'harness.** Il container `db`
+non espone la porta a host, quindi psycopg diretto da uno script lanciato
+sull'host non arriva. Tre opzioni proposte; scelta: **da host, via `docker
+exec argo-db-1 psql`** (stesso comando già in CLAUDE.md §Comandi). L'harness
+gira interamente sull'host con un solo comando: `STATO.md` e git si leggono
+nativamente dal repo, le query DB automatizzano lo stesso `docker exec` che
+Leonardo già usa a mano, avvolte in `SELECT json_agg(t) FROM (<query>) t`
+per un parsing robusto (JSON, non delimitatori fragili su testo libero).
+Zero modifiche a Dockerfile/docker-compose.yml/.env, zero redeploy, zero
+nuove dipendenze. **Deviazione dichiarata dalla convenzione "psycopg
+diretto"**: `argo/stato.py` è un tool diagnostico lanciato a mano, non
+codice di pipeline — non gira mai nel worker/API, non usa `PG_PASSWORD`
+(l'exec nel container usa l'auth locale trust già in uso per `docker exec
+-it argo-db-1 psql`).
+
+**Fatto:**
+- **`argo/stato.py`** (nuovo pacchetto): sei funzioni di sola lettura, ognuna
+  ritorna `{"copertura": "completa"|"parziale"|"assente", "motivo": ..., ...}`
+  — mai una copertura finta, come richiesto da `knowledge/argo/IDENTITY.md`
+  ("Argo deve poter dire 'vedo le tabelle ma non lo stato di X'").
+  1. `approvazioni_in_attesa()` — stessa query/JOIN di
+     `_controllo_approvazioni_bloccate` (`worker/loop.py`). Copertura
+     completa.
+  2. `job_falliti()` — tre liste: falliti (aggregati per tipo+errore, non
+     riga per riga — 111 righe `failed` reali nel DB oggi sarebbero rumore
+     puro elencate una a una), fermi (`stato='running'`), in coda da troppo
+     (`pending` con `run_after` più vecchio di 10 minuti, soglia dichiarata
+     e arbitraria). Copertura parziale: `jobs` non ha `updated_at`/
+     `started_at`, solo `created_at` — per i job `running` l'età mostrata è
+     un'approssimazione (buona per i job perenni ricreati ad ogni giro,
+     meno per un job con più tentativi).
+  3. `escalation_aperte()` — `escalations` **non esiste** (né schema, né
+     DB, né codice — confermato anche in `knowledge/registro_attriti.md:115`,
+     già segnalato in passato). Proxy dichiarato su `alert_inviati`
+     (finestra 24h, prefisso della chiave mappato a categoria leggibile).
+     Copertura parziale, motivo per intero: quella tabella è un log
+     "inviato una volta" senza stato aperto/risolto, e alcuni alert reali
+     non ci passano mai (tetto giornaliero LLM in `connectors/llm.py`,
+     contatore in-memory; notifica di job fallito generico,
+     `worker/loop.py:124`; alert ad-hoc di `backend/main.py`).
+  4. `osservazioni_nuove()` — `SELECT ... WHERE stato='nuova'`. Copertura
+     completa; a zero righe (oggi il caso reale) nota esplicita che nessuna
+     pipeline scrive ancora in `osservazioni`, non è un errore di lettura.
+  5. `cantieri_aperti()` — parsing di `STATO.md`. Il file **non ha** un
+     campo strutturato "cantiere: aperto/chiuso": i titoli di sessione
+     mischiano data e nome cantiere in prosa libera, e (scoperta collaudando
+     dal vivo) la sezione `## In corso` non è due bullet come sembra
+     dall'inizio — contiene ~230 righe non delimitate (step 5-7, cantiere 2
+     email, alert operativi, classificatore/drafter, depliant) perché nel
+     file non c'è nessun `## ` tra quel titolo e `## Prossimi step
+     (cantiere 1 — poster)`. Un parser che deducesse "quali cantieri sono
+     aperti" da questa prosa sarebbe il parser fragile che il brief chiedeva
+     di evitare. **Minimo indispensabile**: espone alla lettera le uniche
+     due sezioni scritte con intento di stato-corrente (`In corso`,
+     `DECISIONI APERTE — bloccano`) più un indice grezzo (titolo+riga) delle
+     intestazioni `## `. Copertura parziale, motivo esplicito su cosa non è
+     deducibile in modo affidabile.
+  6. `attivita_git()` — `git log`/`git status` sulla working dir del repo.
+     Copertura completa.
+- **`scripts/argo/stato_cli.py`** (harness): stesso pattern di
+  `scripts/panoptes/impatti.py` (script lanciato direttamente, non `-m`,
+  `sys.path.insert` per importare `argo.stato`, niente `__init__.py`).
+  Stampa le sei fonti in italiano con la copertura sempre in testa; `--json`
+  per l'output strutturato (`json.dumps(..., default=str)` per i
+  `datetime`).
+- **`tests/test_argo_stato.py`** (nuovo, stile CASI del repo — niente
+  pytest, mai usato altrove nel repo): un guardrail statico che legge il
+  sorgente di `argo/stato.py` e verifica l'assenza di `INSERT`/`UPDATE`/
+  `DELETE` (la regola "sola lettura" resa verificabile, non solo
+  dichiarata) più test sulle funzioni pure di parsing (mappatura
+  prefisso→categoria degli alert, estrazione sezioni di `cantieri_aperti`
+  su un `STATO.md` finto). 8/8 casi passati.
+- **`knowledge/mappa_sistema.yaml`**, scheda `argo_voce`: `stato` da
+  `fondamenta` a `lettori`; `codice` con i due file nuovi; `tabelle.legge`
+  con le sei tabelle lette (`approvals, messages, events, jobs,
+  alert_inviati, osservazioni` — messages/events per via del JOIN, stesso
+  motivo di `risposte_email`); `evidenza` con le note sulla deviazione
+  psycopg, su `escalations` inesistente, sull'assenza di `updated_at` in
+  `jobs`. **Nuovo campo `verifica.indecidibile`** (6 voci, tutte
+  `tabelle.legge`): `verifica_mappa.py` cerca solo pattern `cur.execute(...)`
+  e non vede nessuna delle sei tabelle, perché `argo/stato.py` non usa
+  psycopg — stesso trattamento già in uso per le query-in-variabile di
+  `lead_gen_host`. Rilanciato `verifica_mappa.py`: **exit 0**, 14 schede
+  verificate, 0 divergenze (2 indecidibili + 8 indecidibili attesi/dichiarati,
+  6 dei quali nuovi di questa sessione).
+
+**Collaudo dal vivo (dati reali, non ipotetici) — output di
+`python3 scripts/argo/stato_cli.py`:**
+- `approvazioni_in_attesa`: **1** riga — approvazione `#10`, `in_attesa` da
+  **174,8 ore** (~7 giorni, dal 3/9/2026), mittente Leonardo, oggetto
+  "ogetto" (dato di test già presente nel DB). Copertura completa.
+- `job_falliti`: 3 gruppi in `falliti` — `digest_serale` ×109 (stesso
+  errore storico `thread_id::int`, 29/08, già raccontato in CLAUDE.md,
+  risolto da tempo — dato morto in tabella, non un problema vivo) e
+  `test_invio_dm` ×1 ×2 (401/403 da GHL/Cloudflare durante un collaudo
+  manuale, non traffico reale). Zero `fermi` al momento del collaudo, uno
+  al secondo (`leggi_email`, appena preso in carico — normale, il worker è
+  vivo). Zero `in_coda_da_troppo`.
+- `escalation_aperte`: zero alert nelle ultime 24h (l'ultimo risale al
+  5/9/2026).
+- `osservazioni_nuove`: zero righe, con la nota che nessuna pipeline scrive
+  ancora lì.
+- `cantieri_aperti`: sezioni `In corso`/`DECISIONI APERTE — bloccano`
+  estratte per intero (vedi sopra sulla dimensione reale di `In corso`),
+  indice di 14 intestazioni `## ` recenti.
+- `attivita_git`: ultimo commit 0,26 giorni fa, 20 commit recenti, working
+  tree con le modifiche in corso di questa sessione (`STATO.md`,
+  `db/schema.sql`, `knowledge/mappa_sistema.yaml` modificati; `argo/`,
+  `scripts/argo/`, `db/migrations/006_osservazioni_mandati.sql`,
+  `knowledge/argo/` non tracciati).
+- `--json` verificato: `json.loads` sull'output senza errori, sei chiavi di
+  primo livello con `copertura` per ciascuna.
+
+**Trovato collaudando, fuori scope, solo segnalato**: due job
+`digest_serale` schedulati per lo stesso orario di domani
+(`run_after` identico, creati a 6 secondi di distanza) — possibile corsa tra
+il self-chaining del job e `garantisci_digest_serale()`. Visto per caso
+validando le query di `job_falliti()`, non indagato né corretto qui
+(sarebbe una scrittura, fuori dal perimetro sola-lettura di questa
+sessione) — segnalato per la prossima sessione sul cantiere
+email/manutenzione.
+
+**Pre-esistente, non causato da questa sessione**: `tests/test_panoptes_lib.py`
+ha un caso che fallisce (`TABELLE_NOTE` hardcoded non include
+`osservazioni`/`mandati`, aggiunte dalla migrazione 006 della sessione
+precedente) — 34/35 casi passati. Non toccato: appartiene al cantiere
+Panoptes-Mappa, non a questo.
+
+**Resta da fare** (prossimo cantiere): tutto quanto già elencato nella
+sessione precedente (bot Telegram, connettore LLM, i tre modi
+instrada/avvisa/orienta, `USER.md` popolato con l'uso) — questi sei lettori
+sono l'ingrediente che mancava per iniziare quella parte, non un
+sostituto. Idempotenza di `mandati` (segnalata dalla revisione guardrail
+la sessione precedente) resta un prerequisito prima che Argo scriva mandati
+veri — non toccata qui, questa sessione non scrive.
+
+File toccati: `argo/stato.py` (nuovo), `scripts/argo/stato_cli.py` (nuovo),
+`tests/test_argo_stato.py` (nuovo), `knowledge/mappa_sistema.yaml`, questa
+sezione di `STATO.md`. Nessun commit, nessun push (lo fa Leonardo).
