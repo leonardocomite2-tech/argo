@@ -81,6 +81,20 @@ probabile duplicazione tra versione mobile/desktop nel DOM del builder GoHighLev
 verificato a fondo, solo osservato). Report JSON completi in
 `.claude/skills/designer/output/*_pavimento_*.json`.
 
+**Correzione (11/09/2026) — la colonna H1 di questa tabella è un falso positivo, non un bug
+delle pagine.** Il conteggio "2" veniva dai nodi grezzi del DOM (`querySelectorAll('h1')`),
+senza filtrare per visibilità: su `yourservice-it`, verificato che i due `<h1>` sono le
+varianti desktop/mobile della stessa hero, e GHL le nasconde reciprocamente con un
+`display:none` di piattaforma reale (classi `.desktop-only`/`.tablet-hide`/`.mobile-only`,
+confine 767/768px — vedi `modalita/narratours.md` §2), non con un semplice collasso 0×0.
+Con un criterio che conta gli h1 **esposti** (stesso di `pavimento.mjs` dopo la correzione
+del 10/09/2026), `yourservice-it` misura **1 h1 esposto a ogni larghezza testata**, sulla
+pagina live intatta, prima di qualunque intervento del cantiere Designer. Il "problema" che
+giustificava un fix in Fase B non esisteva: il fix aggiunto (soglia 861px) ha invece
+introdotto una vera finestra morta 768-860px, poi rimosso in Fase C. Le altre 5 pagine (le 4
+tour + il bundle) **non sono state rimisurate** con il criterio nuovo: questo "2" resta da
+verificare per loro, non da assumere come bug reale solo perché scritto qui.
+
 ## Breakpoint effettivi (dalle media query nei CSS serviti)
 
 - **4 pagine tour singole**: identiche — `380 480 640 760 767 768 860 861 900 979 980 991

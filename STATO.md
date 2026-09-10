@@ -597,16 +597,23 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   `alert_una_volta.env` è vuoto, ma se in futuro guadagnasse una env
   darebbe un falso positivo su `manutenzione_sistema`. Falso positivo
   tollerabile per policy (mai falso negativo), ma da tenere a mente.
-- **(risolto 10/9/2026) Cantiere Designer, h1 doppio yourservice-it —
-  criterio del pavimento corretto, non la pagina.** `.nt-p1-hero`/`#ntHero`
-  coesistevano sempre nel DOM; aggiunto `display:none` reciproco a 861px
-  (verificato senza finestra morta 820-900px). `pavimento.mjs` misurava
-  ancora h1:2 perché contava i nodi grezzi del DOM invece dell'albero di
-  accessibilità — due h1 nel sorgente sono validi HTML5 finché uno solo è
-  esposto. Corretto lo script (conta gli h1 esposti, non nascosti da
-  `display:none`/`visibility:hidden`/`[hidden]`/`aria-hidden`): ora misura
-  1 h1 esposto su `yourservice-it` bonificato. Dettagli in
-  `modalita/narratours.md` §9. La duplicazione fisica del markup
+- **(risolto 10/9/2026, poi rivisto 11/9/2026) Cantiere Designer, h1 doppio
+  yourservice-it — criterio del pavimento corretto, non la pagina; il fix
+  al markup era superfluo.** `.nt-p1-hero`/`#ntHero` coesistevano sempre
+  nel DOM. Fase B: `pavimento.mjs` misurava h1:2 perché contava i nodi
+  grezzi del DOM invece dell'albero di accessibilità — due h1 nel sorgente
+  sono validi HTML5 finché uno solo è esposto. Corretto lo script (conta
+  gli h1 esposti, non nascosti da `display:none`/`visibility:hidden`/
+  `[hidden]`/`aria-hidden`, §9 di `modalita/narratours.md`) — criterio
+  giusto, resta. Ma Fase B aveva ANCHE aggiunto `display:none` reciproco a
+  861px nei blocchi, soglia indovinata (mai misurata sul builder): Fase C
+  ha misurato sulla live intatta che GHL già nascondeva le due hero da
+  solo con un `display:none` di piattaforma reale (confine 767/768px, non
+  861) — il problema non esisteva sulla pagina reale, solo nella
+  ricomposizione locale senza quel CSS. Il fix 861px è stato **rimosso**
+  (era la causa di una finestra morta vera, vedi bullet sotto): i blocchi
+  sono tornati identici all'originale pre-bonifica su questo punto
+  (`git diff 771185a` vuoto). La duplicazione fisica del markup
   desktop/mobile resta come debito separato, vedi bullet sotto.
 - **Cantiere Designer, duplicazione desktop/mobile del markup
   (10/9/2026).** Causa comune a tre sintomi su `yourservice-it`: markup
@@ -632,16 +639,33 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   non va incollato nella pagina di prova Fase C — tocca tutte le pagine
   live insieme, serve una decisione a parte. Rapporti in
   `modalita/narratours.md` §8.
-- **Cantiere Designer, RISCHIO — noindex pagina di prova (10/9/2026), non
-  risolto.** La regola di modalità per creare pagine di prova diceva di
-  mettere `<meta name="robots" content="noindex">` "nel Header Tracking
-  della pagina" — ma l'Header Tracking è condiviso a livello sito (vedi
-  sopra). Se è davvero lo stesso campo per tutte le pagine, seguire quella
-  regola alla lettera deindicizzerebbe l'**intero sito**, non solo la
-  pagina di prova. Marcato `[CONTRADDETTO]` in `modalita/narratours.md`
-  §2 regola 4 — **da verificare prima di creare la pagina di prova in Fase
-  C** (esiste un campo SEO/robots per-pagina separato nel builder?), non
-  da assumere.
+- **(risolto 11/9/2026) Cantiere Designer, RISCHIO — noindex pagina di
+  prova.** La regola era sbagliata, non solo contraddetta: annullata.
+  Sostituita in `modalita/narratours.md` §2 regola 4 con "le pagine di
+  prova non si pubblicano; la verifica avviene su `/preview/`, che serve
+  la versione salvata — nessun noindex necessario". Verificato in Fase C:
+  la pagina di prova (duplicata da `yourservice-it`, mai pubblicata) è
+  raggiungibile solo da chi ha l'URL `/preview/<pageId>`.
+- **(risolto 11/9/2026) Cantiere Designer, RISCHIO — finestra morta
+  768-860px sull'anteprima GHL, Fase C test N.2.** Causa isolata: due
+  meccanismi di visibilità indipendenti che non si allineavano — GHL
+  nascondeva l'hero mobile da un suo `display:none` di piattaforma a
+  partire da 768px (confine reale, misurato sulla live intatta), mentre il
+  fix Fase B nascondeva l'hero desktop sotto 861px (soglia indovinata, non
+  misurata sul builder). Misurato sulla live: nessuna finestra morta
+  esiste lì, GHL gestisce già da solo la visibilità correttamente a ogni
+  larghezza (375-1024px testate). **Decisione di Leonardo: IPOTESI 1 — il
+  fix Fase B era superfluo ed era la causa del bug.** Rimosso da
+  `blocco_01.html`/`blocco_hero_mobile_v3.html`. Test anti-finestra-morta
+  ripetuto sulla ricomposizione locale (con `css_piattaforma_ghl.html`,
+  riproduzione delle classi GHL misurate, aggiunto a `costruisci.py` per
+  fedeltà) a 375/767/768/800/830/860/861/900/1024px: PASS, esattamente una
+  hero a ogni larghezza, stesso esito della live. `baseline_narratours.md`
+  e `modalita/narratours.md` corrette: l'"h1: 2" originale era un falso
+  positivo del criterio vecchio, non un bug delle pagine — vedi bullet
+  sopra e dettagli nella sessione sotto. **Resta da fare**: Leonardo
+  reincolla i blocchi corretti sulla pagina di prova, poi si ripete
+  pavimento + anti-finestra-morta sull'anteprima reale (non solo locale).
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -1129,3 +1153,169 @@ nuova regola 6 locale/globale). Commit locali (`93eb9ec`, `aef5500`,
 cantiere Panoptes-Mappa (`git status` a inizio sessione) che non andavano
 mescolate nel commit Designer — segnalato a Leonardo, resta nel working
 tree.
+
+## Sessione 2026-09-10/11 — Cantiere Designer, passo 2 Fase C (parziale, FERMATA)
+
+Test di fedeltà N.2 sull'anteprima GHL. Leonardo ha duplicato `yourservice-it`
+in una pagina di prova su GHL e incollato i 3 blocchi bonificati
+(`blocco_01`, `blocco_hero_mobile_v3`, `blocco_body_mobile_per_host`).
+Header/footer/tracking sono i globali del sito, non toccati. Pagina salvata,
+mai pubblicata. URL:
+`https://sites.leadconnectorhq.com/preview/73YTL2ucKSWVe4jGSuRC`.
+
+**Regola noindex annullata e sostituita** — vedi bullet sopra e
+`modalita/narratours.md` §2 regola 4.
+
+**1. Verifica incolla — OK.** Assenti sull'anteprima: script CDN
+React/ReactDOM/Babel (0 richieste `unpkg.com`), richiesta `tweaks-panel.jsx`
+(0), crash `useTweaks` (0 in console/pageerror), `#hero-root`/`#tweaks-root`
+(assenti dal DOM). L'incolla è andato a buon fine.
+
+**2. Peso — PASS su entrambe le varianti, sotto la baseline.**
+| Variante | KB totali | Richieste | KB immagini | Primo render |
+|---|---:|---:|---:|---:|
+| `?notrack=true` | 5913 | 328 | 731 | 1980 ms |
+| senza `notrack` | 5836 | 323 | 730 | 1264 ms |
+
+Baseline live `yourservice-it` (misurata 09/09/2026, prima della bonifica):
+**6053 KB**. Differenza tra le due varianti (77 KB, 5 richieste) piccola,
+compatibile con il rumore run-to-run di Cloudflare Turnstile già
+documentato (`modalita/narratours.md` §10), non un effetto sistematico di
+soppressione tracking da parte di `notrack=true`. **Variante usata per il
+confronto omogeneo con la baseline: senza `notrack`** (la baseline live non
+ha soppressioni). **5836 KB contro 6053 KB — la bonifica pesa 217 KB in
+meno (-3,6%)**, pagina intera contro pagina intera.
+
+**3. Test anti-finestra-morta esteso all'anteprima reale — FALLITO.**
+Finestra morta **768-860px inclusi** (9 larghezze testate:
+820/840/855/859/860/861/865/880/900 — le prime 5 sono morte, le ultime 4
+OK). Vedi bullet RISCHIO sopra per l'analisi della causa. Screenshot di
+verifica in `.claude/skills/designer/output/finestra-morta_*.png`
+(gitignored): 767px mostra l'hero mobile, 768px salta all'header→seconda
+sezione senza hero, 861px mostra l'hero desktop.
+
+**FERMATA qui, come da istruzione**: non eseguiti il test di fedeltà N.2
+completo (locale vs anteprima) né la chiusura dei `[DA VERIFICARE]` residui
+— quelli restano aperti fino alla decisione di Leonardo sulla soglia
+768/861.
+
+**Script ad-hoc aggiunti** (stesso pattern di `test_anti_finestra_morta.mjs`
+di Fase B, non tool permanenti della skill) in
+`pagine/yourservice-it/_ricomposizione/`: `test_anti_finestra_morta_preview.mjs`
+(stesso test ma contro l'URL `/preview/` invece del file locale),
+`verifica_incolla_preview.mjs` (verifica assenza residui React),
+`screenshot_finestra_morta.mjs` (cattura le larghezze di confine). Nota
+tecnica: questi script (come quello di Fase B) non risolvono `playwright`
+se eseguiti dalla loro cartella — vanno lanciati con `node_modules` di
+`.claude/skills/designer` raggiungibile (es. copiati lì per l'esecuzione,
+poi il sorgente canonico resta nel repo). Non è un problema introdotto qui,
+preesisteva nel copione di Fase B.
+
+File toccati: `modalita/narratours.md` (§2 regola 4 riscritta,
+`[CONTRADDETTO]` rimosso), questa sezione di STATO.md, i 3 script ad-hoc
+sopra. Nessuna modifica al sito live, nessun push.
+
+## Sessione 2026-09-11 — Cantiere Designer, Fase C, misura sulla LIVE intatta (nessuna implementazione)
+
+Su richiesta di Leonardo, prima di scegliere la soglia per il fix h1: misura
+sulla pagina live originale `https://narra-tours.com/yourservice-it` (mai
+toccata dal cantiere), a 375/767/768/800/830/860/861/900/1024px.
+
+**Risultato: sulla live NON esiste alcuna finestra morta.** A ogni
+larghezza testata risulta esposta esattamente 1 hero e 1 h1 (criterio
+`pavimento.mjs`). GHL nasconde/mostra le colonne con tre classi di
+piattaforma (CSS inline, non nei blocchi): `.desktop-only` sotto
+`max-width:767px`, `.tablet-hide` sotto `min-width:768px e max-width:1024px`,
+`.mobile-only` sotto `min-width:1024.02px` — confine reale **767/768px**.
+Dettagli e valori in `modalita/narratours.md` §2 (nuova sezione "Breakpoint
+reale di visibilità colonna").
+
+**Causa della finestra morta 768-860 trovata sull'anteprima (sessione
+precedente): è nostra, non preesistente.** Sulla live, GHL da solo mostra
+già l'hero desktop pulito a partire da 768px (nessun collasso, nessuna
+rottura — screenshot inviati a Leonardo). Il `display:none` reciproco
+aggiunto in Fase B su `.nt-p1-hero` (soglia 861px, presa in prestito da
+`blocco_01.html`, mai misurata sulla piattaforma) è ciò che sopprime
+l'hero desktop tra 768 e 860 sull'anteprima bonificata — GHL da solo non
+lo avrebbe mai nascosto lì.
+
+**Raccomandazione (dati, non ancora implementata): IPOTESI 1 — il fix
+Fase B era superfluo.** Rimuovere il `display:none` reciproco aggiunto in
+Fase B da `blocco_01.html` e `blocco_hero_mobile_v3.html`, lasciare che
+GHL gestisca la visibilità nativamente (come fa già sulla live). Elimina
+la finestra morta, elimina una soglia indovinata, meno codice. Nessun bug
+preesistente sulla live da registrare (verificato: nessuna finestra morta
+768-860 sulla pagina intatta). Ipotesi 2 (allineare la soglia a 768) e
+Ipotesi 3 (estendere l'hero mobile oltre il confine GHL) non valutate oltre:
+l'Ipotesi 1 risolve il problema senza bisogno di codice aggiuntivo.
+**Decisione e implementazione restano a Leonardo — nessuna modifica ai
+blocchi fatta in questa sessione.**
+
+File toccati: `modalita/narratours.md` (nuova sezione breakpoint reale +
+regola "non prendere in prestito una soglia"), questa sezione di
+`STATO.md`. Nessun commit, nessun push, nessuna modifica al sito live o
+ai blocchi bonificati. Test anti-finestra-morta completo sull'anteprima
+(tutte le larghezze, non solo 820-900) resta da fare dopo l'implementazione
+della soluzione scelta.
+
+## Sessione 2026-09-11 (continua) — Cantiere Designer, Fase C, via libera Ipotesi 1
+
+Via libera di Leonardo su Ipotesi 1 (vedi sessione precedente). Eseguito:
+
+**1. Rimozione fix Fase B.** Rimosso da `blocco_01.html` il blocco
+`@media (max-width:860px) { .nt-p1-hero { display:none; } }` (con il suo
+commento) e da `blocco_hero_mobile_v3.html` il blocco
+`@media (min-width: 861px) { #ntHero { display: none; } }` (con il suo
+commento). Verificato: `git diff 771185a -- pagine/yourservice-it/blocco_01.html
+pagine/yourservice-it/blocco_hero_mobile_v3.html` è **vuoto** — i due file
+sono tornati identici all'originale pre-bonifica su questo punto, nessuna
+differenza residua.
+
+**2. Test anti-finestra-morta locale ripetuto, con CSS di piattaforma
+riprodotto.** Aggiunto `pagine/yourservice-it/_ricomposizione/css_piattaforma_ghl.html`
+(le tre classi `.desktop-only`/`.tablet-hide`/`.mobile-only` misurate sulla
+live, applicate direttamente a `.nt-p1-hero`/`#ntHero` — la ricomposizione
+locale non ha la struttura a colonne di GHL, quindi le soglie sono
+applicate ai selettori delle hero invece che a un wrapper inesistente in
+locale). `costruisci.py` aggiornato per includerlo. `test_anti_finestra_morta.mjs`
+aggiornato alle larghezze richieste (375/767/768/800/830/860/861/900/1024,
+non più solo 820-900). Risultato: **PASS**, esattamente una hero a ogni
+larghezza — stesso esito della live, il locale è ora rappresentativo.
+`pavimento.mjs` sulla ricomposizione aggiornata: **h1 esposti: 1** (invariato
+rispetto a prima della rimozione — confermato che il fix non serviva a
+nulla anche col criterio nuovo).
+
+**3. Baseline corretta.** Aggiunta nota in `baseline_narratours.md` accanto
+alla tabella del pavimento (colonna H1): il "2" era un falso positivo del
+criterio vecchio (nodi grezzi del DOM), non un bug delle pagine — su
+`yourservice-it` col criterio nuovo (h1 esposti) risultava già 1 su tutte
+le larghezze testate sulla live, prima di qualunque intervento. Le altre 5
+pagine non sono state rimisurate: nota esplicita che il loro "2" resta da
+verificare, non da assumere. Stessa correzione anche in
+`modalita/narratours.md` §8 (vicino alla voce H1 doppio esistente).
+
+**5. Lezione di metodo in modalità.** Aggiunta in `modalita/narratours.md`
+§2, accanto alla lezione di piattaforma (breakpoint reale) già scritta
+nella sessione precedente: prima di correggere un FAIL del pavimento,
+verificare che il problema esista davvero sulla piattaforma di
+destinazione — un criterio di misura sbagliato può inventare un problema,
+e il fix di un problema inesistente ne crea uno vero. Regola operativa:
+nessun fix responsive entra in un blocco senza che il comportamento della
+piattaforma sia stato misurato prima (pagina live o anteprima, mai solo il
+locale).
+
+**4. Prossimo passo (non eseguito qui): Fase C dal punto 4.** In attesa
+che Leonardo reincolli `blocco_01.html`/`blocco_hero_mobile_v3.html`
+corretti sulla pagina di prova (salvata, non pubblicata) e dia il via
+libera a ripetere pavimento + anti-finestra-morta sull'anteprima reale.
+Poi test di fedeltà N.2 e chiusura dei `[DA VERIFICARE]` residui.
+
+File toccati: `pagine/yourservice-it/blocco_01.html`,
+`pagine/yourservice-it/blocco_hero_mobile_v3.html` (rimozione),
+`pagine/yourservice-it/_ricomposizione/costruisci.py`,
+`pagine/yourservice-it/_ricomposizione/css_piattaforma_ghl.html` (nuovo),
+`pagine/yourservice-it/_ricomposizione/test_anti_finestra_morta.mjs`,
+`pagine/yourservice-it/_ricomposizione/ricomposizione.html` (rigenerato),
+`modalita/baseline_narratours.md`, `modalita/narratours.md`, questa
+sezione di `STATO.md`. Commit locale a fine sessione, niente push, nessuna
+modifica al sito live.

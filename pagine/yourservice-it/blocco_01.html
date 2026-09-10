@@ -168,18 +168,6 @@
     .nt-p1-hero .nt-grid { padding:40px 20px 44px !important; }
     .nt-p1-notif .nt-grid { padding:64px 20px 56px !important; }
   }
-  /* Bonifica Fase B (10/09/2026): questa hero coesisteva sempre con la
-     hero mobile v3 (#ntHero, blocco_hero_mobile_v3.html) — nessuna delle
-     due aveva mai un display:none, solo un collasso dimensionale a 0×0
-     fuori dal proprio breakpoint, causando "h1: 2" nel pavimento. Soglia
-     861px scelta perché già usata sopra per il collasso del proprio
-     layout a colonna singola: NON è la soglia dichiarata dal builder GHL
-     (che non la dichiara) — verificata con un test dedicato di larghezze
-     820-900px prima di essere accettata (vedi report di bonifica), da
-     riverificare identica sull'anteprima GHL in Fase C. */
-  @media (max-width:860px) {
-    .nt-p1-hero { display:none; }
-  }
 </style>
 
 <script>

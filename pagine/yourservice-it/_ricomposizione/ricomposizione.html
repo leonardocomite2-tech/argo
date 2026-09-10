@@ -11,6 +11,40 @@
   INCOLLARE IN GHL. Concatenazione letterale, ordine builder dichiarato
   nell'orientamento del cantiere Designer passo 2. Vedi costruisci.py.
 -->
+<!--
+  CSS DI PIATTAFORMA GHL — riprodotto per fedeltà del test locale.
+  NON È UN BLOCCO DA INCOLLARE IN GHL. Non esiste nel builder come file:
+  è la ricostruzione dell'effetto delle classi di piattaforma che GHL
+  applica ai wrapper delle colonne Desktop/Tablet/Mobile (CSS inline,
+  fuori dai blocchi Code, mai salvato nel repo).
+
+  Misurato sulla pagina live intatta yourservice-it (mai toccata dal
+  cantiere Designer), 11/09/2026 — vedi modalita/narratours.md §2,
+  sezione "Breakpoint reale di visibilità colonna":
+    .desktop-only { display:none }  sotto max-width:767px
+    .tablet-hide  { display:none }  sotto min-width:768px e max-width:1024px
+    .mobile-only  { display:none }  sotto min-width:1024.02px
+
+  In produzione queste classi stanno sul wrapper della colonna GHL
+  (<div class="c-custom-code c-wrapper">), non sugli elementi dei blocchi.
+  Quel wrapper non esiste nella ricomposizione locale (costruisci.py
+  concatena i blocchi letteralmente, senza la struttura a colonne del
+  builder) — quindi qui le stesse soglie sono applicate direttamente ai
+  selettori delle due hero (.nt-p1-hero desktop, #ntHero mobile v3), che
+  è l'equivalente osservabile per questo test: stesso risultato di
+  visibilità, senza dover simulare l'intera gerarchia di colonne GHL.
+-->
+<style>
+  @media only screen and (max-width: 767px) {
+    .nt-p1-hero { display: none; }
+  }
+  @media only screen and (min-width: 768px) and (max-width: 1024px) {
+    #ntHero { display: none; }
+  }
+  @media only screen and (min-width: 1024.02px) {
+    #ntHero { display: none; }
+  }
+</style>
 
 <!-- ===== INIZIO blocco_header.html ===== -->
 <!--
@@ -1003,18 +1037,6 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
     .nt-p1-hero .nt-grid { padding:40px 20px 44px !important; }
     .nt-p1-notif .nt-grid { padding:64px 20px 56px !important; }
   }
-  /* Bonifica Fase B (10/09/2026): questa hero coesisteva sempre con la
-     hero mobile v3 (#ntHero, blocco_hero_mobile_v3.html) — nessuna delle
-     due aveva mai un display:none, solo un collasso dimensionale a 0×0
-     fuori dal proprio breakpoint, causando "h1: 2" nel pavimento. Soglia
-     861px scelta perché già usata sopra per il collasso del proprio
-     layout a colonna singola: NON è la soglia dichiarata dal builder GHL
-     (che non la dichiara) — verificata con un test dedicato di larghezze
-     820-900px prima di essere accettata (vedi report di bonifica), da
-     riverificare identica sull'anteprima GHL in Fase C. */
-  @media (max-width:860px) {
-    .nt-p1-hero { display:none; }
-  }
 </style>
 
 <script>
@@ -1825,16 +1847,6 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
   .nt-head { padding-top: 27px; padding-bottom: 49px; }
   .nt-logo { height: 58px; }
   .nt-card { padding: 22px 20px; border-radius: 24px; }
-}
-
-/* Bonifica Fase B (10/09/2026): controparte del fix in blocco_01.html —
-   questa hero coesisteva sempre con .nt-p1-hero (desktop), nessuna delle
-   due aveva mai un display:none, causando "h1: 2" nel pavimento. Stessa
-   soglia 861px, stessa riserva: non è la soglia dichiarata dal builder
-   GHL, verificata con un test dedicato 820-900px, da riverificare
-   sull'anteprima GHL in Fase C. */
-@media (min-width: 861px) {
-  #ntHero { display: none; }
 }
 </style>
 

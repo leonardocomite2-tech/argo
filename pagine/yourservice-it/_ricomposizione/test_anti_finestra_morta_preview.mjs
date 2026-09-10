@@ -1,23 +1,9 @@
-// Test anti-finestra-morta (cantiere Designer, passo 2).
-// Verifica che a ogni larghezza sia visibile ESATTAMENTE una hero
-// (.nt-p1-hero desktop o #ntHero mobile v3): mai zero, mai due. Non e' lo
-// strumento pavimento.mjs (quello misura altro e usa solo 5 breakpoint
-// fissi) - e' un controllo dedicato, ad-hoc, non un tool permanente della
-// skill.
-//
-// Fase B (10/09/2026): soglia scelta 861px, presa in prestito da
-// blocco_01.html, testata solo 820-900px — PASS in locale, ma introduceva
-// una finestra morta 768-860px sull'anteprima GHL reale (il locale non
-// riproduce la visibilita' di sezione di piattaforma). Fase C (11/09/2026):
-// misurato sulla live intatta il confine reale (767/768px, 1024/1024.02px
-// — vedi modalita/narratours.md §2). Il fix Fase B e' stato rimosso dai
-// blocchi (era superfluo e ne era la causa): questo test ora verifica che
-// css_piattaforma_ghl.html (riproduzione delle classi GHL misurate,
-// incluso da costruisci.py) basti da solo, senza CSS nostro nei blocchi.
+// Adattamento ad-hoc del test anti-finestra-morta per l'anteprima GHL (Fase C).
 import { chromium } from 'playwright';
 
-const LARGHEZZE = [375, 767, 768, 800, 830, 860, 861, 900, 1024];
-const FILE = 'file:///root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html';
+const LARGHEZZE = [820, 840, 855, 859, 860, 861, 865, 880, 900];
+const URL = process.argv[2];
+if (!URL) { console.error('Uso: node _adhoc_finestra_morta_preview.mjs <url>'); process.exit(1); }
 
 function isVisible(box) {
   return box !== null && box.width > 0 && box.height > 0;
@@ -25,7 +11,7 @@ function isVisible(box) {
 
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
 const page = await browser.newPage();
-await page.goto(FILE, { waitUntil: 'load', timeout: 30000 });
+await page.goto(URL, { waitUntil: 'load', timeout: 30000 });
 
 let problemi = 0;
 console.log('larghezza | .nt-p1-hero (desktop) | #ntHero (mobile v3) | esito');

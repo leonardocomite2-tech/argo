@@ -19,10 +19,19 @@ modalita/baseline_narratours.md. I blocchi dichiarano di essere
 autosufficienti (variabili CSS scoped alla sezione, non su :root) - se
 questo test NON riproduce i FAIL noti della baseline, l'assunzione e'
 sbagliata e va segnalata, non aggirata.
+
+Include anche css_piattaforma_ghl.html (11/09/2026, Fase C): riproduzione
+delle tre classi di visibilita' colonna di GHL (.desktop-only/.tablet-hide/
+.mobile-only), misurate sulla pagina live intatta, applicate direttamente
+alle due hero. Senza questo file il locale mostra sempre ENTRAMBE le hero
+contemporaneamente (nessuna classe di piattaforma nel markup dei blocchi) -
+non e' una regressione, e' l'assenza nota del CSS di piattaforma. Con
+questo file il locale diventa rappresentativo del comportamento reale.
 """
 import pathlib
 
 BASE = pathlib.Path(__file__).resolve().parent.parent
+QUI = pathlib.Path(__file__).resolve().parent
 ORDINE = [
     "blocco_header.html",
     # blocco_gtranslate.html ESCLUSO dal test di fedelta N.1: la sua
@@ -62,6 +71,8 @@ TAIL = """
 
 def main():
     parti = [HEAD]
+    css_piattaforma = (QUI / "css_piattaforma_ghl.html").read_text(encoding="utf-8")
+    parti.append(css_piattaforma)
     for nome in ORDINE:
         percorso = BASE / nome
         contenuto = percorso.read_text(encoding="utf-8")

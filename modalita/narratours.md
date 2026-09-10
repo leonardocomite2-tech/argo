@@ -85,6 +85,41 @@ in px — non essendo dichiarate dalla piattaforma, restano validi quelli misura
 effettivamente servito (`baseline_narratours.md`): 380, 480, 640, 760, 767/768, 860/861,
 900, 979/980, 991, 1024, 1100, 1200 px (con piccole variazioni tra tipi di pagina).
 
+**Breakpoint reale di visibilità colonna — misurato (11/09/2026), risolve il DA VERIFICARE
+residuo.** GHL nasconde/mostra le colonne Desktop/Tablet/Mobile del builder con tre classi
+di piattaforma (CSS inline, non nei blocchi Code, non nel repo — solo i loro effetti erano
+finora osservabili) applicate al wrapper della colonna:
+- `.desktop-only { display:none }` sotto `@media only screen and (max-width: 767px)`
+- `.tablet-hide { display:none }` sotto `@media only screen and (min-width: 768px) and (max-width: 1024px)`
+- `.mobile-only { display:none }` sotto `@media only screen and (min-width: 1024.02px)`
+
+Misurato sulla pagina live intatta `yourservice-it` (`.nt-p1-hero`/`#ntHero`, mai toccata dal
+cantiere Designer): il confine reale Desktop/Mobile per quella pagina è **767/768px**, non
+860/861 — a ogni larghezza testata (375, 767, 768, 800, 830, 860, 861, 900, 1024) risulta
+esposta esattamente 1 hero e 1 h1, nessuna finestra morta. Il valore `1024.02` (non 1024
+tondo) è probabilmente per evitare un buco di un pixel tra le due media query adiacenti —
+nota di implementazione GHL, non nostra.
+
+**Regola derivata (lezione di piattaforma)**: una soglia responsive per i blocchi Code non si
+prende in prestito da un altro CSS del blocco (rischio già concretizzato una volta, vedi
+§8/§Fase C sotto: la soglia 861px del fix h1 di Fase B fu presa da `blocco_01.html` perché
+"già in uso lì", non misurata sulla piattaforma — ha introdotto una finestra morta 768-860px
+che sulla pagina live intatta non esiste). Se la soglia deve esistere, si misura con lo
+stesso metodo di sopra (ispezione `document.styleSheets` sulla pagina live o sull'anteprima,
+non sul render locale, che non ha il CSS di piattaforma).
+
+**Lezione di metodo (11/09/2026), accanto a quella di piattaforma sopra**: prima di
+correggere un FAIL del pavimento, verificare che il problema esista davvero sulla
+piattaforma di destinazione — un criterio di misura sbagliato può inventare un problema, e
+il fix di un problema inesistente ne crea uno vero. Caso reale: l'"h1: 2" misurato in
+`baseline_narratours.md` era un falso positivo del criterio vecchio (nodi grezzi del DOM),
+non un bug di `yourservice-it` — sulla pagina live intatta risultava già 1 solo h1 esposto a
+ogni larghezza, GHL lo gestiva già correttamente da solo. Il fix aggiunto per "risolverlo"
+(soglia 861px indovinata) ha introdotto una finestra morta reale, poi trovata e rimossa in
+Fase C — vedi §8 sopra. **Regola operativa**: nessun fix responsive entra in un blocco senza
+che il comportamento della piattaforma sia stato misurato prima (pagina live o anteprima,
+mai solo il render locale/la ricomposizione).
+
 **Font**: caricamento di font custom possibile ("Upload Fonts" nel selettore). Per il
 conflitto Typography/CSS globale vs font effettivamente resi, vedi §1.
 
@@ -112,15 +147,17 @@ verifica vera si fa sempre sull'URL di anteprima, mai solo sul render locale.
    sito (già scaricato in baseline) + font reali. Questo misura il blocco isolato, **non**
    equivale al peso dell'intera pagina — la verifica finale sul budget (§3) va sempre fatta
    sull'URL `/preview/`, non sulla ricostruzione locale (vedi nota di conflitto in fondo).
-4. **Pagine di prova**: si creano come pagine nuove non linkate, con
-   `<meta name="robots" content="noindex">` **[CONTRADDETTO, 10/09/2026 — non seguire alla
-   lettera finché non verificato]** — questa regola diceva di inserirlo "a mano nel Header
-   Tracking della pagina", ma la scoperta di oggi (sopra) è che l'Header Tracking è
-   **condiviso a livello sito**: se è davvero lo stesso campo su tutte le pagine, un
-   `noindex` messo lì deindicizzerebbe l'intero sito, non solo la pagina di prova. Non
-   risolto qui — è una decisione di Leonardo su come creare la pagina di prova in Fase C
-   (esiste un campo SEO/robots per-pagina separato nel builder? Da verificare prima di usare
-   questa regola, non da assumere).
+4. **Pagine di prova**: le pagine di prova non si pubblicano; la verifica avviene su
+   `/preview/`, che serve la versione salvata — nessun `noindex` necessario. Non usare mai
+   Header/Footer Tracking o Settings del sito per esigenze di una singola pagina: sono
+   condivisi a livello sito (vedi sopra), e una modifica lì tocca tutte le pagine live.
+   **Annullata (11/09/2026)** la regola precedente, che chiedeva di inserire
+   `<meta name="robots" content="noindex">` "a mano nel Header Tracking della pagina": non
+   era solo contraddetta, era da eliminare — l'Header Tracking è globale, e seguirla alla
+   lettera avrebbe deindicizzato l'intero sito. Verificato in Fase C: la pagina di prova
+   (duplicata da `yourservice-it`, mai pubblicata) è raggiungibile solo da chi ha l'URL
+   `/preview/<pageId>`, che serve la bozza salvata — sufficiente come isolamento, senza
+   bisogno di alcun meccanismo aggiuntivo.
 5. **Niente modifiche al sito live in questo cantiere**: ogni lavoro avviene su pagina di
    prova o su bozza salvata e mai pubblicata. Pubblicare è sempre e solo un'azione manuale
    di Leonardo, fuori dal cantiere.
@@ -285,6 +322,22 @@ script così girerebbe tardi, flash quasi garantito) per un problema che non esi
 
 Resta aperta, come debito separato, la causa strutturale che ha prodotto il doppio h1: vedi
 "Duplicazione desktop/mobile del markup" sotto — lì anche i numeri Vimeo/form corretti.
+
+**Aggiornamento (11/09/2026) — il fix 861px era superfluo, e ne era la causa di un bug
+vero.** Misurato sulla pagina live intatta (mai toccata dal cantiere): GHL nasconde già da
+solo `.nt-p1-hero`/`#ntHero` con un `display:none` di piattaforma reale (non un collasso
+0×0), confine **767/768px** — vedi la nuova sezione "Breakpoint reale di visibilità colonna"
+in §2. A ogni larghezza testata sulla live risultava già 1 solo h1 esposto: il problema che
+il fix di Fase B doveva risolvere **non esisteva sulla pagina reale**, esisteva solo nella
+ricomposizione locale (che non ha il CSS di piattaforma). Il fix aggiunto (soglia 861,
+presa in prestito, mai misurata sul builder) ha introdotto una finestra morta reale
+768-860px sull'anteprima GHL, trovata nel test di Fase C. **Rimosso** da `blocco_01.html` e
+`blocco_hero_mobile_v3.html` (11/09/2026): i due blocchi sono tornati identici all'originale
+pre-bonifica su questo punto (`git diff 771185a` vuoto sui due file). La correzione al
+criterio di `pavimento.mjs` (§9) resta comunque corretta e va mantenuta — serviva comunque a
+misurare bene, indipendentemente dal fatto che qui non ci fosse nulla da correggere nel
+markup. `modalita/baseline_narratours.md` aggiornato con la stessa nota accanto alla tabella
+del pavimento.
 
 **Duplicazione desktop/mobile del markup — debito unico (10/09/2026).** Tre sintomi diversi,
 stessa causa: il markup desktop e quello mobile di `yourservice-it` sono duplicati e mai

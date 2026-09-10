@@ -1,0 +1,34 @@
+<!--
+  CSS DI PIATTAFORMA GHL — riprodotto per fedeltà del test locale.
+  NON È UN BLOCCO DA INCOLLARE IN GHL. Non esiste nel builder come file:
+  è la ricostruzione dell'effetto delle classi di piattaforma che GHL
+  applica ai wrapper delle colonne Desktop/Tablet/Mobile (CSS inline,
+  fuori dai blocchi Code, mai salvato nel repo).
+
+  Misurato sulla pagina live intatta yourservice-it (mai toccata dal
+  cantiere Designer), 11/09/2026 — vedi modalita/narratours.md §2,
+  sezione "Breakpoint reale di visibilità colonna":
+    .desktop-only { display:none }  sotto max-width:767px
+    .tablet-hide  { display:none }  sotto min-width:768px e max-width:1024px
+    .mobile-only  { display:none }  sotto min-width:1024.02px
+
+  In produzione queste classi stanno sul wrapper della colonna GHL
+  (<div class="c-custom-code c-wrapper">), non sugli elementi dei blocchi.
+  Quel wrapper non esiste nella ricomposizione locale (costruisci.py
+  concatena i blocchi letteralmente, senza la struttura a colonne del
+  builder) — quindi qui le stesse soglie sono applicate direttamente ai
+  selettori delle due hero (.nt-p1-hero desktop, #ntHero mobile v3), che
+  è l'equivalente osservabile per questo test: stesso risultato di
+  visibilità, senza dover simulare l'intera gerarchia di colonne GHL.
+-->
+<style>
+  @media only screen and (max-width: 767px) {
+    .nt-p1-hero { display: none; }
+  }
+  @media only screen and (min-width: 768px) and (max-width: 1024px) {
+    #ntHero { display: none; }
+  }
+  @media only screen and (min-width: 1024.02px) {
+    #ntHero { display: none; }
+  }
+</style>
