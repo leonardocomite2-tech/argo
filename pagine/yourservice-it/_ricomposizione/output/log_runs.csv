@@ -1,0 +1,4 @@
+timestamp,script,target,rss_chromium_max_mib,ram_available_min_mib,peso_kb,esito_pavimento,durata_s
+2026-09-10T10:12:40.113Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1108,1498,n.d.,n.a.,32.8
+2026-09-10T10:19:57.080Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1331,1192,n.d.,n.a.,59.7
+2026-09-10T10:21:25.719Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1460,1132,6383,FAIL,78.8
