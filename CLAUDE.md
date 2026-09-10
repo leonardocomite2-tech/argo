@@ -24,6 +24,15 @@ Quando manca un dato, chiedilo. Non riempirlo con un'assunzione plausibile.
 ## Stato del progetto
 Leggi sempre STATO.md all'inizio della sessione.
 
+## Mappa del sistema (Panoptes)
+`knowledge/mappa_sistema.yaml` descrive le pipeline, i componenti condivisi e
+i contratti che ognuna garantisce. Prima di modificare un componente
+condiviso, una tabella o un file di `worker/loop.py`, lancia
+`python3 scripts/panoptes/impatti.py --file <path>:<riga>` (o `--diff`) per
+sapere cosa tocchi. Se la modifica cambia tabelle, env o confini di una
+pipeline, aggiorna la mappa nello stesso commit; `verifica_mappa.py` deve
+uscire 0 prima del push.
+
 ## Tono delle comunicazioni verso host e prospect (deciso 18/08)
 Si dà del **lei**, ma senza formalismi da ufficio.
 - Sì: "Buongiorno", "in allegato trova", "risponda pure a questa email"
