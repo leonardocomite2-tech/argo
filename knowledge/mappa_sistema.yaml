@@ -107,7 +107,7 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1228-1232 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102)"
+        garantito_da: "worker/loop.py:1228-1232 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-423). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1228-1232."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
@@ -172,7 +172,7 @@ pipeline:
         garantito_da: "backend/main.py:21-30 (_normalizza_canale_dm, match per sottostringa case-insensitive) + backend/main.py:231-234 (evento scartato, non scritto in events, se il canale normalizzato è None)"
       - id: DM04
         enunciato: "Nessuna risposta DM redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1228-1232 (stessa guardia condivisa di RE01, comune a email e DM)"
+        garantito_da: "worker/loop.py:1228-1232 (stessa guardia condivisa di RE01, comune a email e DM). Stessa catena a due anelli di RE01 (10/9/2026): la guardia si fida di approvals.stato, scritto dal componente condiviso approvazione_telegram — un difetto nelle sue transizioni di stato svuota la garanzia senza toccare questa guardia."
     evidenza:
       - "route: backend/main.py:180-273 (POST /webhook/ghl/dm), auth header X-Argo-Secret vs GHL_WEBHOOK_SECRET (182-183)"
       - "scrive events: backend/main.py:252-262 (dm.received) — CORRETTO al passo 2, mancava in tabelle.scrive"

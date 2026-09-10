@@ -570,15 +570,26 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   `alert_una_volta.env` è vuoto, ma se in futuro guadagnasse una env
   darebbe un falso positivo su `manutenzione_sistema`. Falso positivo
   tollerabile per policy (mai falso negativo), ma da tenere a mente.
-- **Cantiere Designer, h1 doppio yourservice-it (10/9/2026) — CSS non
-  basta.** `.nt-p1-hero`/`#ntHero` coesistevano sempre nel DOM, nessuna
-  `display:none`. Aggiunto `display:none` reciproco a 861px (verificato
-  senza finestra morta 820-900px), ma il criterio del cantiere è "un solo
-  h1 nel DOM" — `display:none` nasconde, non rimuove il nodo, quindi
-  `pavimento.mjs` misura ancora h1:2. Serve un micro script (rimozione
-  attiva via matchMedia) o unificare le due hero: nessuna delle due scelta,
-  decisione di Leonardo. Dettagli e opzioni con rischi in
-  `modalita/narratours.md` §8.
+- **(risolto 10/9/2026) Cantiere Designer, h1 doppio yourservice-it —
+  criterio del pavimento corretto, non la pagina.** `.nt-p1-hero`/`#ntHero`
+  coesistevano sempre nel DOM; aggiunto `display:none` reciproco a 861px
+  (verificato senza finestra morta 820-900px). `pavimento.mjs` misurava
+  ancora h1:2 perché contava i nodi grezzi del DOM invece dell'albero di
+  accessibilità — due h1 nel sorgente sono validi HTML5 finché uno solo è
+  esposto. Corretto lo script (conta gli h1 esposti, non nascosti da
+  `display:none`/`visibility:hidden`/`[hidden]`/`aria-hidden`): ora misura
+  1 h1 esposto su `yourservice-it` bonificato. Dettagli in
+  `modalita/narratours.md` §9. La duplicazione fisica del markup
+  desktop/mobile resta come debito separato, vedi bullet sotto.
+- **Cantiere Designer, duplicazione desktop/mobile del markup
+  (10/9/2026).** Causa comune a tre sintomi su `yourservice-it`: markup
+  desktop e mobile duplicati, mai rimossi dal DOM (solo nascosti per
+  viewport). H1 doppio (sopra, chiuso lato criterio pavimento, non lato
+  struttura); 6 iframe Vimeo su 3 video distinti duplicati desktop+mobile
+  (non 7 come nell'orientamento del cantiere); 2 iframe form GHL con lo
+  stesso id duplicati. Rimedio comune: unificare in un markup responsive
+  unico — candidato principale del prossimo intervento, non di questa Fase
+  B. Dettagli in `modalita/narratours.md` §8.
 - **Cantiere Designer, oro come testo su sfondo chiaro (10/9/2026) — debito
   di brand, non di bonifica.** `#c49a3c` su crema/bianco è 2,48–2,61:1
   (WCAG richiede 4,5, o 3 per testo grande — non lo raggiunge nemmeno
@@ -586,6 +597,24 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   tutto il sito: non corretto solo su `yourservice-it` per non creare
   incoerenza tra pagine. Tre opzioni con rapporti calcolati in
   `modalita/narratours.md` §8, nessuna scelta.
+- **Cantiere Designer, footer confermato globale — fix nel repo, non
+  incollato (10/9/2026).** `blocco_header.html`/`blocco_footer.html` sono
+  Header/Footer Tracking, condivisi a livello sito (confermato da Leonardo
+  nel commento dei file, corroborato da baseline: stesso `document.title`
+  su tutte e 6 le pagine). Il fix di contrasto footer resta committato ma
+  non va incollato nella pagina di prova Fase C — tocca tutte le pagine
+  live insieme, serve una decisione a parte. Rapporti in
+  `modalita/narratours.md` §8.
+- **Cantiere Designer, RISCHIO — noindex pagina di prova (10/9/2026), non
+  risolto.** La regola di modalità per creare pagine di prova diceva di
+  mettere `<meta name="robots" content="noindex">` "nel Header Tracking
+  della pagina" — ma l'Header Tracking è condiviso a livello sito (vedi
+  sopra). Se è davvero lo stesso campo per tutte le pagine, seguire quella
+  regola alla lettera deindicizzerebbe l'**intero sito**, non solo la
+  pagina di prova. Marcato `[CONTRADDETTO]` in `modalita/narratours.md`
+  §2 regola 4 — **da verificare prima di creare la pagina di prova in Fase
+  C** (esiste un campo SEO/robots per-pagina separato nel builder?), non
+  da assumere.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -595,6 +624,16 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
 - DNS: narratour-review.com → zona su HOSTINGER
         narra-tours.com     → zona su CLOUDFLARE
 - Segreti in /root/argo/.env (mai committato)
+
+## Attriti
+- **Due sessioni Claude Code parallele scrivono sullo stesso STATO.md**
+  (10/9/2026, cantieri Panoptes-Mappa e Designer) — rischio di
+  sovrascrittura reciproca: nessun lock, nessuna convenzione di sezione
+  riservata per cantiere, solo append manuale in coda al file. Evitato oggi
+  solo perché una delle due sessioni ha guardato `git status`/`git diff`
+  prima di un `git add`, notato le modifiche dell'altra ed escluse dal
+  proprio commit invece di sovrascriverle. Non è un meccanismo, è stata
+  attenzione — la prossima volta potrebbe non esserci.
 
 ## Backup (27/08)
 `backup/dump.sh` (cron giornaliero alle 3:00, già esistente) ora chiama in
@@ -925,6 +964,26 @@ fidarsi della verifica automatica:**
   parte del file. Falso positivo voluto (coerente con "meglio segnalare di
   troppo"), non un bug.
 
+**Chiusura: non ancora (10/9/2026).** Il cantiere Panoptes-Mappa non è
+chiuso: mancano la settimana di uso reale (verificare che `impatti.py`/
+`verifica_mappa.py` vengano davvero consultati prima di una modifica, non
+solo che esistano) e la formalizzazione del test di accettazione.
+
+Un test è stato eseguito il 10/9/2026 con esito positivo, ma non in
+condizioni di sessione indipendente: alla domanda naturale "cosa rischio se
+modifico il gate di approvazione Telegram?", posta nella STESSA sessione di
+lavoro in cui gli script erano appena stati costruiti (non una sessione
+fresca, senza contesto pregresso sul cantiere), la risposta è arrivata
+lanciando spontaneamente `impatti.py --componente approvazione_telegram`
+(nessuna istruzione esplicita a usare lo strumento), individuando la
+trasversalità su due pipeline (`risposte_email`, `dm_instagram_facebook`) e
+la fragilità della catena RE01/DM04 → `approvazione_telegram` (vedi nota
+aggiunta a `garantito_da` di RE01/DM04 in `mappa_sistema.yaml`, 10/9/2026).
+Segnale positivo ma parziale: dimostra che lo strumento produce
+l'informazione giusta quando qualcuno lo usa, non che una sessione/operatore
+senza il contesto appena caldo lo scopra e lo usi da solo — quel test resta
+da fare.
+
 ## Sessione 2026-09-10 — Cantiere Designer, passo 2 Fase B
 
 Bonifica dei blocchi salvati di `yourservice-it` (mai la pagina live — solo
@@ -951,14 +1010,40 @@ script `costruisci.py`) via `pavimento.mjs`, riproduce h1:2, crash React
   nella ricognizione iniziale) — tutte sullo stesso colore dichiarato, solo
   più opache. Verificato con axe: zero violazioni residue sul footer.
 
-**Fermato, decisione di Leonardo (dettagli e opzioni in
-`modalita/narratours.md` §8, replicati anche in DECISIONI APERTE sopra):**
-- **H1 doppio**: il `display:none` reciproco a 861px (applicato, verificato
-  senza finestra morta 820-900px) non basta — il criterio "un solo h1 nel
-  DOM" non è soddisfatto da un CSS che nasconde ma non rimuove il nodo.
-  Serve un micro script o unificare le due hero.
-- **Oro come testo su sfondo chiaro**: fuori perimetro, è un debito di
-  brand (rapporti calcolati, tre opzioni, nessuna scelta).
+**H1 doppio — risolto correggendo lo strumento, non la pagina (decisione di
+Leonardo).** Il `display:none` reciproco a 861px (applicato, verificato
+senza finestra morta 820-900px) lasciava comunque "h1: 2" nel pavimento:
+`pavimento.mjs` contava i nodi grezzi del DOM, non l'albero di
+accessibilità. Due h1 nel sorgente sono HTML5 valido finché uno solo è
+esposto — un microscript per rimuoverlo dal DOM sarebbe stato più fragile
+(GHL lazy-load i custom code, flash quasi garantito) per un problema che
+non esiste lato accessibilità/SEO. Corretto `pavimento.mjs`: ora conta gli
+h1 esposti (non dietro `display:none`/`visibility:hidden`/`[hidden]`/
+`aria-hidden`), il conteggio grezzo resta come nota informativa. Rimisurato
+dopo la correzione: **1 h1 esposto** su `yourservice-it` bonificato —
+chiuso. Dettagli in `modalita/narratours.md` §9; nota che la baseline del
+passo 1 ("h1: 2" su tutte e 6 le pagine) fu misurata col criterio vecchio,
+da rileggere con questa nota se si riconfronta.
+
+**Duplicazione desktop/mobile del markup — debito unico, non risolto qui.**
+Causa comune a tre sintomi: markup desktop/mobile duplicato, mai rimosso
+dal DOM (solo nascosto per viewport). H1 doppio (sopra, chiuso lato
+criterio, non lato struttura); **6 iframe Vimeo su 3 video distinti**
+duplicati desktop+mobile (non 7 come nell'orientamento del cantiere); **2
+iframe form GHL con lo stesso id** (`inline-bfJq2874KQlSBFYmxq87`)
+duplicati tra `blocco_03.html` e `blocco_body_mobile_per_host.html` — non
+isolato con certezza come causa di un errore console specifico (rumore
+Cloudflare Turnstile nell'ambiente di test, vedi sotto). Rimedio comune:
+unificare in un markup responsive unico — candidato principale del
+prossimo intervento, non di questa Fase B. Dettagli in
+`modalita/narratours.md` §8.
+
+**Oro come testo su sfondo chiaro — fuori perimetro, debito di brand.**
+`#c49a3c` su crema/bianco è 2,48–2,61:1 (WCAG richiede 4,5, o 3 per testo
+grande — non lo raggiunge nemmeno quello). Colore di brand usato su tutto
+il sito: non corretto solo su questa pagina per non creare incoerenza tra
+pagine. Tre opzioni con rapporti calcolati in `modalita/narratours.md` §8,
+nessuna scelta.
 
 **Trovato, non nel perimetro di questa bonifica:**
 - CSS orfano preesistente e indipendente dal sistema React
@@ -966,12 +1051,12 @@ script `costruisci.py`) via `pavimento.mjs`, riproduce h1:2, crash React
   `.calc-note` in `blocco_body_mobile_per_host.html`, nessun markup
   corrispondente) — candidato per un prossimo micro-intervento, basso
   rischio.
-- Id duplicato (`inline-bfJq2874KQlSBFYmxq87`) tra il form GHL desktop
-  (`blocco_03.html`) e mobile (`blocco_body_mobile_per_host.html`) — non
-  isolato con certezza come causa di un errore console specifico (rumore
-  Cloudflare Turnstile nell'ambiente di test, vedi sotto).
-- Numeri Vimeo corretti in modalità: 6 iframe su 3 video distinti
-  (duplicati desktop+mobile), non 7 come nell'orientamento del cantiere.
+- **(risolto 10/9/2026)** Livello titoli saltato (h2→h4 in due punti,
+  `.risk-card`/`.guest-item`): tag corretti in h3, stile spostato su classe
+  dedicata (`.risk-card-title`/`.guest-item-title`) invece che sul
+  selettore di tag — zero cambiamenti visivi, verificato con
+  `getComputedStyle` (stesso bounding box in pixel prima/dopo). Pavimento
+  titoli: FAIL → PASS.
 
 **Limite di piattaforma scoperto (documentato in `modalita/narratours.md`
 §8):** in questo ambiente di sviluppo (non il VPS di produzione), il widget
@@ -981,12 +1066,27 @@ pagina live sia sulla ricomposizione locale. `blocco_gtranslate.html`
 escluso dalla ricomposizione per completare i test (la sua posizione nel
 builder era comunque già "DA CONFERMARE"). Se ricapita dal VPS reale, non
 sospettare i blocchi prima di aver controllato lo stesso meccanismo.
+Genera anche rumore run-to-run su richieste/errori console: il peso in KB
+resta il numero stabile per confrontare stati diversi (§10 di
+`modalita/narratours.md`).
 
-File toccati: `pagine/yourservice-it/blocco_body_mobile_per_host.html`,
-`blocco_01.html`, `blocco_hero_mobile_v3.html`, `blocco_footer.html`;
-nuova cartella `pagine/yourservice-it/_ricomposizione/`;
-`modalita/narratours.md` (§8 nuova). Commit locali, niente push. Questa
-sezione di STATO.md è scritta ma **non committata**: il file aveva già
-modifiche non committate del cantiere Panoptes-Mappa (`git status` a
-inizio sessione) che non andavano mescolate nel commit Designer — segnalato
-a Leonardo, resta nel working tree.
+**Footer/Header confermati globali — fix nel repo, non incollato in Fase
+C (10/9/2026).** Verificato su richiesta di Leonardo prima della consegna:
+sono Header/Footer Tracking, condivisi a livello sito (commento nei file +
+`document.title` identico su tutte e 6 le pagine in baseline). Il fix di
+contrasto footer resta committato ma esce dalle istruzioni d'incolla —
+tocca tutte le pagine live insieme. **Rischio segnalato, non risolto**: la
+regola di modalità per il `noindex` della pagina di prova assumeva
+l'Header Tracking come "per pagina" — se è davvero condiviso, quella regola
+deindicizzerebbe l'intero sito. Marcato `[CONTRADDETTO]`, da verificare
+prima di creare la pagina di prova.
+
+File toccati (oltre a quelli già elencati sopra): correzione ai 5 salti di
+titolo in `blocco_body_mobile_per_host.html`;
+`modalita/narratours.md` (§8 estesa, §10 nuova su divergenza locale/live,
+nuova regola 6 locale/globale). Commit locali (`93eb9ec`, `aef5500`,
+`718a9a3`, `10ea317`), niente push. Questa sezione di STATO.md è scritta ma
+**non committata**: il file aveva già modifiche non committate del
+cantiere Panoptes-Mappa (`git status` a inizio sessione) che non andavano
+mescolate nel commit Designer — segnalato a Leonardo, resta nel working
+tree.
