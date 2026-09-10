@@ -217,6 +217,87 @@ senza redesign) bastano i numeri del pavimento e il confronto con la baseline.
 `riferimenti.md` creato vuoto accanto a questo file, alimentato dalla ricognizione (§3 di
 SKILL.md) quando il Designer farà il primo lavoro sopra soglia.
 
+## 8. Bonifica yourservice-it — Fase B (10/09/2026)
+
+Debiti e limiti trovati bonificando `pagine/yourservice-it/` (cantiere Designer, passo 2).
+Test di fedeltà N.1 confermato prima di intervenire (h1:2, crash React, 404-equivalente
+tutti riprodotti in locale — vedi `pagine/yourservice-it/_ricomposizione/`).
+
+**Debito di brand — oro come testo su sfondo chiaro, NON risolto qui.** `#c49a3c` usato come
+colore di *testo* su crema/bianco (em nell'h1 di entrambe le hero, eyebrow label in
+blocco_01/02/03) è a **2,48–2,61:1** — sotto anche la soglia "testo grande" (3:1). Lo stesso
+oro su sfondo scuro è a **7,53:1** (ottimo). Non corretto in questa bonifica: è un colore di
+brand (`NarraTours_Modello_Business.md`, §1 sopra) usato su tutto il sito, non solo su questa
+pagina — cambiarlo qui soltanto creerebbe incoerenza tra pagine. Opzioni per quando si deciderà
+(nessuna scelta operata):
+  (a) testo scuro dichiarato (`#1a1410`/reale `#1a1714`) al posto dell'oro quando il testo è
+      su sfondo chiaro — l'oro resta riservato a sfondi scuri/usi non testuali;
+  (b) un oro più scuro riservato al testo-su-chiaro — **`#8c6e2a`** è il primo valore della
+      stessa tinta/saturazione che raggiunge **4,57:1** su crema (calcolato, candidato non
+      approvato);
+  (c) rivedere dove il brand usa sfondi chiari, che nella palette dichiarata sono l'eccezione
+      rispetto allo sfondo scuro dominante.
+
+**STOP aperto — h1 doppio, criterio "nel DOM" non soddisfatto da CSS.** `.nt-p1-hero`
+(desktop) e `#ntHero` (mobile v3) coesistevano sempre nel DOM, nessuna delle due aveva
+`display:none` → pavimento misurava "h1: 2". Ho aggiunto `display:none` reciproco a 861px
+(soglia scelta perché già usata in `blocco_01.html` per il proprio collasso di layout; **non
+è la soglia dichiarata dal builder GHL, che non la dichiara** — verificata con un test dedicato
+di larghezze 820-900px, nessuna finestra morta/doppia: PASS). Ma **`display:none` non risolve
+il criterio "un solo h1 nel DOM"**: l'elemento resta nel DOM (solo nascosto a video/screen
+reader), e `pavimento.mjs` conta gli h1 con `querySelectorAll` senza filtrare per visibilità —
+dopo il fix, il pavimento misura ancora "h1: 2". CSS non può rimuovere nodi dal DOM. Il fix
+`display:none` resta comunque applicato (migliora la situazione precedente: l'hero non visibile
+ora è correttamente esclusa dall'albero di accessibilità, prima non lo era) ma non chiude il
+punto. Per chiuderlo davvero servono, alternativamente:
+  (a) un micro script che rimuove attivamente dal DOM l'hero non visibile (in base a
+      `matchMedia`), con il CSS `display:none` come fallback visivo sempre corretto anche se
+      lo script non gira — rischio: va gestito il resize (devtools/QA ridimensionano la
+      finestra, un utente reale quasi mai) e un possibile flash-of-both-visible se lo script
+      non è il primo a girare;
+  (b) unificare le due hero in un unico markup responsive, senza contenuto duplicato — pulito
+      alla radice, ma invasivo: riscrittura sostanziale di uno o entrambi i blocchi, rischio più
+      alto di rompere l'identità visiva "invariata" richiesta dal cantiere.
+Nessuna delle due implementata — decisione di Leonardo, con costi/rischi sopra.
+
+**Numeri Vimeo/form reali (non "7").** Letti nel codice: **6 iframe Vimeo su 3 video
+distinti**, ciascuno duplicato desktop+mobile (mai rimosso dal DOM, primo candidato per il
+prossimo intervento sul peso mobile) — non 7. Più **2 iframe form GHL con lo stesso `id`**
+(`inline-bfJq2874KQlSBFYmxq87`) duplicato tra `blocco_03.html` (desktop) e
+`blocco_body_mobile_per_host.html` (mobile) — id duplicato nel DOM quando entrambi coesistono,
+non ancora verificato se causa un errore console proprio (i test in questa bonifica non l'hanno
+isolato con certezza, vedi limite Turnstile sotto).
+
+**Limite di piattaforma — Cloudflare Turnstile blocca l'evento `load` di Playwright.** La
+pagina reale (e la ricomposizione locale) caricano un widget GTranslate (`cdn.gtranslate.net`)
+e/o un form GHL (`api.leadconnectorhq.com`) protetti da una sfida Cloudflare Turnstile
+(`challenges.cloudflare.com`, `hagen.challenges.cloudflare.com`). In questo ambiente (sandbox
+di sviluppo, non il VPS di produzione) quella sfida crea richieste `blob:` pendenti che
+bloccano indefinitamente `waitUntil:'load'` — confermato sia sulla pagina live
+(`https://narra-tours.com/yourservice-it`) sia sulla ricomposizione locale. **Non è un problema
+dei blocchi**: è un'interazione tra l'automazione headless e il bot-management di Cloudflare,
+probabilmente dipendente dall'IP di uscita dell'ambiente da cui gira `pavimento.mjs`/
+`cattura.mjs` (il VPS di produzione potrebbe non essere flaggato allo stesso modo). Per questa
+bonifica ho escluso `blocco_gtranslate.html` dalla ricomposizione locale (la sua posizione nel
+builder era comunque già "DA CONFERMARE", vedi commento nel file) — sufficiente a far
+completare `load`. **Se ricapita eseguendo il ciclo visivo dal VPS reale con GTranslate/form
+incluso, non è un bug della pagina: verificare prima se è lo stesso meccanismo (richieste
+pendenti verso `challenges.cloudflare.com`) prima di sospettare i blocchi.** Anche un residuo
+"Cannot read properties of undefined (reading 'querySelector')" osservato una volta nel
+pavimento (1 errore pagina su una run) è verosimilmente riconducibile a questa stessa
+interazione Turnstile/axe-core, non a codice nei blocchi (tutte le chiamate `querySelector`
+nei blocchi sono verificate con guardia `if (...)` prima dell'uso).
+
+**CSS orfano trovato, non rimosso (fuori dal perimetro React specifico).** Dentro
+`blocco_body_mobile_per_host.html`, oltre a `#hero-root{...}` (rimosso, orfano diretto della
+rimozione React), esiste un'altra famiglia di CSS orfano preesistente e indipendente:
+`.hero`, `.hero-card`, `.hero-logo`, `.hero-badge`, `.hero-cards`, `.calc-note` — nessun
+markup corrispondente nel file (verificato: nessun `class="hero"` o simile nel body).
+Probabilmente una hero più vecchia, precedente sia al tentativo React sia all'hero v3 finale.
+Non rimossa in questa bonifica (non era nel perimetro dichiarato nel piano); candidato per un
+prossimo micro-intervento di pulizia, a basso rischio (nessun markup la referenzia, quindi
+nessun impatto visivo atteso).
+
 ---
 
 ## DA VERIFICARE residui

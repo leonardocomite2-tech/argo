@@ -3,32 +3,31 @@
   Posizione nel builder: blocco Code nel canvas (confermato dall'utente:
   copiato dal codice GHL live, 10/09/2026).
 
-  CONFERMATO empiricamente (10/09/2026) su narra-tours.com/yourservice-it:
-  - La sezione hero interna a QUESTO documento (React, 9 varianti tramite
-    <HeroApp>/TweaksPanel, mount #hero-root/#tweaks-root) è ROTTA IN
-    PRODUZIONE, su desktop e su mobile: il documento carica
-    react@18.3.1 + react-dom@18.3.1 + @babel/standalone da unpkg.com
-    (3 richieste reali, peso reale), poi tenta di caricare
-    https://narra-tours.com/tweaks-panel.jsx → risposta 404
-    ("Could not load..."). Senza quel file `useTweaks` non è definito,
-    <HeroApp> va in errore a runtime e React non renderizza nulla dentro
-    #hero-root (misurato: 0 di altezza sia a 1440px sia a 390px di
-    viewport). Le 9 varianti (twoCards, singleCard, cinematic, darkCard,
-    poster, bold, minimal, frosted, warm) non sono mai visibili a nessun
-    utente — ma vengono scaricate, eseguite ed errorate a ogni
-    caricamento pagina. Spiega buona parte degli errori console/pagina
-    misurati in baseline per questa pagina (14 console + 4 pagina + 5
-    risorse fallite — passo 1).
-  - Il RESTO del documento, sotto l'hero rotto, FUNZIONA regolarmente ed
-    è il vero corpo mobile della pagina (parallelo a blocco_02/blocco_03
-    per il desktop): video "come funziona" con poster interattivi
-    (#ntpBlock, misurato 350×336 visibile a 390px), sezione filosofia,
-    tre passi, zero rischio, calcolatore, esperienza ospite, form,
-    regalo, sticky bar (.sticky-bar, misurato 390×71 visibile a 390px).
-  - Salvato integralmente e senza modifiche (principio: il backup
-    fotografa, non cura — la rimozione dell'hero React rotto è
-    un'eventuale azione di bonifica di Fase B, con diff, non
-    un'omissione dal backup).
+  BONIFICA Fase B (10/09/2026): rimosso il sistema React morto che era qui
+  (9 varianti hero mai visibili tramite <HeroApp>/TweaksPanel, mount
+  #hero-root/#tweaks-root — script CDN react/react-dom/babel da unpkg.com,
+  script "tweaks-panel.jsx" mai esistito → 404, useTweaks non definito →
+  crash a runtime, 0 di altezza sia a 1440px sia a 390px). Confermato dal
+  test di fedeltà N.1 prima di rimuoverlo (vedi
+  pagine/yourservice-it/_ricomposizione/). Rimossi: i 3 script CDN, i due
+  contenitori #hero-root/#tweaks-root, l'intero blocco
+  `<script type="text/babel">` con le 9 varianti e i marcatori EDITMODE, e
+  la regola CSS `#hero-root{...}` rimasta orfana dopo la rimozione del
+  contenitore.
+  Il RESTO del documento è il vero corpo mobile della pagina (parallelo a
+  blocco_02/blocco_03 per il desktop): video "come funziona" con poster
+  interattivi (#ntpBlock, misurato 350×336 visibile a 390px), sezione
+  filosofia, tre passi, zero rischio, calcolatore, esperienza ospite, form,
+  regalo, sticky bar (.sticky-bar, misurato 390×71 visibile a 390px) —
+  invariato.
+
+  TROVATO IN QUESTA BONIFICA, NON RIMOSSO (fuori dal perimetro React —
+  debito pre-esistente e indipendente, segnalato in modalita/narratours.md
+  e nel report di consegna, non nel diff): un'altra hero orfana, più
+  vecchia, probabilmente precedente sia al tentativo React sia all'hero v3
+  finale — CSS per `.hero`, `.hero-card`, `.hero-logo`, `.hero-badge`,
+  `.hero-cards` e `.calc-note` senza alcun markup corrispondente in questo
+  file (verificato: nessun `class="hero"` o simile nel body).
 -->
 <!DOCTYPE html>
 <html lang="it">
@@ -40,9 +39,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -64,13 +60,6 @@
       color: var(--text);
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
-    }
-
-    #hero-root {
-      --cream:  #ffffff;
-      --cream2: #f5f5f5;
-      background: #ffffff;
-      isolation: isolate;
     }
 
     /* ── STICKY BAR ── */
@@ -687,10 +676,6 @@
 </head>
 <body>
 
-  <!-- ═══ HERO (React) ═══ -->
-  <div id="hero-root"></div>
-  <div id="tweaks-root"></div>
-
   <!-- ═══════════════════════════════════════════════════════════
        CSS BLOCCO POSTER INTERATTIVI (.ntp-*)
        Prefisso dedicato → nessuna collisione con le classi della
@@ -1176,397 +1161,6 @@
     <span class="s-note"> in 30 Secondi </span>
   </div>
 
-  <script type="text/babel" src="tweaks-panel.jsx"></script>
-
-  <script type="text/babel">
-    const { useState, useEffect } = React;
-
-    const BG = "url('https://images.leadconnectorhq.com/image/f_webp/q_80/r_1200/u_https://assets.cdn.filesafe.space/cNtBobvaqLqRBUVFSOkK/media/69c021a2ad1400359feda6cb.png')";
-
-    const HEADLINES = {
-      guadagno: [
-        { line1: "Guadagni ogni mese.", line2: "Senza fare nulla." },
-        { line1: "Un poster.", line2: "Un bonifico al mese." },
-        { line1: "Il 70% è tuo.", line2: "In automatico." },
-      ],
-      tour: [
-        { line1: "I tuoi ospiti vivono", line2: "Roma da cinema." },
-        { line1: "Tour premium.", line2: "50% di sconto per loro." },
-        { line1: "Un'esperienza", line2: "che ricordano." },
-      ],
-    };
-
-    /* ── Variant A: Due card cream ── */
-    function HeroTwoCards({ overlay, headlineIdx, showBadge, showPill }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      const h2 = HEADLINES.tour[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'center', overflow:'hidden', padding:'20px 20px 48px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'85svh',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,transparent 0%,transparent 35%,rgba(255,255,255,0.1) 60%,rgba(255,255,255,0.65) 82%,#ffffff 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'auto'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',flexDirection:'column',gap:10,marginTop:28}}>
-            <div className="hero-card">
-              <span className="hc-label">Il tuo guadagno</span>
-              <h1 dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em>${h1.line2}</em>`}} />
-              <p>Appendi un poster nel tuo alloggio. Ogni volta che un ospite prenota un tour, tu ricevi il 70% della commissione. Automatico.</p>
-              {showPill && <div className="hc-pill">€0 di costo <span>·</span> 70% a te <span>·</span> 30s di setup</div>}
-            </div>
-            <div className="hero-card">
-              <span className="hc-label">Tour digitali premium</span>
-              <h1 dangerouslySetInnerHTML={{__html:`${h2.line1}<br><em>${h2.line2}</em>`}} />
-              <p>Audio cinematografico, mappe smart, AI inclusa — in 20 lingue. Con il 50% di sconto grazie al tuo codice esclusivo.</p>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant B: Card unica ── */
-    function HeroSingleCard({ overlay, headlineIdx, showBadge, showPill }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'center', overflow:'hidden', padding:'20px 20px 48px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'85svh',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,transparent 0%,transparent 35%,rgba(255,255,255,0.1) 60%,rgba(255,255,255,0.65) 82%,#ffffff 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'auto'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%',marginTop:28}}>
-            <div className="hero-card" style={{padding:'32px 26px'}}>
-              <span className="hc-label">Per B&amp;B · Case Vacanze · Piccoli Hotel</span>
-              <h1 style={{fontSize:'clamp(32px,9vw,46px)',marginBottom:12}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em>${h1.line2}</em>`}} />
-              <p style={{marginBottom:14}}>Appendi un poster. I tuoi ospiti ricevono tour premium con il 50% di sconto. Tu prendi il 70% di ogni vendita — automatico.</p>
-              <div style={{display:'flex',flexDirection:'column',gap:7}}>
-                {['Completamente gratuito','Setup in 30 secondi','Rimuovi quando vuoi'].map(t => (
-                  <div key={t} style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:'#6b6259'}}>
-                    <span style={{width:18,height:18,background:'#e8f5e9',borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'#4caf50',fontWeight:700}}>✓</span>
-                    {t}
-                  </div>
-                ))}
-              </div>
-              {showPill && <div className="hc-pill" style={{marginTop:16}}>€0 di costo <span>·</span> 70% a te <span>·</span> 30s di setup</div>}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant C: Cinematic ── */
-    function HeroCinematic({ overlay, headlineIdx, showBadge }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'flex-start', overflow:'hidden', padding:'20px 24px 52px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'90svh', justifyContent:'space-between',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,transparent 30%,transparent 50%,rgba(0,0,0,0.55) 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%'}}>
-            <p style={{fontSize:12,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'#c49a3c',marginBottom:12}}>Il tuo guadagno</p>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(36px,10vw,52px)',fontWeight:900,lineHeight:1.04,letterSpacing:'-0.03em',color:'#faf9f6',marginBottom:16}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em style="color:#c49a3c">${h1.line2}</em>`}} />
-            <p style={{fontSize:15,lineHeight:1.55,color:'rgba(250,249,246,0.7)',marginBottom:24,maxWidth:340}}>Appendi un poster. I tuoi ospiti ricevono tour premium. Tu prendi il 70% — automatico.</p>
-            <div style={{display:'flex',gap:8}}>
-              {[['€0','Costo'],['70%','A te'],['30s','Setup']].map(([v,l],i) => (
-                <div key={i} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.15)',backdropFilter:'blur(8px)',borderRadius:12,padding:'10px 14px',textAlign:'center'}}>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:900,color:'#c49a3c',lineHeight:1}}>{v}</div>
-                  <div style={{fontSize:10,color:'rgba(255,255,255,0.5)',marginTop:3,fontWeight:500}}>{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant D: Dark card ── */
-    function HeroDarkCard({ overlay, headlineIdx, showBadge, showPill }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      const h2 = HEADLINES.tour[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'center', overflow:'hidden', padding:'20px 20px 48px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'85svh',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,transparent 0%,rgba(0,0,0,0.7) 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'auto'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',flexDirection:'column',gap:10,marginTop:28}}>
-            <div style={{background:'rgba(15,8,2,0.82)',border:'1px solid rgba(196,154,60,0.2)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',borderRadius:24,padding:'26px 24px',boxShadow:'0 8px 40px rgba(0,0,0,0.4)'}}>
-              <span className="hc-label">Il tuo guadagno</span>
-              <h1 style={{color:'#faf9f6'}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em>${h1.line2}</em>`}} />
-              <p style={{color:'rgba(250,249,246,0.55)',fontSize:14,lineHeight:1.55,marginTop:10}}>Appendi un poster. Ogni ospite che prenota un tour ti porta il 70% della commissione. Automatico.</p>
-              {showPill && <div style={{display:'inline-flex',alignItems:'center',gap:5,background:'rgba(196,154,60,0.12)',border:'1px solid rgba(196,154,60,0.3)',borderRadius:100,padding:'5px 12px',fontSize:12,fontWeight:600,color:'#e8c46a',marginTop:12}}>€0 di costo · 70% a te · 30s di setup</div>}
-            </div>
-            <div style={{background:'rgba(15,8,2,0.82)',border:'1px solid rgba(196,154,60,0.2)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',borderRadius:24,padding:'26px 24px',boxShadow:'0 8px 40px rgba(0,0,0,0.4)'}}>
-              <span className="hc-label">Tour digitali premium</span>
-              <h1 style={{color:'#faf9f6'}} dangerouslySetInnerHTML={{__html:`${h2.line1}<br><em>${h2.line2}</em>`}} />
-              <p style={{color:'rgba(250,249,246,0.55)',fontSize:14,lineHeight:1.55,marginTop:10}}>Audio cinematografico, mappe smart, AI inclusa — in 20 lingue. Con il 50% di sconto grazie al tuo codice esclusivo.</p>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant E: Poster ── */
-    function HeroPoster({ overlay, headlineIdx, showBadge }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'center', overflow:'hidden', padding:'20px 20px 48px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'85svh',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,transparent 0%,transparent 40%,rgba(255,255,255,0.6) 80%,#ffffff 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'auto'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%',marginTop:28}}>
-            <div style={{background:'#ffffff',borderRadius:20,padding:'28px 24px',border:'2px solid #c49a3c',boxShadow:'0 2px 4px rgba(0,0,0,0.06),0 12px 40px rgba(0,0,0,0.22)',position:'relative'}}>
-              <div style={{position:'absolute',top:-1,left:24,right:24,height:2,background:'linear-gradient(to right,transparent,#c49a3c,transparent)'}} />
-              <p style={{fontSize:10,fontWeight:700,letterSpacing:'0.12em',textTransform:'uppercase',color:'#c49a3c',marginBottom:10,textAlign:'center'}}>Programma Host · NarraTours</p>
-              <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(28px,8vw,40px)',fontWeight:900,lineHeight:1.05,letterSpacing:'-0.03em',color:'#1a1714',textAlign:'center',marginBottom:14}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em style="color:#c49a3c">${h1.line2}</em>`}} />
-              <div style={{borderTop:'1px solid rgba(196,154,60,0.2)',borderBottom:'1px solid rgba(196,154,60,0.2)',padding:'12px 0',margin:'0 0 14px',display:'flex',justifyContent:'space-around',textAlign:'center'}}>
-                {[['€0','Costo'],['70%','A te'],['30s','Setup']].map(([v,l]) => (
-                  <div key={l}>
-                    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:'#c49a3c',lineHeight:1}}>{v}</div>
-                    <div style={{fontSize:10,color:'#6b6259',marginTop:2,fontWeight:600,letterSpacing:'0.05em',textTransform:'uppercase'}}>{l}</div>
-                  </div>
-                ))}
-              </div>
-              <p style={{fontSize:13,color:'#6b6259',lineHeight:1.55,textAlign:'center'}}>Appendi un poster. I tuoi ospiti ricevono tour premium. Tu incassi automaticamente ogni mese.</p>
-              <div style={{position:'absolute',bottom:-1,left:24,right:24,height:2,background:'linear-gradient(to right,transparent,#c49a3c,transparent)'}} />
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant F: Bold Statement ── */
-    function HeroBold({ overlay, headlineIdx, showBadge }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'flex-start', overflow:'hidden',
-          padding:'20px 22px 52px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'88svh', justifyContent:'space-between',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.05) 0%,transparent 25%,transparent 45%,rgba(0,0,0,0.75) 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'relative',zIndex:3,width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3,width:'100%'}}>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(42px,12vw,62px)',fontWeight:900,lineHeight:1.0,letterSpacing:'-0.04em',color:'#fff',marginBottom:18,textWrap:'balance'}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em style="color:#c49a3c">${h1.line2}</em>`}} />
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {['€0 costo','70% a te','Setup 30s','Gratis'].map(t => (
-                <span key={t} style={{background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.2)',backdropFilter:'blur(8px)',color:'#fff',fontSize:12,fontWeight:600,padding:'6px 12px',borderRadius:100}}>{t}</span>
-              ))}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant G: Minimal ── */
-    function HeroMinimal({ overlay, headlineIdx, showBadge }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          alignItems:'center', justifyContent:'center', overflow:'hidden',
-          padding:'20px 28px 52px',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 42%',
-          minHeight:'88svh', textAlign:'center', gap:0,
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,0.2) 0%,rgba(0,0,0,0.45) 100%)',zIndex:1,pointerEvents:'none'}} />
-          <div style={{position:'absolute',top:'20px',left:'20px',right:'20px',zIndex:3,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'relative',zIndex:3}}>
-            <p style={{fontSize:11,fontWeight:700,letterSpacing:'0.14em',textTransform:'uppercase',color:'#c49a3c',marginBottom:16}}>Per Host · B&amp;B · Case Vacanze</p>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(38px,10vw,54px)',fontWeight:900,lineHeight:1.04,letterSpacing:'-0.04em',color:'#fff',marginBottom:24,textWrap:'balance'}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em style="color:#c49a3c">${h1.line2}</em>`}} />
-            <p style={{fontSize:15,color:'rgba(255,255,255,0.65)',lineHeight:1.55,maxWidth:300,margin:'0 auto'}}>Appendi un poster. Il 70% di ogni tour venduto è tuo. Automatico.</p>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant H: Frosted strip ── */
-    function HeroFrosted({ overlay, headlineIdx, showBadge }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      const h2 = HEADLINES.tour[headlineIdx];
-      return (
-        <section style={{
-          position:'relative', display:'flex', flexDirection:'column',
-          overflow:'hidden', minHeight:'88svh',
-          backgroundImage: BG, backgroundSize:'cover', backgroundPosition:'center 35%',
-        }}>
-          <div style={{position:'absolute',inset:0,background:`rgba(15,8,2,${overlay})`,zIndex:0}} />
-          <div style={{position:'absolute',top:20,left:20,right:20,zIndex:3,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38,filter:'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.5))'}} />
-            {showBadge && <span className="hero-badge">Per Host</span>}
-          </div>
-          <div style={{position:'absolute',bottom:0,left:0,right:0,zIndex:3,background:'rgba(15,8,2,0.7)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderTop:'1px solid rgba(255,255,255,0.08)',padding:'28px 22px 36px'}}>
-            <p style={{fontSize:10,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'#c49a3c',marginBottom:8}}>Il tuo guadagno · Tour digitali premium</p>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(26px,7vw,36px)',fontWeight:900,lineHeight:1.05,letterSpacing:'-0.03em',color:'#faf9f6',marginBottom:10}} dangerouslySetInnerHTML={{__html:`${h1.line1} <em style="color:#c49a3c">${h1.line2}</em>`}} />
-            <p style={{fontSize:13,color:'rgba(255,255,255,0.5)',lineHeight:1.5,marginBottom:16}}>{h2.line1} {h2.line2}.</p>
-            <div style={{display:'flex',gap:8}}>
-              {[['€0','Costo'],['70%','A te'],['30s','Setup']].map(([v,l]) => (
-                <div key={l} style={{flex:1,background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'10px 8px',textAlign:'center'}}>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:900,color:'#c49a3c',lineHeight:1}}>{v}</div>
-                  <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginTop:2,fontWeight:500}}>{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Variant I: Warm ── */
-    function HeroWarm({ headlineIdx, showBadge, showPill }) {
-      const h1 = HEADLINES.guadagno[headlineIdx];
-      const h2 = HEADLINES.tour[headlineIdx];
-      return (
-        <section style={{
-          background:'linear-gradient(160deg,#ffffff 0%,#f5f0e8 100%)',
-          display:'flex', flexDirection:'column',
-          alignItems:'flex-start', padding:'20px 22px 52px',
-          minHeight:'85svh', position:'relative', overflow:'hidden',
-        }}>
-          <div style={{position:'absolute',top:-80,right:-80,width:320,height:320,borderRadius:'50%',background:'radial-gradient(circle,rgba(196,154,60,0.12) 0%,transparent 70%)',pointerEvents:'none'}} />
-          <div style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'auto'}}>
-            <img src="logo.png" alt="NarraTours" style={{height:38}} />
-            {showBadge && <span style={{background:'rgba(196,154,60,0.12)',border:'1px solid rgba(196,154,60,0.3)',color:'#c49a3c',fontSize:11,fontWeight:700,letterSpacing:'0.06em',textTransform:'uppercase',padding:'5px 11px',borderRadius:100}}>Per Host</span>}
-          </div>
-          <div style={{width:'100%',marginTop:28}}>
-            <p style={{fontSize:11,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'#c49a3c',marginBottom:12}}>Il tuo guadagno</p>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'clamp(36px,10vw,50px)',fontWeight:900,lineHeight:1.04,letterSpacing:'-0.04em',color:'#1a1714',marginBottom:14,textWrap:'balance'}} dangerouslySetInnerHTML={{__html:`${h1.line1}<br><em style="color:#c49a3c">${h1.line2}</em>`}} />
-            <p style={{fontSize:15,color:'#6b6259',lineHeight:1.6,marginBottom:20}}>Appendi un poster nel tuo alloggio. I tuoi ospiti ricevono tour premium con il 50% di sconto. Tu incassi il 70% ogni mese.</p>
-            <div style={{background:'#1a1714',borderRadius:16,padding:'18px 20px',display:'flex',justifyContent:'space-between'}}>
-              {[['€0','Costo'],['70%','A te'],['30s','Setup']].map(([v,l]) => (
-                <div key={l} style={{textAlign:'center'}}>
-                  <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:'#c49a3c',lineHeight:1}}>{v}</div>
-                  <div style={{fontSize:10,color:'rgba(250,249,246,0.45)',marginTop:3,fontWeight:500,letterSpacing:'0.05em',textTransform:'uppercase'}}>{l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* ── Main App ── */
-    function HeroApp() {
-      const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-        "layout": "twoCards",
-        "overlay": 0.1,
-        "headlineIdx": 0,
-        "showBadge": true,
-        "showPill": true
-      }/*EDITMODE-END*/;
-      const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-      const { layout, overlay, headlineIdx, showBadge, showPill } = tweaks;
-
-      const heroProps = { overlay, headlineIdx: parseInt(headlineIdx), showBadge, showPill };
-
-      return (
-        <>
-          {layout === 'twoCards'   && <HeroTwoCards   {...heroProps} />}
-          {layout === 'singleCard' && <HeroSingleCard {...heroProps} />}
-          {layout === 'cinematic'  && <HeroCinematic  {...heroProps} />}
-          {layout === 'darkCard'   && <HeroDarkCard   {...heroProps} />}
-          {layout === 'poster'     && <HeroPoster     {...heroProps} />}
-          {layout === 'bold'       && <HeroBold       {...heroProps} />}
-          {layout === 'minimal'    && <HeroMinimal    {...heroProps} />}
-          {layout === 'frosted'    && <HeroFrosted    {...heroProps} />}
-          {layout === 'warm'       && <HeroWarm       {...heroProps} />}
-
-          <TweaksPanel>
-            <TweakSection title="Layout Hero">
-              <TweakSelect
-                label="Variante"
-                value={layout}
-                options={[
-                  { value:'twoCards',   label:'A — Due card (cream)' },
-                  { value:'singleCard', label:'B — Card unica' },
-                  { value:'cinematic',  label:'C — Cinematic (testo libero)' },
-                  { value:'darkCard',   label:'D — Dark card vetro' },
-                  { value:'poster',     label:'E — Poster con cornice oro' },
-                  { value:'bold',       label:'F — Bold statement' },
-                  { value:'minimal',    label:'G — Minimal centrato' },
-                  { value:'frosted',    label:'H — Frosted strip' },
-                  { value:'warm',       label:'I — Warm (no foto)' },
-                ]}
-                onChange={v => setTweak('layout', v)}
-              />
-            </TweakSection>
-
-            <TweakSection title="Contenuto">
-              <TweakRadio
-                label="Headline"
-                value={String(headlineIdx)}
-                options={[
-                  { value:'0', label:'Versione A' },
-                  { value:'1', label:'Versione B' },
-                  { value:'2', label:'Versione C' },
-                ]}
-                onChange={v => setTweak('headlineIdx', parseInt(v))}
-              />
-              <TweakToggle label='Badge "Per Host"' value={showBadge} onChange={v => setTweak('showBadge', v)} />
-              <TweakToggle label='Pill (€0 · 70% · 30s)' value={showPill} onChange={v => setTweak('showPill', v)} />
-            </TweakSection>
-
-            <TweakSection title="Immagine">
-              <TweakSlider
-                label="Scurità overlay"
-                value={overlay}
-                min={0.1} max={0.85} step={0.05}
-                onChange={v => setTweak('overlay', v)}
-              />
-            </TweakSection>
-          </TweaksPanel>
-        </>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById('hero-root')).render(<HeroApp />);
-    ReactDOM.createRoot(document.getElementById('tweaks-root')).render(<span />);
-  </script>
 
   <script>
     // ── CALCULATOR ──

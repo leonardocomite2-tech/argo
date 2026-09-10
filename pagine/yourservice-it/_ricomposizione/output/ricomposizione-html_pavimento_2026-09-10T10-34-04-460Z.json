@@ -1,0 +1,325 @@
+{
+  "url": "file:///root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html",
+  "timestamp": "2026-09-10T10:34:04.355Z",
+  "verdetto": "FAIL",
+  "checks": {
+    "contrasto": false,
+    "breakpoint": true,
+    "console": false,
+    "titoli": false,
+    "peso": true
+  },
+  "dettagli": {
+    "contrasto": {
+      "esito": "FAIL",
+      "violazioniPerGravita": {
+        "critical": 2,
+        "serious": 107,
+        "moderate": 96,
+        "minor": 0
+      },
+      "violazioniContrasto": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "occorrenze": 106
+        }
+      ],
+      "tutteLeViolazioni": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "occorrenze": 106
+        },
+        {
+          "id": "heading-order",
+          "impact": "moderate",
+          "help": "Heading levels should only increase by one",
+          "occorrenze": 2
+        },
+        {
+          "id": "label",
+          "impact": "critical",
+          "help": "Form elements must have labels",
+          "occorrenze": 2
+        },
+        {
+          "id": "region",
+          "impact": "moderate",
+          "help": "All page content should be contained by landmarks",
+          "occorrenze": 94
+        },
+        {
+          "id": "scrollable-region-focusable",
+          "impact": "serious",
+          "help": "Scrollable region must have keyboard access",
+          "occorrenze": 1
+        }
+      ]
+    },
+    "peso": {
+      "esito": "N/D (nessun budget impostato)",
+      "byteTotali": 5642977,
+      "kbTotali": 5511,
+      "numeroRichieste": 271,
+      "byteImmagini": 691770,
+      "kbImmagini": 676,
+      "budgetKb": null,
+      "tempoPrimoRenderMs": 508
+    },
+    "breakpoint": {
+      "esito": "PASS",
+      "risultati": [
+        {
+          "width": 360,
+          "scrollWidth": 360,
+          "clientWidth": 360,
+          "overflow": false
+        },
+        {
+          "width": 390,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "overflow": false
+        },
+        {
+          "width": 768,
+          "scrollWidth": 768,
+          "clientWidth": 768,
+          "overflow": false
+        },
+        {
+          "width": 1024,
+          "scrollWidth": 1024,
+          "clientWidth": 1024,
+          "overflow": false
+        },
+        {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "clientWidth": 1440,
+          "overflow": false
+        }
+      ]
+    },
+    "console": {
+      "esito": "FAIL",
+      "erroriConsole": [
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "Failed to load resource: the server responded with a status of 401 ()",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN",
+        "%c%d font-size:0;color:transparent NaN"
+      ],
+      "erroriPagina": [],
+      "risorseFallite": [
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc5b67f5d0b0c/sXgOa7Nifyw0DSkGqB_Rvlw15PHQTG7yBMXQCdcLVIk-1789036383-1.2.1.1-n9uv4UKoTtXOr1yHPhOSxkasY7kC4Z.tGj.P6UzKcHazRe9sGalsElqESy1ep4Wp",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc5ba0af10b0c/PRmDSy3gGf4cu2_XCJJukFFMpcDjbzP9glnv53QTIN4-1789036384-1.2.1.1-U_GW9Zf5SZfZoKpwBFEoYHPMashzbZwmI5vT8bcuq6FRHx1_JC8X.MaLGBEvmMED",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://backend.leadconnectorhq.com/forms/form-survey-event",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://backend.leadconnectorhq.com/forms/form-survey-event",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc5db4bbb0b0c/InjxetOL3m_41FeXc.Z7GewonN4Ne.NYYK__z.YAgFI-1789036389-1.2.1.1-L9uT8cFy1EZXnj_FlulqjAroLdF21XDma6jgA2aKisDd5J4owJH4CEfHWgYk1Qph",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc5fbaaa90b0c/t86oRX1j39cDhcZOfsyW575pA6PyoMIHNZnUIWnmt9A-1789036394-1.2.1.1-eE_Pn84WmPP3HOq7978ppjw1upZCi_oxRTXM0hiZbqHe86WbYLX_apBe9sAZGpAJ",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc64bcfef0b0c/ANzPhEcAXIBZ0FVpeWU0UG7G.cxfg7mXHkg7ed4gEig-1789036407-1.2.1.1-KFiwcVERgSYBFJq.FAu9nKiesmf87T04fscxlK8moDELpGd4xqCeV5MK1vzw3mOa",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://hagen.challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/i/a38dc6506fe60b0c/gT.BoY9FoB7BLL.uKaD7feX1qx7fMN7j3JpdLBMLkKE-1789036408-1.2.1.1-K8yMYN2T6PjUd.SOVw6Skei83T7TromfYzil3m5EO39PXdpaFU2p6XmLLAMWBnLX",
+          "failure": "net::ERR_ABORTED"
+        },
+        {
+          "url": "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/g/turnstile/f/av0/rchlcYbGG7zkLGqTrtbJVHJ4crFMFGDvZat63i7AGVhq58-1789036383-1.3.1.1-64PslB7jNTWe22i0sigIwKI.RcsAtZhKr94G86q26vM/rq09i/0x4AAAAAAAbaszMygKLnGbeo/auto/fbE/failure_retry/normal?lang=auto",
+          "failure": "net::ERR_ABORTED"
+        }
+      ]
+    },
+    "titoli": {
+      "esito": "FAIL",
+      "numeroH1": 2,
+      "livelloSaltato": true,
+      "elenco": [
+        {
+          "level": 1,
+          "testo": "Appendi un poster.Guadagni il 70%."
+        },
+        {
+          "level": 2,
+          "testo": "Ecco cosa succedementre non ci sei."
+        },
+        {
+          "level": 2,
+          "testo": "Setup in 30 secondi.Poi guadagni da solo."
+        },
+        {
+          "level": 2,
+          "testo": "Il tuo kit completo,a costo zero."
+        },
+        {
+          "level": 2,
+          "testo": "Zero rischio, non paghi nulla,se non funziona togli il poster."
+        },
+        {
+          "level": 2,
+          "testo": "Attivi tutto conun semplice poster"
+        },
+        {
+          "level": 2,
+          "testo": "Quanto puoiguadagnare?"
+        },
+        {
+          "level": 2,
+          "testo": "Tre passi.Poi è automatico."
+        },
+        {
+          "level": 2,
+          "testo": "I tuoi ospiti vivononon un semplice tour,ma un'esperienza completa"
+        },
+        {
+          "level": 2,
+          "testo": "250+ recensioni verificate"
+        },
+        {
+          "level": 2,
+          "testo": "Un codice,un contatto,ed inizi."
+        },
+        {
+          "level": 3,
+          "testo": "In regalo anche un depliantcompletamente personalizzabile"
+        },
+        {
+          "level": 2,
+          "testo": "Hai dubbi?Li abbiamo già sentiti."
+        },
+        {
+          "level": 2,
+          "testo": "Offri i nostri tour come fossero i tuoi,tu guadagni il 70% della commissione"
+        },
+        {
+          "level": 1,
+          "testo": "Appendi un poster.Parti con il 70%."
+        },
+        {
+          "level": 2,
+          "testo": "Migliora l'esperienzadei tuoi ospiti."
+        },
+        {
+          "level": 2,
+          "testo": "Preferiamo premiare gli host, non pagare pubblicità."
+        },
+        {
+          "level": 2,
+          "testo": "Poi è tuttoautomatico."
+        },
+        {
+          "level": 3,
+          "testo": "Compila il modulo qui sotto"
+        },
+        {
+          "level": 3,
+          "testo": "Ricevi il poster via mail"
+        },
+        {
+          "level": 3,
+          "testo": "Incassi ogni mese"
+        },
+        {
+          "level": 2,
+          "testo": "Zero rischio.Davvero."
+        },
+        {
+          "level": 4,
+          "testo": "Nessun accordo vincolante"
+        },
+        {
+          "level": 2,
+          "testo": "Quanto puoiguadagnare?"
+        },
+        {
+          "level": 2,
+          "testo": "Un'esperienzaVera."
+        },
+        {
+          "level": 4,
+          "testo": "Tour audio-video narrati come un film"
+        },
+        {
+          "level": 4,
+          "testo": "–50% di sconto con il tuo codice"
+        },
+        {
+          "level": 4,
+          "testo": "Assistente AI che risponde per te, gratis"
+        },
+        {
+          "level": 4,
+          "testo": "20 lingue disponibili"
+        },
+        {
+          "level": 2,
+          "testo": "Un codice,Un contatto,ed Inizi"
+        },
+        {
+          "level": 2,
+          "testo": "In regalo anche un depliantcompletamente personalizzabile"
+        },
+        {
+          "level": 2,
+          "testo": "Rome is waiting.Your story starts now."
+        }
+      ]
+    }
+  }
+}

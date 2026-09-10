@@ -117,7 +117,10 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
   font-family: 'Playfair Display', serif;
   font-size: 14px;
   font-style: italic;
-  color: rgba(250,249,246,0.42);
+  /* Bonifica Fase B (10/09/2026): alpha 0.42 -> 0.5, contrasto su #0f0a06
+     misurato 3,91:1 -> 5,12:1 (soglia AA testo piccolo 4,5:1). Stesso
+     colore dichiarato, solo piu' opaco — nessuna implicazione di brand. */
+  color: rgba(250,249,246,0.5);
   line-height: 1.6;
   margin-bottom: 20px;
   max-width: 220px;
@@ -153,7 +156,11 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(250,249,246,0.35);
+  /* Bonifica Fase B (10/09/2026): trovato dal pavimento dopo il primo giro
+     di fix (non era nella ricognizione iniziale) — alpha 0.35 -> 0.5,
+     contrasto su #0f0a06 misurato 3,05:1 -> 5,12:1 (10px bold non e'
+     "testo grande" WCAG, serve 4,5:1). Stesso colore dichiarato. */
+  color: rgba(250,249,246,0.5);
   margin-bottom: 16px;
   display: block;
 }
@@ -215,7 +222,9 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
 
 .nt-footer-copy {
   font-size: 11px;
-  color: rgba(250,249,246,0.25);
+  /* Bonifica Fase B (10/09/2026): alpha 0.25 -> 0.5, contrasto su #0f0a06
+     misurato 2,10:1 -> 5,12:1 (soglia AA testo piccolo 4,5:1). */
+  color: rgba(250,249,246,0.5);
   line-height: 1.5;
 }
 
@@ -227,7 +236,8 @@ html, body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antiali
 
 .nt-footer-legal a {
   font-size: 11px;
-  color: rgba(250,249,246,0.25);
+  /* Bonifica Fase B (10/09/2026): stesso fix di .nt-footer-copy sopra. */
+  color: rgba(250,249,246,0.5);
   text-decoration: none;
   transition: color 0.18s;
 }
