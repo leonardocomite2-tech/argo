@@ -560,6 +560,33 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   un disiscritto. L'igiene minima del PIANO_OPERATIVO richiede
   `soppressioni` consultata prima di ogni invio. Backlog del cantiere
   email, non di Panoptes.
+- **Gate Telegram — rollback compensativo di `in_modifica` senza rete
+  (emerso 10/9/2026, non in mappa).** Il ramo `modif` di
+  `_gestisci_callback_telegram` (`backend/main.py:330-377`) claima lo stato
+  `in_modifica`, poi chiama `chiedi_testo_corretto` (invio Telegram
+  esterno); se fallisce, un blocco `except` riporta lo stato a `in_attesa`.
+  Se quel rollback stesso non viene eseguito (processo ucciso tra le due
+  istruzioni, eccezione fuori dal blocco coperto) l'approvazione resta
+  bloccata in `in_modifica` per sempre: l'unico altro ramo che ne esce è
+  `_gestisci_modifica_telegram`, che matcha su `tg_message_id` — se quel
+  campo non è mai stato scritto, non c'è più modo di uscirne. Nessun
+  controllo periodico di `manutenzione_sistema` guarda lo stato
+  `in_modifica`, quindi il blocco è silenzioso: nessun alert, nessun log
+  ricorrente. Candidato a contratto (`garantito_da: nessuno`) da valutare
+  nel cantiere email: un controllo periodico che segnali `in_modifica`
+  fermo oltre una soglia.
+- **Gate Telegram — ramo di decisione senza `_accoda_invia_risposta`
+  (emerso 10/9/2026, non in mappa).** Le quattro transizioni di stato in
+  `backend/main.py` (appr, rifiu, modif→modificata via reply) chiamano
+  tutte `_accoda_invia_risposta` dopo l'`UPDATE`. Non c'è oggi un caso reale
+  in cui manchi, ma non c'è nemmeno una garanzia strutturale che leghi le
+  due cose: un ramo nuovo, o una modifica a uno esistente, che decida lo
+  stato senza accodare il job lascia l'approvazione `approvata`/`modificata`
+  ma mai eseguita — in silenzio, senza errore né alert, scopribile solo
+  guardando a mano la tabella `approvals`. Candidato a contratto
+  (`garantito_da: nessuno`) da valutare nel cantiere email: un controllo
+  periodico che confronti approvazioni decise senza job `invia_risposta`
+  corrispondente.
 - **`verifica_mappa.py` (passo 4, 10/9/2026) — limite residuo su env
   annidato.** Per evitare falsi positivi sull'env, lo script esclude dallo
   scope di una pipeline le voci `codice` che coincidono ESATTAMENTE con
@@ -969,7 +996,7 @@ chiuso: mancano la settimana di uso reale (verificare che `impatti.py`/
 `verifica_mappa.py` vengano davvero consultati prima di una modifica, non
 solo che esistano) e la formalizzazione del test di accettazione.
 
-Un test è stato eseguito il 10/9/2026 con esito positivo, ma non in
+Un primo test è stato eseguito il 10/9/2026 con esito positivo, ma non in
 condizioni di sessione indipendente: alla domanda naturale "cosa rischio se
 modifico il gate di approvazione Telegram?", posta nella STESSA sessione di
 lavoro in cui gli script erano appena stati costruiti (non una sessione
@@ -981,8 +1008,20 @@ la fragilità della catena RE01/DM04 → `approvazione_telegram` (vedi nota
 aggiunta a `garantito_da` di RE01/DM04 in `mappa_sistema.yaml`, 10/9/2026).
 Segnale positivo ma parziale: dimostra che lo strumento produce
 l'informazione giusta quando qualcuno lo usa, non che una sessione/operatore
-senza il contesto appena caldo lo scopra e lo usi da solo — quel test resta
-da fare.
+senza il contesto appena caldo lo scopra e lo usi da solo.
+
+Quel secondo test è stato fatto lo stesso giorno (10/9/2026), in una
+sessione indipendente: nessun contesto pregresso sul cantiere Panoptes,
+aperta da zero sulla stessa domanda ("cosa rischio se modifico il gate di
+approvazione Telegram?"). La sessione ha letto `mappa_sistema.yaml` di sua
+iniziativa — contratti RE01/DM04, la nota sulla catena a due anelli, la
+scheda `approvazione_telegram` con `usato_da`, `evidenza` ed `env` — e ha
+costruito la risposta sui contratti dichiarati (trasversalità sulle due
+pipeline, fragilità della catena di fiducia, confine di autenticazione del
+webhook), non su una lettura ad-hoc del codice scollegata dalla mappa.
+Esito positivo. **Esito complessivo del test di accettazione: pieno**, non
+più parziale — copre sia "lo strumento produce l'informazione giusta" sia
+"una sessione senza contesto pregresso la scopre e la usa da sola".
 
 ## Sessione 2026-09-10 — Cantiere Designer, passo 2 Fase B
 
