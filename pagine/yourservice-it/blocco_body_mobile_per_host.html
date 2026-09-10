@@ -355,7 +355,11 @@
       padding: 18px 14px;
     }
     .risk-card .rc-icon { font-size: 20px; margin-bottom: 8px; display: block; }
-    .risk-card h4 {
+    /* Bonifica Fase B (10/09/2026): era ".risk-card h4" — lo stile dipendeva
+       dal tag, non da una classe. Corretto il salto di livello titoli
+       (h2 "Zero rischio" -> h4 "Nessun accordo vincolante", saltava h3):
+       ora e' un h3 con questa classe, stesso aspetto identico. */
+    .risk-card-title {
       font-size: 13px;
       font-weight: 700;
       color: var(--cream);
@@ -446,7 +450,10 @@
       border-radius: var(--r);
     }
     .guest-item .gi-icon { font-size: 18px; line-height: 1; margin-top: 1px; flex-shrink: 0; }
-    .guest-item h4 { font-size: 13px; font-weight: 600; color: var(--cream); letter-spacing: -0.01em; }
+    /* Bonifica Fase B (10/09/2026): era ".guest-item h4" — lo stile
+       dipendeva dal tag. Corretto il salto (h2 "Un'esperienza Vera" -> h4,
+       saltava h3): ora e' un h3 con questa classe, stesso aspetto. */
+    .guest-item-title { font-size: 13px; font-weight: 600; color: var(--cream); letter-spacing: -0.01em; }
 
     /* ── FORM ── */
     .form-section {
@@ -987,7 +994,7 @@
       </div>
       <div class="risk-card">
         <span class="rc-icon">📝</span>
-        <h4>Nessun accordo vincolante</h4>
+        <h3 class="risk-card-title">Nessun accordo vincolante</h3>
         <p>Le modalità di incasso saranno definite dopo le prime vendite.</p>
       </div>
     </div>
@@ -1049,19 +1056,19 @@
       <div class="guest-list">
         <div class="guest-item">
           <span class="gi-icon">🎧</span>
-          <h4>Tour audio-video narrati come un film</h4>
+          <h3 class="guest-item-title">Tour audio-video narrati come un film</h3>
         </div>
         <div class="guest-item">
           <span class="gi-icon">💸</span>
-          <h4>–50% di sconto con il tuo codice</h4>
+          <h3 class="guest-item-title">–50% di sconto con il tuo codice</h3>
         </div>
         <div class="guest-item">
           <span class="gi-icon">🤖</span>
-          <h4>Assistente AI che risponde per te, gratis</h4>
+          <h3 class="guest-item-title">Assistente AI che risponde per te, gratis</h3>
         </div>
         <div class="guest-item">
           <span class="gi-icon">🌍</span>
-          <h4>20 lingue disponibili</h4>
+          <h3 class="guest-item-title">20 lingue disponibili</h3>
         </div>
       </div>
 
