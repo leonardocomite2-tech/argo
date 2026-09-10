@@ -242,6 +242,88 @@ def _estrai_sezione(testo, titolo):
     return m.group(1).strip()
 
 
+CANTIERI_INTESTAZIONI_ATTESE = ["nome", "stato", "aperto il", "aspetta", "sessione più recente"]
+CANTIERI_STATI_VALIDI = {"aperto", "in attesa", "chiuso", "da confermare"}
+CANTIERI_ASPETTA_VALIDI = {"leonardo", "il sistema", "terzi", "calendario", "—", "-", "da confermare"}
+
+
+def _estrai_cantieri(testo):
+    """Parsing della tabella markdown '## CANTIERI'. Ritorna (lista, None)
+    se il blocco c'è ed è ben formato, (None, motivo) altrimenti — mai una
+    lista parziale silenziosa: o il blocco è affidabile per intero, o non lo
+    è e si torna al fallback delle sezioni alla lettera (vedi
+    cantieri_aperti())."""
+    corpo = _estrai_sezione(testo, "CANTIERI")
+    if corpo is None:
+        return None, "blocco '## CANTIERI' assente"
+
+    righe = [r for r in corpo.splitlines() if r.strip().startswith("|")]
+    if len(righe) < 2:
+        return None, "blocco '## CANTIERI' presente ma senza una tabella markdown riconoscibile"
+
+    def celle(riga):
+        r = riga.strip()
+        if r.startswith("|"):
+            r = r[1:]
+        if r.endswith("|"):
+            r = r[:-1]
+        return [c.strip() for c in r.split("|")]
+
+    intestazioni = [c.lower() for c in celle(righe[0])]
+    if intestazioni != CANTIERI_INTESTAZIONI_ATTESE:
+        return None, (
+            f"intestazioni della tabella CANTIERI diverse dall'atteso: attese "
+            f"{CANTIERI_INTESTAZIONI_ATTESE}, trovate {intestazioni}"
+        )
+
+    corpo_righe = righe[1:]
+    separatore = celle(corpo_righe[0])
+    if all(re.fullmatch(r"[-: ]*", c) for c in separatore):
+        corpo_righe = corpo_righe[1:]
+
+    cantieri = []
+    for i, riga in enumerate(corpo_righe, start=1):
+        valori = celle(riga)
+        if len(valori) != len(CANTIERI_INTESTAZIONI_ATTESE):
+            return None, (
+                f"riga {i} della tabella CANTIERI ha {len(valori)} celle, "
+                f"attese {len(CANTIERI_INTESTAZIONI_ATTESE)}: {riga.strip()!r}"
+            )
+        nome, stato, aperto_il, aspetta, sessione = valori
+
+        if stato.lower() not in CANTIERI_STATI_VALIDI:
+            return None, (
+                f"riga {i} ('{nome}'): stato '{stato}' fuori dal vocabolario "
+                f"{sorted(CANTIERI_STATI_VALIDI)}"
+            )
+        aspetta_lower = aspetta.lower()
+        # Match sul token canonico più lungo che apre la cella (alcuni sono
+        # multi-parola, "il sistema"/"da confermare"): un confronto sulla sola
+        # prima parola li spezzerebbe. Consente una nota libera dopo, purché
+        # separata da spazio o parentesi (es. "Leonardo (decide se riprendere)").
+        match = any(
+            aspetta_lower == token
+            or aspetta_lower.startswith(token + " ")
+            or aspetta_lower.startswith(token + "(")
+            for token in CANTIERI_ASPETTA_VALIDI
+        )
+        if not match:
+            return None, (
+                f"riga {i} ('{nome}'): aspetta '{aspetta}' fuori dal vocabolario "
+                f"{sorted(CANTIERI_ASPETTA_VALIDI)}"
+            )
+
+        cantieri.append({
+            "nome": nome,
+            "stato": stato,
+            "aperto_il": aperto_il,
+            "aspetta": aspetta,
+            "sessione_riferimento": sessione,
+        })
+
+    return cantieri, None
+
+
 def _indice_sessioni(testo, n=15):
     righe = testo.splitlines()
     indice = []
@@ -252,12 +334,14 @@ def _indice_sessioni(testo, n=15):
 
 
 def cantieri_aperti():
-    """Parsing di STATO.md. Non ha un campo strutturato 'cantiere:
-    aperto/chiuso' — è un registro di sessioni in append, titoli in prosa
-    libera. Un parser che provasse a dedurre quali cantieri sono aperti da
-    quella prosa sarebbe fragile: espongo alla lettera le uniche due sezioni
-    scritte con intento di stato-corrente ('In corso',
-    'DECISIONI APERTE — bloccano') più un indice grezzo delle sessioni."""
+    """Parsing di STATO.md. La fonte primaria è il blocco strutturato
+    '## CANTIERI' (una riga per cantiere, vocabolario fisso per stato/
+    aspetta — vedi _estrai_cantieri): quando è presente e ben formato,
+    copertura 'completa'. Se manca o è incoerente, copertura 'parziale' e si
+    torna al fallback pre-esistente: le due sezioni scritte con intento di
+    stato-corrente ('In corso', 'DECISIONI APERTE — bloccano') esposte alla
+    lettera, più un indice grezzo delle sessioni — sempre presenti in
+    entrambi i casi, non solo come fallback silenzioso."""
     if not STATO_MD_PATH.exists():
         return {
             "copertura": "assente",
@@ -265,6 +349,7 @@ def cantieri_aperti():
                 f"{STATO_MD_PATH} non trovato — questa funzione va eseguita da host, "
                 "nel repo: il file non è copiato nell'immagine Docker."
             ),
+            "cantieri": None,
             "in_corso": None,
             "decisioni_aperte_bloccano": None,
             "sessioni_recenti": [],
@@ -273,18 +358,24 @@ def cantieri_aperti():
     testo = STATO_MD_PATH.read_text(encoding="utf-8")
     in_corso = _estrai_sezione(testo, "In corso")
     decisioni_aperte = _estrai_sezione(testo, "DECISIONI APERTE — bloccano")
+    cantieri, motivo_cantieri = _estrai_cantieri(testo)
 
-    motivo = (
-        "STATO.md non ha uno stato aperto/chiuso codificato per singolo cantiere: "
-        "i titoli di sessione mischiano data e nome cantiere in prosa libera, senza "
-        "un campo verificabile. Espongo alla lettera le due sezioni scritte con "
-        "intento di stato-corrente ('In corso', 'DECISIONI APERTE — bloccano') più "
-        "l'indice grezzo delle sessioni recenti — il giudizio su quali cantieri sono "
-        "davvero aperti resta a chi legge, non è dedotto qui."
-    )
+    if cantieri is not None:
+        copertura = "completa"
+        motivo = None
+    else:
+        copertura = "parziale"
+        motivo = (
+            f"{motivo_cantieri} — nessun blocco strutturato affidabile: espongo "
+            "come fallback le due sezioni scritte con intento di stato-corrente "
+            "('In corso', 'DECISIONI APERTE — bloccano') più l'indice grezzo delle "
+            "sessioni recenti, come prima dell'introduzione del blocco CANTIERI."
+        )
+
     return {
-        "copertura": "parziale",
+        "copertura": copertura,
         "motivo": motivo,
+        "cantieri": cantieri,
         "in_corso": in_corso,
         "decisioni_aperte_bloccano": decisioni_aperte,
         "sessioni_recenti": _indice_sessioni(testo),

@@ -84,6 +84,90 @@ caso(
 )
 
 
+# --- _estrai_cantieri su blocchi '## CANTIERI' finti ---
+CANTIERI_BEN_FORMATO = """# STATO — finto
+
+## CANTIERI
+
+| Nome | Stato | Aperto il | Aspetta | Sessione più recente |
+|---|---|---|---|---|
+| Cantiere prova | aperto | 01/01/2026 | Leonardo | Sessione 01/01/2026 |
+| Cantiere due | in attesa | da confermare | calendario | Sessione 02/01/2026 |
+
+## Fatto
+- niente
+"""
+
+caso(
+    "_estrai_cantieri: blocco ben formato ritorna la lista, nessun motivo",
+    (
+        [
+            {
+                "nome": "Cantiere prova", "stato": "aperto", "aperto_il": "01/01/2026",
+                "aspetta": "Leonardo", "sessione_riferimento": "Sessione 01/01/2026",
+            },
+            {
+                "nome": "Cantiere due", "stato": "in attesa", "aperto_il": "da confermare",
+                "aspetta": "calendario", "sessione_riferimento": "Sessione 02/01/2026",
+            },
+        ],
+        None,
+    ),
+    stato._estrai_cantieri(CANTIERI_BEN_FORMATO),
+)
+
+CANTIERI_ASSENTE = "# STATO — finto\n\n## Fatto\n- niente\n"
+_lista, _motivo = stato._estrai_cantieri(CANTIERI_ASSENTE)
+caso("_estrai_cantieri: blocco assente ritorna None", None, _lista)
+caso("_estrai_cantieri: blocco assente, motivo esplicito", "blocco '## CANTIERI' assente", _motivo)
+
+CANTIERI_INTESTAZIONI_SBAGLIATE = """# STATO — finto
+
+## CANTIERI
+
+| Cantiere | Stato |
+|---|---|
+| Prova | aperto |
+
+## Fatto
+"""
+_lista, _motivo = stato._estrai_cantieri(CANTIERI_INTESTAZIONI_SBAGLIATE)
+caso("_estrai_cantieri: intestazioni sbagliate ritorna None", None, _lista)
+caso("_estrai_cantieri: intestazioni sbagliate, motivo non None", True, _motivo is not None)
+
+CANTIERI_STATO_FUORI_VOCABOLARIO = """# STATO — finto
+
+## CANTIERI
+
+| Nome | Stato | Aperto il | Aspetta | Sessione più recente |
+|---|---|---|---|---|
+| Cantiere prova | in_pausa | 01/01/2026 | Leonardo | Sessione 01/01/2026 |
+
+## Fatto
+"""
+_lista, _motivo = stato._estrai_cantieri(CANTIERI_STATO_FUORI_VOCABOLARIO)
+caso("_estrai_cantieri: stato fuori vocabolario ritorna None", None, _lista)
+caso("_estrai_cantieri: stato fuori vocabolario, motivo non None", True, _motivo is not None)
+
+# --- cantieri_aperti(): copertura completa vs parziale, su STATO_MD_PATH rediretto ---
+_stato_finto_path = REPO_ROOT / "tests" / "_stato_finto_cantieri.md"
+_stato_finto_path.write_text(CANTIERI_BEN_FORMATO, encoding="utf-8")
+_percorso_originale = stato.STATO_MD_PATH
+try:
+    stato.STATO_MD_PATH = _stato_finto_path
+    _risultato = stato.cantieri_aperti()
+    caso("cantieri_aperti: copertura completa con blocco ben formato", "completa", _risultato["copertura"])
+    caso("cantieri_aperti: cantieri popolato con blocco ben formato", 2, len(_risultato["cantieri"]))
+
+    _stato_finto_path.write_text(CANTIERI_ASSENTE, encoding="utf-8")
+    _risultato = stato.cantieri_aperti()
+    caso("cantieri_aperti: copertura parziale senza blocco CANTIERI", "parziale", _risultato["copertura"])
+    caso("cantieri_aperti: cantieri None senza blocco CANTIERI", None, _risultato["cantieri"])
+finally:
+    stato.STATO_MD_PATH = _percorso_originale
+    _stato_finto_path.unlink()
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:

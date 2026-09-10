@@ -23,6 +23,8 @@ Quando manca un dato, chiedilo. Non riempirlo con un'assunzione plausibile.
 
 ## Stato del progetto
 Leggi sempre STATO.md all'inizio della sessione.
+A fine sessione aggiorna anche il blocco `## CANTIERI` in testa a `STATO.md`,
+insieme alla nota di sessione — è la fonte primaria di `cantieri_aperti()`.
 
 ## Mappa del sistema (Panoptes)
 `knowledge/mappa_sistema.yaml` descrive le pipeline, i componenti condivisi e

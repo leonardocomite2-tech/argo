@@ -1,5 +1,23 @@
 # STATO — aggiornare a fine di ogni step
 
+## CANTIERI
+
+Blocco strutturato per `cantieri_aperti()` (`argo/stato.py`). Una riga per
+cantiere, vocabolario fisso: `Stato` ∈ {aperto, in attesa, chiuso, da
+confermare}; `Aspetta` ∈ {Leonardo, il sistema, terzi, calendario, —, da
+confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
+
+| Nome | Stato | Aperto il | Aspetta | Sessione più recente |
+|---|---|---|---|---|
+| Cantiere 1 — poster | in attesa | da confermare | Leonardo | 18/08/2026 — nessuna intestazione `## ` dedicata; resta solo l'item 8 "workflow GHL" |
+| Cantiere 2 — email | aperto | da confermare | il sistema | 03/09/2026 — nessuna intestazione `## ` dedicata; "cantiere risposte, secondo pezzo" (classificazione+bozze); dichiarato cantiere attivo in CLAUDE.md |
+| Cantiere 3 — DM Instagram/Facebook | in attesa | 26/08/2026 | Leonardo | 27/08/2026 — invio collegato; drafter DM non scritto |
+| Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
+| Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
+| Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — STATO.md leggibile + due correzioni (questa sessione) |
+| Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
+
 ## Fatto
 - VPS Hostinger KVM1, Ubuntu 24.04, Docker + Compose
 - 4 container: caddy (HTTPS ok) · api (FastAPI, /health) · worker (poll jobs 5s) · db (Postgres)
@@ -195,6 +213,8 @@
 - 30 telefonate ai contatti multi-struttura.
 - Prima campagna Instantly da 50 lead sui contatti con email su dominio
   proprio (`instantly_ondata1.csv`).
+
+## Dettaglio implementativo (poster step 5-7 e cantiere 2 — email)
 
 (step 5 chiuso: media/poster.py con auto-fit font 80→20, box (994,2580)-(1423,2680),
 font Montserrat-Bold.ttf scaricato da Google Fonts; worker/loop.py legge host_code da
@@ -1572,3 +1592,99 @@ veri — non toccata qui, questa sessione non scrive.
 File toccati: `argo/stato.py` (nuovo), `scripts/argo/stato_cli.py` (nuovo),
 `tests/test_argo_stato.py` (nuovo), `knowledge/mappa_sistema.yaml`, questa
 sezione di `STATO.md`. Nessun commit, nessun push (lo fa Leonardo).
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 3: STATO.md leggibile + due correzioni
+
+Prosecuzione di "la voce": `cantieri_aperti()` era quasi cieco (`## In corso`
+espone alla lettera ~230 righe non sue, senza distinguere cosa è davvero
+aperto). Questa sessione aggiunge un blocco strutturato e sistema due
+difetti trovati collaudando la sessione precedente.
+
+**1. Blocco `## CANTIERI`** in testa a `STATO.md`: tabella a 5 colonne
+(Nome, Stato, Aperto il, Aspetta, Sessione più recente), vocabolario fisso
+per Stato (`aperto|in attesa|chiuso|da confermare`) e Aspetta (`Leonardo|il
+sistema|terzi|calendario|—|da confermare`). 8 cantieri ricostruiti dal
+contenuto di STATO.md — dedotti con sicurezza: lead-gen host chiuso
+("Roma chiuso" esplicito), Panoptes-Mappa in attesa di calendario (chiusura
+prevista 17/9), Argo — la voce aperto, Designer in attesa di Leonardo
+(bullet esplicito), DM Instagram/Facebook in attesa (drafter mai scritto).
+Dedotti per inferenza, marcati "da confermare" dove la data di apertura non
+è mai dichiarata come tale (cantiere 1, 2, 3, Designer): uso la prima
+traccia disponibile solo come nota, mai come fatto certo. "Cantiere 2 —
+email" marcato `aperto` perché CLAUDE.md lo dichiara cantiere attivo, non
+perché esista una sessione recente a lui dedicata. Regista Sonora v10
+incluso "da confermare" su tutto: citato in STATO.md solo come motivo di due
+deroghe, mai col suo contenuto — incluso comunque perché il modo *orienta*
+di Argo non deve sembrare ignorarlo.
+
+**2. Delimitata `## In corso`**: mancava un `## ` prima di `## Prossimi step
+(cantiere 1 — poster)`, quindi la sezione inghiottiva le note di step 5-7
+del poster e l'intero cantiere 2 — email. Aggiunta l'intestazione
+`## Dettaglio implementativo (poster step 5-7 e cantiere 2 — email)` subito
+dopo le due righe vere di "In corso" — nessuna parola di contenuto toccata.
+
+**3. `argo/stato.py` — `cantieri_aperti()` legge il blocco**: nuovo helper
+puro `_estrai_cantieri(testo)`, parsing della tabella markdown con
+validazione delle intestazioni e del vocabolario di Stato/Aspetta. Copertura
+`completa` quando il blocco è presente e ben formato, `parziale` con motivo
+esplicito altrimenti (blocco assente, intestazioni sbagliate, riga fuori
+vocabolario) — mai un dato parziale spacciato per completo. `in_corso`/
+`decisioni_aperte_bloccano`/`sessioni_recenti` restano sempre esposti alla
+lettera, non solo come fallback silenzioso. `scripts/argo/stato_cli.py`
+aggiornato per stampare la nuova sezione "cantieri (blocco strutturato)".
+Bug trovato in fase di collaudo e corretto prima di chiudere: la prima
+implementazione della validazione di `Aspetta` prendeva solo la prima
+parola della cella (`aspetta.split(" ")[0]`), quindi "il sistema" falliva
+sempre (matchava solo "il"). Corretto per matchare il token canonico più
+lungo che apre la cella. 5 nuovi casi in `tests/test_argo_stato.py`
+(blocco ben formato, assente, intestazioni sbagliate, stato fuori
+vocabolario, `cantieri_aperti()` end-to-end completa/parziale) — 19/19.
+
+**4. `CLAUDE.md`**: una riga sotto "Stato del progetto" — il blocco
+`## CANTIERI` va aggiornato a fine sessione insieme alla nota, è la fonte
+primaria di `cantieri_aperti()`.
+
+**Correzione — corsa `digest_serale`** (segnalata dalla sessione
+precedente): causa isolata. Le tre `garantisci_*` (`leggi_email`,
+`controlli_periodici`, `digest_serale`, `worker/loop.py`) fanno un
+check-poi-insert non atomico (`SELECT ... IN ('pending','running')`, poi
+`INSERT` se vuoto). Nel loop seriale di un worker questo non corre mai con
+se stesso: corre solo se due processi worker esistono per una finestra
+breve (es. durante un `docker compose up -d --build`) **e** in quel momento
+non esiste ancora nessuna riga pending/running — il caso esatto che la
+funzione recupera. `prossimo_orario_digest()` è deterministico sulla data,
+quindi due inserimenti quasi simultanei producono lo stesso `run_after`:
+esattamente il sintomo osservato (due job digest_serale, stesso orario,
+creati a 6 secondi di distanza). Il self-chaining dentro `digest_serale()`
+non è la causa (insert incondizionato, il job corrente è già `running`
+quando esegue). Fix: `pg_advisory_xact_lock` (chiave propria per funzione)
+in testa a ciascuna delle tre `garantisci_*`, prima della SELECT — nessuna
+migrazione, nessun rischio per il self-chaining esistente. Corrette tutte e
+tre (non solo digest_serale): il vincolo del brief era contro modifiche
+larghe, non contro tre righe della stessa natura, e lasciarle rotte sapendo
+perché sarebbe stato peggio che toccarle. `knowledge/mappa_sistema.yaml`
+aggiornata (righe shiftate in `manutenzione_sistema`: `codice`, MS02/MS03/
+MS04 `garantito_da`, evidenza — nuovo limite superiore file 1660, era 1647)
+e rilanciato `verifica_mappa.py`: exit 0.
+
+**Correzione — `tests/test_panoptes_lib.py`**: `TABELLE_NOTE` non includeva
+`osservazioni`/`mandati` (migrazione 006). Aggiunte, stringa descrittiva del
+caso corretta ("le 8" → "le 10 tabelle note"). 35/35.
+
+**`knowledge/registro_attriti.md`**: aggiunta voce A26 (seed, non
+misurata) su richiesta di Leonardo — la memoria di Argo tra sessioni è oggi
+solo `STATO.md` + i file identità, da rivalutare con evidenza d'uso dopo
+alcune settimane, candidato per il radar skill/tool.
+
+**Verifiche finali**: `test_argo_stato.py` 19/19, `test_panoptes_lib.py`
+35/35, `test_fetch.py` 12/12, `test_filtri_email.py` 25/25,
+`test_normalizza.py` 132/132 (`eval_classificatore.py` escluso, a
+pagamento); `verifica_mappa.py` exit 0; `stato_cli.py` →
+`cantieri_aperti` copertura completa, 8 cantieri.
+
+File toccati: `STATO.md` (blocco CANTIERI, delimitatore In corso, questa
+sezione), `argo/stato.py` (`_estrai_cantieri`, `cantieri_aperti()`),
+`scripts/argo/stato_cli.py`, `tests/test_argo_stato.py`,
+`tests/test_panoptes_lib.py`, `worker/loop.py` (tre `garantisci_*`),
+`knowledge/mappa_sistema.yaml`, `CLAUDE.md`, `knowledge/registro_attriti.md`.
+Nessun commit, nessun push (lo fa Leonardo).

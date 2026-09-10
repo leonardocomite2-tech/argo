@@ -98,6 +98,16 @@ def stampa_leggibile(risultati):
                 ))
 
         elif nome == "cantieri_aperti":
+            print("  -- cantieri (blocco strutturato) --")
+            if dati["cantieri"] is None:
+                print("    (non disponibile, vedi motivo sopra)")
+            else:
+                for c in dati["cantieri"]:
+                    print(_riga(
+                        c["nome"],
+                        f"{c['stato']} — aperto il {c['aperto_il']} — aspetta: {c['aspetta']} — "
+                        f"{c['sessione_riferimento']}",
+                    ))
             print("  -- In corso --")
             print(f"    {dati['in_corso'] or '(sezione assente)'}")
             print("  -- DECISIONI APERTE — bloccano --")

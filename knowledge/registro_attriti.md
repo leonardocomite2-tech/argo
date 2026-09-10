@@ -142,6 +142,7 @@ che non reggono il conteggio.
 | A04 | Correzioni manuali contate alla chiusura dei cantieri poster / IMAP / DM / leadgen — *da riprendere dai log di chiusura* | fabbrica | ? | ? | ? |
 | A05 | Script estrazione/diagnostica debuggati per iterazioni multiple prima di girare | Cantiere 1 Regia sonora | ? | ? | chiuso? |
 | A06 | Verifica manuale dello stato attuale di tool/modelli prima di ogni raccomandazione (rassegna quasi quotidiana delle novità) | progettazione cantieri | ~quotidiana | ? | aperto — è la versione manuale della Porta 2 |
+| A26 | La memoria di Argo tra sessioni è oggi solo STATO.md + i file identità — da rivalutare con evidenza d'uso dopo alcune settimane di Argo in funzione, come candidato per il radar skill/tool. Nessun tool adottato ora: manca l'attrito misurato. | Cantiere Argo — la voce | ? | ? | aperto — candidato, non un attrito contato |
 
 **Candidati accoppiati (corsia riparazioni, 07/09):** A06 → 67 Find Skills;
 16 Agent Reach (baseline). A03 → 7 Claude-Mem (baseline) — condizionato al

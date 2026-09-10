@@ -1554,6 +1554,11 @@ def test_invio_dm(payload):
 def garantisci_leggi_email():
     with db_connect() as conn:
         with conn.cursor() as cur:
+            # Lock di sessione: il loop di un worker è seriale (non corre con se
+            # stesso), ma due processi sovrapposti (es. redeploy) potrebbero
+            # entrambi trovare "nessun job" e inserirne due — stesso difetto
+            # trovato su digest_serale l'11/9/2026 (STATO.md), stesso fix.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('leggi_email_schedule'))")
             cur.execute(
                 "SELECT 1 FROM jobs WHERE tipo = 'leggi_email' AND stato IN ('pending', 'running')"
             )
@@ -1565,6 +1570,8 @@ def garantisci_leggi_email():
 def garantisci_controlli_periodici():
     with db_connect() as conn:
         with conn.cursor() as cur:
+            # Stesso lock di garantisci_leggi_email/digest_serale, chiave propria.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('controlli_periodici_schedule'))")
             cur.execute(
                 "SELECT 1 FROM jobs WHERE tipo = 'controlli_periodici' AND stato IN ('pending', 'running')"
             )
@@ -1576,6 +1583,12 @@ def garantisci_controlli_periodici():
 def garantisci_digest_serale():
     with db_connect() as conn:
         with conn.cursor() as cur:
+            # Lock di sessione: il loop di un worker è seriale (non corre con se
+            # stesso), ma due processi sovrapposti (es. redeploy) potrebbero
+            # entrambi trovare "nessun job" e inserirne due con lo stesso
+            # run_after — visto in produzione l'11/9/2026 (STATO.md). Il lock
+            # serializza le chiamate, chiuso a fine transazione.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('digest_serale_schedule'))")
             cur.execute(
                 "SELECT 1 FROM jobs WHERE tipo = 'digest_serale' AND stato IN ('pending', 'running')"
             )
