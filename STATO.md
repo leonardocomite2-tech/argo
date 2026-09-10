@@ -554,6 +554,38 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   quando rientrano in lettura tra un mese: torneranno su Hostinger mentre
   le altre restano su Google, e oggi `IMAP_HOST` è un'unica variabile
   globale in `imap_reader.py`, condivisa da tutte le caselle.
+- **RE02 (mappa Panoptes)** — nessuna consultazione di `soppressioni` in
+  `invia_risposta` prima dell'invio: una risposta approvata può partire
+  verso un indirizzo finito in `soppressioni` dopo l'approvazione, incluso
+  un disiscritto. L'igiene minima del PIANO_OPERATIVO richiede
+  `soppressioni` consultata prima di ogni invio. Backlog del cantiere
+  email, non di Panoptes.
+- **`verifica_mappa.py` (passo 4, 10/9/2026) — limite residuo su env
+  annidato.** Per evitare falsi positivi sull'env, lo script esclude dallo
+  scope di una pipeline le voci `codice` che coincidono ESATTAMENTE con
+  una voce di un condiviso che usa (caso reale: `worker/loop.py:1210-1388`
+  dichiarato identico da `risposte_email`/`dm_instagram_facebook` e da
+  `invia_risposta`). Non copre l'annidamento parziale (`alert_una_volta`
+  749-764 dentro `manutenzione_sistema` 749-913): oggi innocuo perché
+  `alert_una_volta.env` è vuoto, ma se in futuro guadagnasse una env
+  darebbe un falso positivo su `manutenzione_sistema`. Falso positivo
+  tollerabile per policy (mai falso negativo), ma da tenere a mente.
+- **Cantiere Designer, h1 doppio yourservice-it (10/9/2026) — CSS non
+  basta.** `.nt-p1-hero`/`#ntHero` coesistevano sempre nel DOM, nessuna
+  `display:none`. Aggiunto `display:none` reciproco a 861px (verificato
+  senza finestra morta 820-900px), ma il criterio del cantiere è "un solo
+  h1 nel DOM" — `display:none` nasconde, non rimuove il nodo, quindi
+  `pavimento.mjs` misura ancora h1:2. Serve un micro script (rimozione
+  attiva via matchMedia) o unificare le due hero: nessuna delle due scelta,
+  decisione di Leonardo. Dettagli e opzioni con rischi in
+  `modalita/narratours.md` §8.
+- **Cantiere Designer, oro come testo su sfondo chiaro (10/9/2026) — debito
+  di brand, non di bonifica.** `#c49a3c` su crema/bianco è 2,48–2,61:1
+  (WCAG richiede 4,5, o 3 per testo grande — non lo raggiunge nemmeno
+  quello). È un colore di brand (`NarraTours_Modello_Business.md`) usato su
+  tutto il sito: non corretto solo su `yourservice-it` per non creare
+  incoerenza tra pagine. Tre opzioni con rapporti calcolati in
+  `modalita/narratours.md` §8, nessuna scelta.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -614,3 +646,347 @@ Prodotta la prima bozza `knowledge/mappa_sistema.yaml`, generata dal codice (sol
 `DA_VERIFICARE`/SOSPESO per scheda: `poster_host` 0, `risposte_email` 0, `dm_instagram_facebook` 1 (dedup_key su `triggered_at` grezzo, già noto), `manutenzione_sistema` 1 (l'inclusione stessa come scheda a sé, non componente condiviso — segnalata come nota, non bloccante), `lead_gen_host` 2 (pipeline manuale non a eventi; soglie di business non riverificate in questa sessione, fuori scope). Otto componenti in `condivisi` (`valuta_e_rispondi`, `invia_risposta`, `classificatore`, `drafter`, `approvazione_telegram`, `mailer`, `telegram_notifica`, `alert_una_volta`), tutti verificati con la regola del due via cross-import. `db_connect` escluso da `condivisi` per scelta (infrastruttura DB generica, non componente di dominio). `fuori_repo`: `regista_sonora`, `monta_audio`, `export_leadgen_windows` (Windows, `scheda: da_dichiarare`).
 
 Campo `contratti` lasciato vuoto in ogni scheda come da istruzione — proposte riportate solo in chat, da confermare con Leonardo.
+
+## Sessione 9/9/2026 — Cantiere Panoptes-Mappa, passo 2
+
+Corretta `knowledge/mappa_sistema.yaml` (v2) sui punti indicati dal prompt del
+passo 2 e riempito il campo `contratti` (18 contratti totali: 4 poster_host,
+4 risposte_email, 4 dm_instagram_facebook, 4 manutenzione_sistema, 3
+lead_gen_host, 3 su condivisi). Solo la mappa e questo file toccati, nessun
+codice/config, nessun push.
+
+**Contratti con `garantito_da: nessuno` (il risultato più importante di
+questo passo — sono la lista dei test del prossimo cantiere):**
+- **RE02** — "un bounce definitivo entra in soppressioni prima di
+  qualunque altro invio a quell'indirizzo". La scrittura in soppressioni
+  al bounce c'è (`worker/loop.py:392-398`), ma **nessun punto del codice
+  legge `soppressioni` prima di inviare** una risposta automatica
+  (`invia_risposta`) o un poster. La tabella oggi è scritta e mai
+  consultata per bloccare un invio — solo letta in sola lettura dal
+  digest e dall'export lead-gen. Se un indirizzo bounced/disiscritto
+  scrivesse di nuovo, potrebbe ricevere una nuova bozza approvata e
+  spedita senza che nulla se ne accorga. Divergenza più seria trovata in
+  questo passo — riportata anche in DECISIONI APERTE sopra, backlog del
+  cantiere email.
+- **DM02** — "lo stesso DM non riceve mai due risposte". Confermato il
+  sospetto già in mappa dal passo 1: `dedup_key = ghl-dm:{contact_id}:
+  {triggered_at}` dedupe solo repliche esatte dello stesso webhook. Un DM
+  reale rinviato da GHL con un `triggered_at` diverso genera un nuovo
+  `event_id` e ripete l'intera catena (classificazione, bozza,
+  approvazione, invio) da capo.
+
+**Contratti con `garantito_da: eval`** (corretto dopo revisione di
+Leonardo: non sono `nessuno`, sono proprietà di un output LLM che nessuna
+guardia deterministica può verificare — appartengono a una suite di
+valutazione con output atteso, non ai test di contratto):
+- **CD01/CD02** (drafter) — "risponde solo con fatti in conoscenza.md" e
+  "tono lei singolare": istruzioni nel system prompt
+  (`brain/drafter.py:9-31`). Aggiunta una legenda dei valori ammessi per
+  `garantito_da` in cima al file (`legenda_garantito_da`): codice
+  `file:riga` · `test:<path>` · topologia (come MS04) · `eval` ·
+  `nessuno`.
+
+**Proposte del punto C che il codice non conferma come scritte (non
+propriamente "smentite", ma l'assunzione implicita che ci si aspetterebbe
+è falsa)**: le due sopra (RE02, DM02) sono gli unici casi — tutte le altre
+10 proposte del punto C sono risultate vere e hanno un `garantito_da`
+concreto in codice (vedi mappa).
+
+**A1 — scritture non dichiarate, trovate rileggendo ogni scheda:**
+oltre alle tre segnalate nel prompt (poster_host, dm_instagram_facebook,
+risposte_email mancavano `events` in `scrive`), rileggendo scrittura per
+scrittura sono emerse altre correzioni non richieste esplicitamente ma
+reali:
+- `dm_instagram_facebook` scriveva anche in `soppressioni` e `contacts`
+  (via `_valuta_e_rispondi` condiviso, ramo soppressione) — mancavano
+  entrambe.
+- `risposte_email` e `dm_instagram_facebook` **leggevano** anche
+  `approvals` e `messages` dentro `invia_risposta` (condiviso) — mancavano
+  in `tabelle.legge`, non solo in `scrive`.
+- `manutenzione_sistema` legge anche `alert_inviati` (digest_serale conta
+  le caselle IMAP irraggiungibili da lì) — mancava in `legge`.
+- `lead_gen_host` scriveva anche in `events` (risolvi.py, evento
+  `prospect.places`) e leggeva `identities` (risolvi.py,
+  `contatti_matchati`) — mancavano entrambe.
+- `connectors/normalizza.py` e `connectors/fetch.py`: l'evidenza del
+  passo 1 dichiarava già che restano nel campo `codice` di
+  `lead_gen_host`, ma i due file non c'erano davvero nell'elenco —
+  aggiunti.
+- `connectors/llm.py` è importato direttamente sia da `brain/classifier.py`
+  sia da `brain/drafter.py`: era nel `codice` solo di `classificatore`,
+  aggiunto anche a `drafter` (con le stesse env, `ANTHROPIC_API_KEY` e
+  `LLM_TETTO_GIORNALIERO`).
+
+**A3 — caselle IMAP: 6 configurate, non una discrepanza.** `grep -o
+'^MAILBOX_[0-9]*_USER' .env` trova **6** caselle (`MAILBOX_1`…`MAILBOX_6`):
+sono le 4 attive più le 2 in warmup. Le altre 2 di cui parlava Leonardo il
+9/9/2026 non sono ancora in `.env` — previsto passaggio a 8 quando
+entreranno in warmup. Corretto in mappa (era segnato erroneamente come
+DA_VERIFICARE in una prima stesura di questo passo).
+Nota aggiuntiva emersa leggendo `connectors/imap_reader.py`: il filtro
+warmup (`WARMUP_TAG` + pattern strutturale sull'oggetto) lavora sul
+**contenuto** del messaggio, non sull'identità della casella — il codice
+non sa quali `MAILBOX_N` sono "in warmup" nel senso operativo di Leonardo,
+legge tutte le caselle configurate allo stesso modo.
+
+**A6 — worker: una sola replica.** `docker-compose.yml` non dichiara
+`deploy`/repliche per il servizio `worker` (default Compose: un solo
+container). Confermata l'assunzione di `recover_orphaned_jobs`
+(`worker/loop.py:1616-1625`): oggi è corretta, ma non è imposta dal
+codice — solo dalla topologia del compose (contratto MS04, `garantito_da`
+= il compose stesso, non una guardia applicativa).
+
+**Altre correzioni di formato (A2/A5/B1):**
+- `lead_gen_host.stato` → `concluso_roma` con nota (A4).
+- `export_leadgen_windows` rimosso da `fuori_repo` (A5) — non
+  corrispondeva a niente di reale.
+- `env` riportate a regola unica: solo le env lette dal codice proprio
+  della scheda; quelle dei condivisi (mailer, telegram_notifica,
+  approvazione_telegram, classificatore, drafter, invia_risposta) stanno
+  sulle rispettive schede condivise; `PG_PASSWORD` spostata in una nuova
+  sezione `infrastruttura:` in fondo al file. Scoperta non ovvia:
+  `REPLY_SMTP_USER` è letto direttamente dentro `invia_risposta`
+  (condiviso, `worker/loop.py:1317`), non dentro `risposte_email` —
+  spostato di conseguenza.
+- `codice` di `worker/loop.py` portato a range di riga precisi per ogni
+  scheda/condiviso, invece di descrizioni testuali.
+
+**DA_VERIFICARE rimasti** (oltre al numero caselle IMAP sopra):
+- soglie di business di `lead_gen_host` (punteggio export, blocklist
+  placeholder) non riverificate riga per riga oltre a LG01-LG03.
+- se/quando riaprire la replica di `lead_gen_host` su un'altra città resta
+  fuori scope di questo passo (decisione operativa, non tecnica).
+
+## Sessione 10/9/2026 — Cantiere Panoptes-Mappa, passo 4
+
+Costruiti `scripts/panoptes/verifica_mappa.py` e `scripts/panoptes/impatti.py`
+(più `scripts/panoptes/_mappa_lib.py`, funzioni pure condivise, e
+`tests/test_panoptes_lib.py`, stile CASI). Zero LLM, zero dipendenze nuove
+(PyYAML 6.0.1 già presente). Nessun file esistente toccato oltre a questo,
+nessun push.
+
+**`verifica_mappa.py`** — ricalcola dal codice i campi generabili di ogni
+scheda (`tabelle.legge/scrive` via grep di INSERT/UPDATE/DELETE/SELECT sui
+file/range dichiarati in `codice`, `env` via grep di `os.environ`/`os.getenv`,
+`codice` via esistenza file + range dentro la lunghezza reale) e segnala le
+divergenze in entrambe le direzioni (dichiarato-non-trovato = mappa vecchia;
+trovato-non-dichiarato = mappa mente per omissione). Lancio:
+```
+python3 scripts/panoptes/verifica_mappa.py            # tutta la mappa
+python3 scripts/panoptes/verifica_mappa.py --solo NOME # una sola scheda o condiviso
+```
+Exit 0 nessuna divergenza, 1 almeno una divergenza reale (gli "indecidibile"
+non contano), 2 errore dello script (mappa non parsabile/mancante).
+
+**`impatti.py`** — dato un file/riga, un componente condiviso, una tabella o
+il `git diff` corrente, dice quali pipeline dipendono e quali contratti sono
+in gioco, evidenziando quando le righe toccate cadono dentro il `garantito_da`
+di un contratto ("← la modifica tocca la guardia stessa"). Lancio:
+```
+python3 scripts/panoptes/impatti.py --file worker/loop.py:1230
+python3 scripts/panoptes/impatti.py --file worker/loop.py       # intero file
+python3 scripts/panoptes/impatti.py --componente NOME
+python3 scripts/panoptes/impatti.py --tabella NOME
+python3 scripts/panoptes/impatti.py --diff [--esci-1-se-trasversale]
+```
+Exit 0 sempre (è informativo), salvo: 2 se `--componente`/`--tabella` non
+esiste o `--file` punta a un path inesistente sul filesystem (vocabolario
+chiuso, quasi certo refuso — deviazione dal contratto "exit 0 sempre" del
+prompt originale, confermata con Leonardo); 1 con
+`--esci-1-se-trasversale` se il risultato tocca più di una pipeline. Un
+`--file` su un path esistente ma non mappato da nessuna scheda resta exit 0
+con un messaggio esplicito ("la mappa non lo copre, non che sia innocuo") —
+è il segnale che la mappa va estesa, non un "nessun impatto".
+
+**Collaudo eseguito** (i cinque comandi + prova dell'esca, tutti verificati
+leggendo il codice sorgente citato, non dati per buoni):
+- `verifica_mappa.py` **non** esce pulito sulla mappa attuale: 6 divergenze
+  reali trovate, riportate sotto invece che corrette qui (non era nello
+  scope di questo passo, è il prossimo lavoro sulla mappa).
+- `impatti.py --componente approvazione_telegram` → tocca `risposte_email` e
+  `dm_instagram_facebook` (2 pipeline), come atteso.
+- `impatti.py --tabella approvals` → tocca `risposte_email`,
+  `dm_instagram_facebook`, `manutenzione_sistema` (3 schede), come atteso.
+- `impatti.py --file worker/loop.py:1230` → dentro il `garantito_da` di RE01
+  (e di DM04, stessa guardia), segnalato esplicitamente. DM01 correttamente
+  escluso (il suo `garantito_da` 1234-1259 non fa overlap con la riga 1230).
+- `impatti.py --file media/poster.py` → tocca **solo** `poster_host`, nessun
+  altro. Granularità confermata.
+- **Prova dell'esca**: rimossa a mano `messages` da `poster_host.tabelle.scrive`
+  → `verifica_mappa.py --solo poster_host` fallisce con exit 1, nomina
+  `messages` e `worker/loop.py:186`. Ripristinata (diff confrontato byte per
+  byte con l'originale) → torna a exit 0.
+
+**Le 6 divergenze reali trovate sulla mappa attuale** (non toccate in questo
+passo — sono il prossimo lavoro, non un difetto dello script):
+- `risposte_email` e `dm_instagram_facebook` scrivono `alert_inviati` (via
+  `alert_una_volta`, condiviso, `worker/loop.py:755`) ma non lo dichiarano in
+  `tabelle.scrive` — mancava anche a loro, come già successo per
+  `manutenzione_sistema` prima del passo 2.
+- `manutenzione_sistema.codice` dichiara `worker/loop.py:1554-1648`, ma il
+  file ha 1647 righe — range fuori di uno.
+- `approvazione_telegram.codice` (condiviso) dichiara
+  `connectors/telegram.py:35-155`, ma il file ha 154 righe — stesso tipo di
+  errore.
+- `lead_gen_host.tabelle.legge` dichiara `events` e `soppressioni`, ma il
+  grep non li trova: le uniche letture di quelle due tabelle passano da
+  query costruite in una variabile (`query = "..."; cur.execute(query)`,
+  in `scripts/export_prospect.py:92` ed `export_instantly.py:118`), che lo
+  script segnala esplicitamente come `indecidibile` invece di ignorarle in
+  silenzio — la dichiarazione della mappa resta comunque presumibilmente
+  corretta, solo non confermabile da questo grep.
+
+**Correzioni applicate subito dopo (stesso giorno, su richiesta di
+Leonardo)** — le prime tre divergenze sopra erano errori veri della mappa,
+non della verifica, e sono state corrette:
+- `alert_inviati` aggiunta a `tabelle.scrive` di `risposte_email` e
+  `dm_instagram_facebook`, con evidenza che cita il passaggio via
+  `alert_una_volta` (`worker/loop.py:749-764`).
+- `manutenzione_sistema.codice`: `worker/loop.py:1554-1648` → `1554-1647`
+  (il file ne ha 1647). `approvazione_telegram.codice`:
+  `connectors/telegram.py:35-155` → `35-154` (il file ne ha 154).
+- La quarta (events/soppressioni di `lead_gen_host`) **non** era un errore
+  della mappa — verificata a mano al passo 2, è il grep che non arriva.
+  Introdotto un nuovo campo opzionale nella mappa, `verifica.indecidibile`
+  su una scheda, per dichiararlo esplicitamente invece di lasciarlo come
+  falso allarme perenne:
+  ```
+  verifica:
+    indecidibile:
+      - campo: tabelle.legge      # o tabelle.scrive, o env
+        valore: events
+        motivo: >
+          spiegazione libera del perché il grep non può confermarlo,
+          e perché si sa comunque che è vero
+  ```
+  `verifica_mappa.py` lo consulta prima di segnalare un "dichiarato ma non
+  trovato": se il valore è coperto da un'eccezione dichiarata, non conta
+  come divergenza ma resta visibile in output con l'etichetta
+  `[indecidibile atteso, dichiarato]` e il motivo per intero — non sparisce
+  mai in silenzio, per lo stesso principio degli `indecidibile` trovati dal
+  grep. Si applica **solo** alla direzione "dichiarato ma non trovato": la
+  direzione opposta ("trovato ma non dichiarato", quella che la prova
+  dell'esca collauda) non guarda affatto questo campo, quindi non può
+  essere usato per nascondere un problema nuovo — solo per confermare una
+  lettura già verificata a mano.
+  Rilancio dopo le correzioni: `verifica_mappa.py` esce **0**, con 2
+  indecidibili (le query in variabile di `export_prospect.py`/
+  `export_instantly.py`, invariati) e 2 indecidibili attesi/dichiarati
+  (`events`/`soppressioni` di `lead_gen_host`, ora coperti dal nuovo campo).
+  Prova dell'esca ripetuta con lo stesso meccanismo attivo: rimossa di nuovo
+  `messages` da `poster_host.tabelle.scrive` → fallisce ancora con exit 1,
+  nomina `messages` e `worker/loop.py:186` — il nuovo campo non ha
+  disattivato la verifica, perché copre solo l'altra direzione. Ripristinata
+  → torna a 0.
+
+**Limiti incontrati, riportati per intero come richiesto — dicono quanto
+fidarsi della verifica automatica:**
+- **Query costruita in una variabile, non nel corpo di `.execute(...)`**: lo
+  stile prevalente del repo (`worker/loop.py`, `backend/main.py`) scrive il
+  testo SQL direttamente dentro `cur.execute("...")`; alcuni script di
+  `lead_gen_host` (`export_prospect.py`, `export_instantly.py`) costruiscono
+  la query in una variabile con `query = "..."` / `query += "..."` su più
+  righe e poi chiamano `cur.execute(query)`. Il grep non insegue variabili:
+  quando il primo argomento di `.execute(...)` è un identificatore nudo
+  senza virgolette, lo script lo segnala come `indecidibile` (mai come
+  "non trovato" silenzioso) invece di provare a ricostruire la query
+  risalendo alle assegnazioni precedenti — sarebbe più completo ma fragile
+  (riassegnazioni condizionali, variabili riusate). Falso positivo
+  accettato: un `indecidibile` in più da leggere a mano.
+- **`SELECT` senza `FROM`** (es. `SELECT setseed(%s)`, usato per rendere
+  deterministico un campionamento casuale in `estrai_email.py`/
+  `estrai_social.py`): non è indecidibile, è semplicemente una query senza
+  tabella — lo script lo riconosce e lo ignora silenziosamente invece di
+  segnalarlo come incertezza (sarebbe stato rumore puro).
+- **Env dichiarata come pattern** (`MAILBOX_{n}_USER/PASS` in
+  `risposte_email`, l'unico caso nella mappa): non è un nome pulito
+  confrontabile per uguaglianza. Lo script riconosce la sintassi `{n}` e
+  verifica solo che esista almeno una variabile trovata col prefisso
+  dichiarato (`MAILBOX_` seguito da una cifra), senza pretendere di
+  ricostruire i suffissi esatti (`_USER`/`_PASS`) dal testo libero — un
+  refuso nel prefisso stesso non verrebbe preso.
+- **Env "indiretta"**: una funzione wrapper che legge env per conto di
+  un'altra (es. `password_per()` in `imap_reader.py`, che richiama
+  `_mailboxes()` senza leggere env essa stessa) è vista correttamente SOLO
+  perché l'intero file è dichiarato senza range in `codice` — se un domani
+  un helper così vivesse in un file diverso da quello dichiarato, il grep
+  non lo troverebbe. Nessun caso reale oggi, limite strutturale dello
+  strumento (guarda solo i file dichiarati, non segue le chiamate).
+- **Annidamento parziale env pipeline/condiviso**: vedi nota in DECISIONI
+  APERTE sopra (`alert_una_volta` dentro `manutenzione_sistema`).
+- **`garantito_da` con più range sullo stesso file** (solo PH04 nella mappa
+  attuale, forma `file.py:186-193,246-253,294-301`): gestito esplicitamente,
+  altrimenti un `finditer` naive perde tutti i range dopo il primo — un vero
+  falso negativo, non solo un'imprecisione estetica.
+- **`impatti.py` su una query a file intero** (bare, senza riga) tratta
+  l'intero file come range effettivo per il filtro overlap dei contratti:
+  un contratto il cui `garantito_da` cita una riga qualunque di quel file
+  compare come "in gioco", anche se la modifica reale toccherà solo una
+  parte del file. Falso positivo voluto (coerente con "meglio segnalare di
+  troppo"), non un bug.
+
+## Sessione 2026-09-10 — Cantiere Designer, passo 2 Fase B
+
+Bonifica dei blocchi salvati di `yourservice-it` (mai la pagina live — solo
+i file in `pagine/yourservice-it/`, incolla in GHL su pagina di prova resta
+di Leonardo, Fase C). Testo di fedeltà N.1 confermato prima di intervenire:
+ricomposizione locale degli 8 blocchi (`pagine/yourservice-it/_ricomposizione/`,
+script `costruisci.py`) via `pavimento.mjs`, riproduce h1:2, crash React
+(`useTweaks is not defined`), 404-equivalente su `tweaks-panel.jsx` — commit
+`1c387f0`.
+
+**Fatto:**
+- **Sistema React morto rimosso** da `blocco_body_mobile_per_host.html`: 3
+  script CDN (react/react-dom/babel da unpkg.com), i contenitori
+  `#hero-root`/`#tweaks-root`, l'intero blocco `<script type="text/babel">`
+  con le 9 varianti mai visibili e i marcatori EDITMODE, più la regola CSS
+  `#hero-root{...}` rimasta orfana. Verificato: errore pagina
+  `useTweaks is not defined` sparito, risorsa `tweaks-panel.jsx` non più
+  richiesta. Peso locale sceso da 6383 KB/287 richieste a 5483 KB/270
+  richieste (misura solo indicativa, non è l'intera pagina — verifica vera
+  su `/preview/` in Fase C, per regola di modalità).
+- **Contrasto footer corretto**: alpha 0,25→0,5 (`.nt-footer-copy`,
+  `.nt-footer-legal a`), 0,42→0,5 (`.nt-footer-tagline`), 0,35→0,5
+  (`.nt-footer-col-title`, trovata dal pavimento durante la verifica, non
+  nella ricognizione iniziale) — tutte sullo stesso colore dichiarato, solo
+  più opache. Verificato con axe: zero violazioni residue sul footer.
+
+**Fermato, decisione di Leonardo (dettagli e opzioni in
+`modalita/narratours.md` §8, replicati anche in DECISIONI APERTE sopra):**
+- **H1 doppio**: il `display:none` reciproco a 861px (applicato, verificato
+  senza finestra morta 820-900px) non basta — il criterio "un solo h1 nel
+  DOM" non è soddisfatto da un CSS che nasconde ma non rimuove il nodo.
+  Serve un micro script o unificare le due hero.
+- **Oro come testo su sfondo chiaro**: fuori perimetro, è un debito di
+  brand (rapporti calcolati, tre opzioni, nessuna scelta).
+
+**Trovato, non nel perimetro di questa bonifica:**
+- CSS orfano preesistente e indipendente dal sistema React
+  (`.hero`/`.hero-card`/`.hero-logo`/`.hero-badge`/`.hero-cards`/
+  `.calc-note` in `blocco_body_mobile_per_host.html`, nessun markup
+  corrispondente) — candidato per un prossimo micro-intervento, basso
+  rischio.
+- Id duplicato (`inline-bfJq2874KQlSBFYmxq87`) tra il form GHL desktop
+  (`blocco_03.html`) e mobile (`blocco_body_mobile_per_host.html`) — non
+  isolato con certezza come causa di un errore console specifico (rumore
+  Cloudflare Turnstile nell'ambiente di test, vedi sotto).
+- Numeri Vimeo corretti in modalità: 6 iframe su 3 video distinti
+  (duplicati desktop+mobile), non 7 come nell'orientamento del cantiere.
+
+**Limite di piattaforma scoperto (documentato in `modalita/narratours.md`
+§8):** in questo ambiente di sviluppo (non il VPS di produzione), il widget
+GTranslate e/o il form GHL innescano una sfida Cloudflare Turnstile che
+blocca indefinitamente l'evento `load` di Playwright — confermato sia sulla
+pagina live sia sulla ricomposizione locale. `blocco_gtranslate.html`
+escluso dalla ricomposizione per completare i test (la sua posizione nel
+builder era comunque già "DA CONFERMARE"). Se ricapita dal VPS reale, non
+sospettare i blocchi prima di aver controllato lo stesso meccanismo.
+
+File toccati: `pagine/yourservice-it/blocco_body_mobile_per_host.html`,
+`blocco_01.html`, `blocco_hero_mobile_v3.html`, `blocco_footer.html`;
+nuova cartella `pagine/yourservice-it/_ricomposizione/`;
+`modalita/narratours.md` (§8 nuova). Commit locali, niente push. Questa
+sezione di STATO.md è scritta ma **non committata**: il file aveva già
+modifiche non committate del cantiere Panoptes-Mappa (`git status` a
+inizio sessione) che non andavano mescolate nel commit Designer — segnalato
+a Leonardo, resta nel working tree.
