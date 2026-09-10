@@ -11,3 +11,5 @@ timestamp,script,target,rss_chromium_max_mib,ram_available_min_mib,peso_kb,esito
 2026-09-10T11:05:17.073Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1428,1095,5347,FAIL,63.5
 2026-09-10T11:23:02.090Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1441,1088,5511,FAIL,67.0
 2026-09-10T11:24:25.893Z,cattura.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1592,1233,n.d.,n.a.,76.7
+2026-09-10T13:00:36.790Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1404,1109,5387,FAIL,65.4
+2026-09-10T13:02:59.413Z,pavimento.mjs,/root/argo/pagine/yourservice-it/_ricomposizione/ricomposizione.html,1440,1059,5288,FAIL,62.6

@@ -70,8 +70,15 @@ GoHighLevel. Ricognizione manuale nel builder (09/09/2026).
 - **Blocchi di codice**: un solo elemento "Code" (categoria Custom), editor "Custom
   Javascript/HTML". Nessun limite dichiarato. **Non viene eseguito nel canvas del
   builder**: serve "Preview Custom Codes" o la pagina di anteprima.
-- **Head/footer per pagina**: builder > icona `</>` "Tracking Code" > tab "Header Tracking"
-  / "Footer Tracking".
+- **Header/Footer Tracking — GLOBALI, non per pagina (confermato da Leonardo, 10/09/2026).**
+  L'ingresso nel builder è `</>` "Tracking Code" > tab "Header Tracking" / "Footer Tracking",
+  un'icona che compare per-pagina — ma il contenuto che ci vive è **condiviso a livello sito**:
+  stesso Header e stesso Footer su tutte e 6 le pagine misurate (evidenza indipendente già
+  in baseline: `document.title` risultava "NarraTours — Header" su tutte e 6, non solo su
+  `yourservice-it` — comportamento che un blocco per-pagina non spiegherebbe). Confermato
+  anche nel commento di testa di `pagine/yourservice-it/blocco_header.html` e
+  `blocco_footer.html`. **Conseguenza pratica**: un blocco globale non va mai incollato su
+  una singola pagina di prova — modificarlo tocca tutte le pagine live. Vedi regola 6 sotto.
 
 **Breakpoint**: il builder distingue Desktop / Tablet / Mobile ma non dichiara le larghezze
 in px — non essendo dichiarate dalla piattaforma, restano validi quelli misurati nel CSS
@@ -106,12 +113,24 @@ verifica vera si fa sempre sull'URL di anteprima, mai solo sul render locale.
    equivale al peso dell'intera pagina — la verifica finale sul budget (§3) va sempre fatta
    sull'URL `/preview/`, non sulla ricostruzione locale (vedi nota di conflitto in fondo).
 4. **Pagine di prova**: si creano come pagine nuove non linkate, con
-   `<meta name="robots" content="noindex">` inserito a mano nel Header Tracking della
-   pagina. [DA VERIFICARE al primo uso: che il meta compaia davvero nell'head servito — il
-   ciclo visivo lo controlla.]
+   `<meta name="robots" content="noindex">` **[CONTRADDETTO, 10/09/2026 — non seguire alla
+   lettera finché non verificato]** — questa regola diceva di inserirlo "a mano nel Header
+   Tracking della pagina", ma la scoperta di oggi (sopra) è che l'Header Tracking è
+   **condiviso a livello sito**: se è davvero lo stesso campo su tutte le pagine, un
+   `noindex` messo lì deindicizzerebbe l'intero sito, non solo la pagina di prova. Non
+   risolto qui — è una decisione di Leonardo su come creare la pagina di prova in Fase C
+   (esiste un campo SEO/robots per-pagina separato nel builder? Da verificare prima di usare
+   questa regola, non da assumere).
 5. **Niente modifiche al sito live in questo cantiere**: ogni lavoro avviene su pagina di
    prova o su bozza salvata e mai pubblicata. Pubblicare è sempre e solo un'azione manuale
    di Leonardo, fuori dal cantiere.
+6. **Locale o globale, dichiaralo prima di ogni consegna.** Per ogni blocco toccato,
+   dichiarare esplicitamente se è locale alla pagina (entra nella pagina di prova) o globale
+   /condiviso a livello sito (mai in una pagina di prova — una modifica lì tocca tutte le
+   pagine live, serve una decisione esplicita a parte). Non dedurlo dal nome del file o
+   dall'aspetto: verificarlo (commento nel blocco, conferma diretta, o evidenza indipendente
+   come nel caso Header/Footer sopra). Regola nata da un errore quasi fatto (10/09/2026): le
+   istruzioni d'incolla di una consegna includevano il footer, poi scoperto globale.
 
 ## 3. Budget
 
@@ -238,6 +257,17 @@ pagina — cambiarlo qui soltanto creerebbe incoerenza tra pagine. Opzioni per q
   (c) rivedere dove il brand usa sfondi chiari, che nella palette dichiarata sono l'eccezione
       rispetto allo sfondo scuro dominante.
 
+**Contrasto footer — corretto nel repo, NON incollato: è un blocco globale
+(10/09/2026).** `blocco_footer.html` è l'Header/Footer Tracking, condiviso a livello sito
+(vedi §2 sopra) — modificarlo tocca tutte le pagine live, non solo `yourservice-it`. Il fix
+di contrasto (alpha 0,25/0,35/0,42 → 0,5 su `.nt-footer-copy`/`.nt-footer-legal a`/
+`.nt-footer-tagline`/`.nt-footer-col-title`, stesso colore dichiarato, nessuna implicazione
+di brand) **resta committato nel repo** ma non entra nella pagina di prova di Fase C — è una
+modifica globale, richiede una decisione esplicita di Leonardo su quando pubblicarla (tocca
+il footer di tutte e 6 le pagine insieme). Rapporti di contrasto già calcolati e verificati
+(§ sopra nel commit `93eb9ec`): 2,10:1→5,12:1 (copy/legal), 3,91:1→5,12:1 (tagline),
+3,05:1→5,12:1 (col-title) — tutti sotto la soglia AA 4,5:1 prima del fix.
+
 **H1 doppio — risolto correggendo il criterio del pavimento, non la pagina (10/09/2026).**
 `.nt-p1-hero` (desktop) e `#ntHero` (mobile v3) coesistevano sempre nel DOM; ho aggiunto
 `display:none` reciproco a 861px (soglia scelta perché già usata in `blocco_01.html` per il
@@ -337,6 +367,35 @@ Probabilmente una hero più vecchia, precedente sia al tentativo React sia all'h
 Non rimossa in questa bonifica (non era nel perimetro dichiarato nel piano); candidato per un
 prossimo micro-intervento di pulizia, a basso rischio (nessun markup la referenzia, quindi
 nessun impatto visivo atteso).
+
+## 10. Fedeltà locale/live — fattori di divergenza noti (10/09/2026)
+
+Emersi confrontando ripetutamente ricomposizione locale e pagina live durante la Fase B.
+Servono a leggere correttamente il test di fedeltà N.2 (Fase C, sull'anteprima GHL): una
+differenza tra locale e anteprima **non è automaticamente un bug della bonifica** se rientra
+in uno di questi fattori noti — ma nemmeno va scartata senza controllare quale dei due casi
+sia.
+
+- **CSS di sezione GHL assente in locale.** Il meccanismo che su GHL nasconde/mostra intere
+  sezioni per viewport (es. la hero desktop vs mobile prima del fix di questa Fase B) vive a
+  livello di builder/piattaforma, non nei blocchi Code — non è nel repo, non riproducibile in
+  locale. Dopo questa bonifica i blocchi hero hanno il proprio `display:none` esplicito quindi
+  non dipendono più da questo meccanismo, ma altre sezioni duplicate desktop/mobile (vedi
+  "Duplicazione desktop/mobile del markup" sopra) sì.
+- **Cloudflare Turnstile — rumore non deterministico.** GTranslate e/o il form GHL innescano
+  una sfida Turnstile che in questo ambiente di sviluppo genera un numero variabile di
+  richieste/errori console da un run all'altro (osservato: peso stabile entro poche decine di
+  KB, ma "richieste totali" ed "errori console" oscillano di alcune unità run su run anche a
+  parità di codice — vedi §8 sopra e la tabella di confronto omogeneo nel report di consegna).
+  Non usare un singolo run come prova di regressione: guardare il trend su più run, o il
+  peso in KB che è il numero stabile.
+- **Tracking code globale non disponibile nel repo.** Il CSS/JS del Head/Body tracking code
+  di GHL (Settings > Tracking & scripts) non è salvato da nessuna parte nel repo — solo i
+  suoi effetti misurati (colori, font, breakpoint) in `baseline_narratours.md`. La
+  ricomposizione locale non lo include: funziona perché i blocchi sono scritti per essere
+  autosufficienti (variabili CSS scoped alla sezione, non su `:root` — verificato in
+  `blocco_hero_mobile_v3.html`), ma un font o una regola che dipendesse davvero dal tracking
+  code globale non comparirebbe in locale.
 
 ---
 
