@@ -76,17 +76,38 @@ async function run(input, { allowedDomains, budgetKb }) {
     }
     const contrastViolations = violationDetails.filter((v) => v.id.includes('color-contrast'));
 
-    // Gerarchia titoli
-    const headings = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((el) => ({
+    // Gerarchia titoli — conta gli h1 ESPOSTI (accessibility tree), non i nodi grezzi
+    // del DOM. Un h1 dietro display:none/visibility:hidden/[hidden]/aria-hidden non
+    // è visto da uno screen reader e non è un problema di accessibilità o SEO: due
+    // h1 nel sorgente HTML sono validi in HTML5 finché uno solo è esposto per volta
+    // (caso reale: varianti desktop/mobile con lo stesso ruolo, una sola visibile
+    // per viewport). Contare i nodi grezzi era un proxy che misurava la cosa
+    // sbagliata — vedi modalita/narratours.md §pavimento per il caso che l'ha
+    // scoperto (10/09/2026, yourservice-it).
+    const headings = await page.evaluate(() => {
+      function esposto(el) {
+        if (typeof el.checkVisibility === 'function') {
+          if (!el.checkVisibility({ checkVisibilityCSS: true })) return false;
+        } else {
+          const s = getComputedStyle(el);
+          if (s.display === 'none' || s.visibility === 'hidden') return false;
+        }
+        if (el.closest('[hidden]')) return false;
+        if (el.closest('[aria-hidden="true"]')) return false;
+        return true;
+      }
+      return Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((el) => ({
         level: Number(el.tagName[1]),
         testo: el.textContent.trim().slice(0, 80),
-      })),
-    );
-    const h1Count = headings.filter((h) => h.level === 1).length;
+        esposto: esposto(el),
+      }));
+    });
+    const headingsEsposti = headings.filter((h) => h.esposto);
+    const h1Count = headingsEsposti.filter((h) => h.level === 1).length;
+    const h1CountTotaleNelDom = headings.filter((h) => h.level === 1).length;
     let headingLevelSkipped = false;
     let prevLevel = 0;
-    for (const h of headings) {
+    for (const h of headingsEsposti) {
       if (prevLevel !== 0 && h.level > prevLevel + 1) headingLevelSkipped = true;
       prevLevel = h.level;
     }
@@ -163,6 +184,11 @@ async function run(input, { allowedDomains, budgetKb }) {
         titoli: {
           esito: checks.titoli ? 'PASS' : 'FAIL',
           numeroH1: h1Count,
+          numeroH1TotaliNelDom: h1CountTotaleNelDom,
+          nota:
+            h1CountTotaleNelDom > h1Count
+              ? `${h1CountTotaleNelDom - h1Count} h1 presenti nel DOM ma non esposti (display:none/visibility:hidden/[hidden]/aria-hidden) — non contano ai fini del pavimento, informativo.`
+              : null,
           livelloSaltato: headingLevelSkipped,
           elenco: headings,
         },
@@ -179,7 +205,8 @@ function stampaReport(report) {
   console.log(`Peso:        ${report.dettagli.peso.esito}  (${report.dettagli.peso.kbTotali} KB totali, ${report.dettagli.peso.numeroRichieste} richieste, ${report.dettagli.peso.kbImmagini} KB immagini, primo render ${report.dettagli.peso.tempoPrimoRenderMs} ms)`);
   console.log(`Breakpoint:  ${report.dettagli.breakpoint.esito}  (${report.dettagli.breakpoint.risultati.filter((b) => b.overflow).length} overflow su ${report.dettagli.breakpoint.risultati.length} larghezze)`);
   console.log(`Console:     ${report.dettagli.console.esito}  (${report.dettagli.console.erroriConsole.length} errori console, ${report.dettagli.console.erroriPagina.length} errori pagina, ${report.dettagli.console.risorseFallite.length} risorse fallite)`);
-  console.log(`Titoli:      ${report.dettagli.titoli.esito}  (h1: ${report.dettagli.titoli.numeroH1}, livello saltato: ${report.dettagli.titoli.livelloSaltato})`);
+  const notaTitoli = report.dettagli.titoli.nota ? ` — ${report.dettagli.titoli.nota}` : '';
+  console.log(`Titoli:      ${report.dettagli.titoli.esito}  (h1 esposti: ${report.dettagli.titoli.numeroH1}, h1 nel DOM: ${report.dettagli.titoli.numeroH1TotaliNelDom}, livello saltato: ${report.dettagli.titoli.livelloSaltato})${notaTitoli}`);
 }
 
 async function main() {

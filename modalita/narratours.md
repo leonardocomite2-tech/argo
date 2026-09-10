@@ -238,35 +238,41 @@ pagina — cambiarlo qui soltanto creerebbe incoerenza tra pagine. Opzioni per q
   (c) rivedere dove il brand usa sfondi chiari, che nella palette dichiarata sono l'eccezione
       rispetto allo sfondo scuro dominante.
 
-**STOP aperto — h1 doppio, criterio "nel DOM" non soddisfatto da CSS.** `.nt-p1-hero`
-(desktop) e `#ntHero` (mobile v3) coesistevano sempre nel DOM, nessuna delle due aveva
-`display:none` → pavimento misurava "h1: 2". Ho aggiunto `display:none` reciproco a 861px
-(soglia scelta perché già usata in `blocco_01.html` per il proprio collasso di layout; **non
-è la soglia dichiarata dal builder GHL, che non la dichiara** — verificata con un test dedicato
-di larghezze 820-900px, nessuna finestra morta/doppia: PASS). Ma **`display:none` non risolve
-il criterio "un solo h1 nel DOM"**: l'elemento resta nel DOM (solo nascosto a video/screen
-reader), e `pavimento.mjs` conta gli h1 con `querySelectorAll` senza filtrare per visibilità —
-dopo il fix, il pavimento misura ancora "h1: 2". CSS non può rimuovere nodi dal DOM. Il fix
-`display:none` resta comunque applicato (migliora la situazione precedente: l'hero non visibile
-ora è correttamente esclusa dall'albero di accessibilità, prima non lo era) ma non chiude il
-punto. Per chiuderlo davvero servono, alternativamente:
-  (a) un micro script che rimuove attivamente dal DOM l'hero non visibile (in base a
-      `matchMedia`), con il CSS `display:none` come fallback visivo sempre corretto anche se
-      lo script non gira — rischio: va gestito il resize (devtools/QA ridimensionano la
-      finestra, un utente reale quasi mai) e un possibile flash-of-both-visible se lo script
-      non è il primo a girare;
-  (b) unificare le due hero in un unico markup responsive, senza contenuto duplicato — pulito
-      alla radice, ma invasivo: riscrittura sostanziale di uno o entrambi i blocchi, rischio più
-      alto di rompere l'identità visiva "invariata" richiesta dal cantiere.
-Nessuna delle due implementata — decisione di Leonardo, con costi/rischi sopra.
+**H1 doppio — risolto correggendo il criterio del pavimento, non la pagina (10/09/2026).**
+`.nt-p1-hero` (desktop) e `#ntHero` (mobile v3) coesistevano sempre nel DOM; ho aggiunto
+`display:none` reciproco a 861px (soglia scelta perché già usata in `blocco_01.html` per il
+proprio collasso di layout — **non è la soglia dichiarata dal builder GHL, che non la
+dichiara** — verificata con un test dedicato di larghezze 820-900px, nessuna finestra
+morta/doppia: PASS). A quel punto `pavimento.mjs` continuava a misurare "h1: 2": contava i
+nodi grezzi del DOM, non l'albero di accessibilità. **Decisione di Leonardo: il criterio era
+sbagliato, non la pagina** — due h1 nel sorgente HTML sono validi in HTML5 finché uno solo è
+esposto per viewport; un h1 dietro `display:none` esce dall'albero di accessibilità, uno
+screen reader ne vede uno solo. Uno script che rimuovesse attivamente il nodo dal DOM sarebbe
+stato più fragile (su GHL "Optimize JavaScript" è ON, i custom code sono lazy-loaded — uno
+script così girerebbe tardi, flash quasi garantito) per un problema che non esiste davvero.
+**Vedi §9 sotto** per la correzione allo strumento e il risultato: ora `pavimento.mjs` misura
+1 h1 esposto su `yourservice-it` bonificato — **chiuso**.
 
-**Numeri Vimeo/form reali (non "7").** Letti nel codice: **6 iframe Vimeo su 3 video
-distinti**, ciascuno duplicato desktop+mobile (mai rimosso dal DOM, primo candidato per il
-prossimo intervento sul peso mobile) — non 7. Più **2 iframe form GHL con lo stesso `id`**
-(`inline-bfJq2874KQlSBFYmxq87`) duplicato tra `blocco_03.html` (desktop) e
-`blocco_body_mobile_per_host.html` (mobile) — id duplicato nel DOM quando entrambi coesistono,
-non ancora verificato se causa un errore console proprio (i test in questa bonifica non l'hanno
-isolato con certezza, vedi limite Turnstile sotto).
+Resta aperta, come debito separato, la causa strutturale che ha prodotto il doppio h1: vedi
+"Duplicazione desktop/mobile del markup" sotto — lì anche i numeri Vimeo/form corretti.
+
+**Duplicazione desktop/mobile del markup — debito unico (10/09/2026).** Tre sintomi diversi,
+stessa causa: il markup desktop e quello mobile di `yourservice-it` sono duplicati e mai
+rimossi dal DOM, solo nascosti per viewport (nessun blocco usava `display:none` prima di
+questa bonifica). Sintomi misurati:
+  - **H1 doppio** (sopra) — chiuso lato criterio pavimento, ma la duplicazione fisica del
+    markup resta (due `<h1>` nel sorgente, uno sempre `display:none`).
+  - **6 iframe Vimeo su 3 video distinti** (non 7, correzione ai numeri dell'orientamento del
+    cantiere), ciascuno duplicato desktop+mobile — mai rimosso dal DOM, quindi scaricato due
+    volte anche se un lato è collassato.
+  - **2 iframe form GHL con lo stesso `id`** (`inline-bfJq2874KQlSBFYmxq87`) duplicato tra
+    `blocco_03.html` (desktop) e `blocco_body_mobile_per_host.html` (mobile) — id duplicato
+    nel DOM quando entrambi coesistono; non isolato con certezza come causa di un errore
+    console specifico (rumore Cloudflare Turnstile nell'ambiente di test, vedi sotto).
+Il rimedio è lo stesso per tutti e tre: unificare in un markup responsive unico invece di due
+sezioni parallele nascoste per viewport. **Candidato principale del prossimo intervento**, non
+di questa Fase B (che si è fermata al criterio del pavimento per l'h1, senza toccare la
+struttura).
 
 **Limite di piattaforma — Cloudflare Turnstile blocca l'evento `load` di Playwright.** La
 pagina reale (e la ricomposizione locale) caricano un widget GTranslate (`cdn.gtranslate.net`)
@@ -287,6 +293,40 @@ pendenti verso `challenges.cloudflare.com`) prima di sospettare i blocchi.** Anc
 pavimento (1 errore pagina su una run) è verosimilmente riconducibile a questa stessa
 interazione Turnstile/axe-core, non a codice nei blocchi (tutte le chiamate `querySelector`
 nei blocchi sono verificate con guardia `if (...)` prima dell'uso).
+
+## 9. Correzione a `pavimento.mjs` — criterio h1 (10/09/2026)
+
+Lo script (`.claude/skills/designer/scripts/pavimento.mjs`) contava gli `<h1>` con
+`document.querySelectorAll('h1')`: un conteggio dei nodi grezzi del DOM, senza filtrare per
+visibilità. Il caso yourservice-it (§8 sopra) ha dimostrato che è il criterio sbagliato: due
+`<h1>` nel sorgente sono markup HTML5 valido finché uno solo è esposto all'utente/screen
+reader per volta (caso reale: varianti desktop/mobile con lo stesso ruolo semantico, mai
+entrambe visibili insieme) — non è un problema di accessibilità né di SEO. Contare i nodi
+grezzi misurava una cosa diversa da quella che il pavimento vuole verificare.
+
+**Cosa misurava prima**: `h1Count` = numero di `<h1>` presenti nel DOM, qualunque fosse il
+loro stato di visibilità. Un `<h1>` dietro `display:none` contava comunque come "secondo h1",
+facendo fallire il check `titoli` anche quando un solo h1 era davvero percepibile.
+
+**Cosa misura ora**: `h1Count` = numero di `<h1>` **esposti** (non nascosti da
+`display:none`/`visibility:hidden`/attributo `[hidden]`/un antenato con `aria-hidden="true"`,
+verificato con `Element.checkVisibility({checkVisibilityCSS:true})` più un controllo esplicito
+su `[hidden]`/`[aria-hidden="true"]` negli antenati). Il conteggio grezzo nel DOM resta
+disponibile nel report (`numeroH1TotaliNelDom`) come nota informativa quando differisce da
+quello esposto — non fa fallire nulla da solo.
+
+**Perché**: coerente con come uno screen reader/axe-core leggono davvero la pagina — un
+elemento non esposto all'albero di accessibilità non esiste ai fini di "un solo elemento
+dominante per pagina". Il criterio "nel DOM" era un proxy comodo da misurare ma misurava la
+cosa sbagliata.
+
+**Nota per confrontare con la baseline**: la baseline del passo 1
+(`baseline_narratours.md`, misurata 09/09/2026) riporta "h1: 2" su **tutte e 6** le pagine
+col criterio VECCHIO (conteggio grezzo). Non è detto che tutte falliscano ancora col criterio
+nuovo — su `yourservice-it` bonificato, col criterio nuovo, il pavimento misura **1 h1
+esposto** (chiuso). Le 4 pagine tour e la pagina bundle non sono state rimisurate in questo
+passo: il loro "h1: 2" in baseline va riletto con questa nota, non preso per buono senza
+riverificare.
 
 **CSS orfano trovato, non rimosso (fuori dal perimetro React specifico).** Dentro
 `blocco_body_mobile_per_host.html`, oltre a `#hero-root{...}` (rimosso, orfano diretto della
