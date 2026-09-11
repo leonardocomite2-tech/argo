@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """python3 scripts/argo/orienta_webhook.py
 
-Consumer host-side dei job 'genera_orienta', 'genera_instrada' e (passo 8)
-'genera_avviso' — nome file invariato apposta: il crontab di Leonardo lancia
-già questo script ogni minuto, rinominarlo lo romperebbe in silenzio. I
-primi due sono accodati da backend/main.py (POST /webhook/argo) quando
-Leonardo scrive /orienta o /instrada al bot Argo da Telegram; il terzo è
+Consumer host-side dei job 'genera_orienta', 'genera_instrada', (passo 8)
+'genera_avviso' e (cantiere Argo — il ponte, passo 1) 'genera_brief' — nome
+file invariato apposta: il crontab di Leonardo lancia già questo script
+ogni minuto, rinominarlo lo romperebbe in silenzio. I primi due e il quarto
+sono accodati da backend/main.py (POST /webhook/argo) quando Leonardo
+scrive /orienta, /instrada o /brief al bot Argo da Telegram; il terzo è
 accodato una volta al giorno da worker/loop.py:garantisci_genera_avviso()
 (nessuna riga di crontab nuova). Lanciato da cron, non da Docker: argo/voce.py
 passa da argo/stato.py, che deve girare da host (docker exec + STATO.md +
 git sul filesystem del repo — vedi il docstring di argo/stato.py).
-worker/loop.py esclude esplicitamente i tre tipi dal proprio claim_job() per
-questo motivo.
+worker/loop.py esclude esplicitamente i quattro tipi dal proprio claim_job()
+per questo motivo.
 
-Ad ogni lancio reclama al più un job pending (il più vecchio dei tre tipi,
-FIFO), stesso idiom atomico di worker/loop.py:claim_job (UPDATE ...
+Ad ogni lancio reclama al più un job pending (il più vecchio dei quattro
+tipi, FIFO), stesso idiom atomico di worker/loop.py:claim_job (UPDATE ...
 WHERE stato='pending' RETURNING id), ma via `docker exec argo-db-1 psql`
 invece di psycopg diretto — stessa convenzione di argo/stato.py, dato che
 gira da host come quel modulo. Selezione multi-colonna (id, tipo, payload)
@@ -26,6 +27,11 @@ terminale per quella richiesta, Leonardo la ripete con un altro comando (per
 genera_avviso non c'è nulla da ripetere a mano: la schedulazione lo
 riaccoderà da sé, vedi worker/loop.py:garantisci_genera_avviso). Mai un
 fallimento silenzioso: un errore avvisa comunque su Telegram.
+
+Invio via connectors.telegram.invia_lungo(), non notifica() diretta: un
+brief supera spesso i 4096 caratteri di un singolo messaggio Telegram (gli
+altri tre modi restano sempre entro un messaggio, quindi per loro il
+comportamento non cambia).
 
 Unico punto che scrive, oltre a `jobs`: per genera_avviso, PRIMA dell'invio
 (mai dopo — stesso ordine "scritto prima dell'invio" del resto del repo),
@@ -53,7 +59,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("argo.orienta_webhook")
 
 CONTAINER_DB = "argo-db-1"
-TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso")
+TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso", "genera_brief")
 
 
 def _psql(sql, timeout=15):
@@ -122,6 +128,7 @@ ERRORE_RIPETI = {
     "genera_orienta": "riprova con /orienta",
     "genera_instrada": "riprova con /instrada",
     "genera_avviso": "controllo al prossimo giro",
+    "genera_brief": "riprova con /brief <nome cantiere>",
 }
 
 
@@ -131,20 +138,22 @@ def main():
         return
     job_id, tipo, payload = reclamato
 
-    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso
-    from connectors.telegram import notifica
+    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief
+    from connectors.telegram import invia_lungo
 
     try:
         if tipo == "genera_orienta":
             testo, marcatori = genera_risposta(), None
         elif tipo == "genera_instrada":
             testo, marcatori = genera_risposta_instrada(payload["minuti"], payload["contesto"]), None
+        elif tipo == "genera_brief":
+            testo, marcatori = genera_brief(payload["nome"]), None
         else:
             testo, marcatori = genera_avviso()
     except Exception as e:
         logger.exception("orienta_webhook: job %s (%s) fallito", job_id, tipo)
         _segna_failed(job_id, f"{type(e).__name__}: {e}")
-        notifica(
+        invia_lungo(
             f"Errore nel generare la risposta — {ERRORE_RIPETI[tipo]}.",
             token=os.environ["ARGO_VOCE_BOT_TOKEN"],
         )
@@ -160,7 +169,7 @@ def main():
     if marcatori:
         _marca_avviso_inviato(marcatori)
 
-    notifica(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+    invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)
 
 

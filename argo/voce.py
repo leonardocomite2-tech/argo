@@ -1,4 +1,5 @@
-"""Argo — la voce: i tre modi (orienta, instrada, avvisa).
+"""Argo — la voce: i tre modi (orienta, instrada, avvisa) più il modo
+"brief" del cantiere Argo — il ponte.
 
 Orienta e instrada rispondono a Leonardo: raccolgono lo stato con le sei
 funzioni di sola lettura di `argo/stato.py`, lo passano a un LLM insieme ai
@@ -6,7 +7,13 @@ file identità (SOUL/IDENTITY/USER, letti dai file — non duplicati qui
 dentro), e ritornano il testo da mandare. Avvisa è l'unico modo in cui è
 Argo a scrivere per primo (digest serale) — la selezione di COSA dire è
 deterministica in Python (vedi _filtra_candidati_avviso), l'LLM redige solo
-il testo di ciò che è già stato deciso di dire.
+il testo di ciò che è già stato deciso di dire. Brief non risponde a
+Leonardo: prepara un testo per Claude Code (vedi genera_brief) — risolve
+il nome del cantiere in modo deterministico (mai indovina), e affida
+all'LLM solo le parti che vanno sintetizzate dal contesto raccolto; lo
+scheletro fisso del brief (titolo, "Plan mode obbligatorio", Vincoli
+standard, la riga su chi ha ragione in caso di conflitto) è composto qui
+in Python, mai chiesto al modello.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
@@ -23,7 +30,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import argo.stato as stato
-from connectors.llm import chiama
+from connectors.llm import LLMErrore, TettoLLMRaggiunto, chiama, estrai_json
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = REPO_ROOT / "knowledge" / "argo"
@@ -48,6 +55,32 @@ SEVERITA_GRAVE = "grave"
 LIMITE_VOCI_AVVISO = 5
 PREFISSO_ALERT_APPROVAZIONE = "avvisa_appr"
 PREFISSO_ALERT_JOB = "avvisa_job"
+
+# Modo "brief" (cantiere Argo — il ponte, passo 1). Un brief ha tre campi
+# liberi (Contesto/Obiettivo/Criterio di chiusura), non le 2-3 righe di
+# orienta/instrada/avvisa: MAX_TOKENS_RISPOSTA=200 non basterebbe. 1500
+# token (~6000 caratteri per i tre campi combinati) è un margine ampio
+# sopra la lunghezza reale osservata nei brief scritti a mano da Leonardo,
+# a un costo comunque trascurabile su Haiku e dentro LLM_TETTO_GIORNALIERO
+# invariato.
+MAX_TOKENS_BRIEF = 1500
+N_SESSIONI_BRIEF = 3
+LIMITE_SESSIONI_CANTIERE_CARATTERI = 3000
+LIMITE_DOCUMENTO_CANTIERE_CARATTERI = 3000
+
+# Documento di knowledge per cantiere: dizionario esplicito (parola chiave
+# nel nome normalizzato del cantiere -> path), non ricerca per somiglianza
+# di nome file — i file in knowledge/ non seguono una convenzione unica
+# (CANTIERE_Designer.md, mappa_sistema.yaml, knowledge/argo/*.md), e
+# indovinare rischierebbe di agganciare il documento sbagliato in un
+# contesto dove l'anti-invenzione è il vincolo più forte. mappa_sistema.yaml
+# escluso apposta per Panoptes: è l'artefatto meccanico del cantiere, non
+# un documento narrativo pensato per dare contesto a un brief. Estendere a
+# mano quando nasce un nuovo documento di cantiere.
+DOCUMENTI_CANTIERE = {
+    "designer": REPO_ROOT / "knowledge" / "CANTIERE_Designer.md",
+    "argo": KNOWLEDGE_DIR / "IDENTITY.md",
+}
 
 ISTRUZIONI_ORIENTA = """
 ## Modo "orienta" — istruzioni per questa risposta
@@ -166,6 +199,68 @@ regole, senza eccezioni:
 
 DOMANDA_AVVISA = "Scrivi l'avviso di stasera con le voci selezionate qui sotto."
 
+ISTRUZIONI_BRIEF = """
+## Modo "brief" — istruzioni per questa risposta
+
+Leonardo ha chiesto un brief per Claude Code sul cantiere descritto nei
+dati qui sotto. A differenza degli altri modi, questo testo NON è per
+Leonardo: è un brief che lui incollerà in una sessione di Claude Code.
+Rispondi seguendo queste regole, senza eccezioni:
+
+- Markdown ammesso e atteso in questa risposta, al contrario degli altri
+  modi: la regola "niente markdown" vale per i messaggi diretti a Leonardo
+  su Telegram, non per un brief destinato a Claude Code.
+- Rispondi SOLO con un oggetto JSON, senza testo attorno, con esattamente
+  queste tre chiavi: {"contesto": "...", "obiettivo": "...",
+  "criterio_di_chiusura": "..."}. Nessun'altra chiave, nessun testo fuori
+  dal JSON.
+- "contesto": elenco puntato (righe che iniziano con "- ") dei file o delle
+  sezioni da leggere prima di scrivere codice — SOLO percorsi, nomi di
+  file, comandi o numeri che compaiono ALLA LETTERA nei dati qui sotto
+  (riga del cantiere, sessioni recenti, documento di knowledge). Anti-
+  invenzione più forte che altrove: se un dettaglio non compare alla
+  lettera nei dati, non scriverlo, nemmeno come esempio plausibile.
+  ATTENZIONE PARTICOLARE ai percorsi di file: copia ogni percorso ESATTAMENTE
+  come appare nel testo, carattere per carattere. Se un file è citato SENZA
+  cartella (solo il nome, es. "pavimento.mjs"), scrivi SOLO quel nome nudo
+  — non aggiungerci davanti una cartella vista per altri file nello stesso
+  testo, nemmeno se ti sembra lo stesso progetto: è un'inferenza, non un
+  dato letto. Esempio di errore da NON fare: il testo cita
+  "pagine/x/blocco.html" per un file e "pavimento.mjs" (nudo) per un altro
+  — scrivere "pagine/x/pavimento.mjs" sarebbe un percorso inventato, anche
+  se sembra plausibile. Nel dubbio su un percorso, scrivi solo il nome del
+  file senza cartella.
+- "obiettivo": uno o due paragrafi che sintetizzano il prossimo passo del
+  cantiere, basati SOLO su ciò che i dati dicono davvero. Se i dati non
+  bastano per un obiettivo chiaro, scrivi invece "Da precisare con
+  Leonardo: " seguito da cosa manca — mai un obiettivo plausibile
+  inventato per riempire il vuoto.
+- "criterio_di_chiusura": uno o due paragrafi su come si riconosce che
+  questo passo è concluso, basati sugli stessi dati. Stessa regola: se non
+  è chiaro dai dati, dichiaralo invece di inventarlo.
+- Non scrivere tu le sezioni "Plan mode obbligatorio", "## Vincoli" né una
+  riga su chi ha ragione in caso di conflitto col repo: le aggiunge il
+  codice attorno alla tua risposta, in un punto fisso — se le scrivi tu
+  compariranno due volte.
+- Niente domanda finale in nessuno dei tre campi.
+""".strip()
+
+DOMANDA_BRIEF = "Scrivi il brief per il cantiere descritto nei dati qui sotto."
+
+VINCOLI_STANDARD_BRIEF = """
+- Se serve un sub-agent per una parte del lavoro, lancialo e passa comunque dal guardrail (subagent guardrail-review) sul diff prima di committare.
+- Niente git push: lo fa Leonardo a mano.
+- La suite di test deve restare verde.
+- Se tocchi un componente condiviso, una tabella o un file di worker/loop.py, lancia scripts/panoptes/impatti.py prima di modificare; scripts/panoptes/verifica_mappa.py deve uscire 0 prima del push.
+- Aggiorna STATO.md (blocco ## CANTIERI + nota di sessione) a fine sessione.
+""".strip()
+
+RIGA_REPO_HA_RAGIONE = (
+    "Leggi questi file prima di scrivere codice. Se qualcosa nel repo "
+    "contraddice questo brief, ha ragione il repo: fermati e dimmelo "
+    "invece di procedere."
+)
+
 FRASE_CONTESTO = {
     "telefono": "ho solo il telefono",
     "computer": "sono al computer",
@@ -207,6 +302,17 @@ def raccogli_stato():
     }
 
 
+def _tronca(testo, limite, fonte="STATO.md"):
+    """Tronca `testo` a `limite` caratteri con una nota esplicita di
+    troncamento (mai un taglio silenzioso) — condivisa da
+    _stato_per_prompt (decisioni_aperte_bloccano di orienta/instrada) e dal
+    modo brief (sessioni/documento di knowledge del cantiere)."""
+    if not testo or len(testo) <= limite:
+        return testo
+    totale = len(testo)
+    return testo[:limite] + f"\n[TRONCATO — {totale} caratteri totali, testo completo in {fonte}]"
+
+
 def _stato_per_prompt(stato_dict):
     """Copia di stato_dict con decisioni_aperte_bloccano troncato oltre
     LIMITE_DECISIONI_APERTE_CARATTERI, nota di troncamento inclusa. Lavora
@@ -216,12 +322,8 @@ def _stato_per_prompt(stato_dict):
     copia = copy.deepcopy(stato_dict)
     cantieri = copia.get("cantieri_aperti") or {}
     testo = cantieri.get("decisioni_aperte_bloccano")
-    if testo and len(testo) > LIMITE_DECISIONI_APERTE_CARATTERI:
-        totale = len(testo)
-        cantieri["decisioni_aperte_bloccano"] = (
-            testo[:LIMITE_DECISIONI_APERTE_CARATTERI]
-            + f"\n[TRONCATO — {totale} caratteri totali, testo completo in STATO.md]"
-        )
+    if testo:
+        cantieri["decisioni_aperte_bloccano"] = _tronca(testo, LIMITE_DECISIONI_APERTE_CARATTERI)
     return copia
 
 
@@ -357,3 +459,132 @@ def genera_avviso():
     system = costruisci_system_prompt(candidati, ISTRUZIONI_AVVISA)
     testo = chiama(system, DOMANDA_AVVISA, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
     return testo, marcatori
+
+
+class BriefErrore(Exception):
+    """Errore rumoroso: JSON non valido o chiavi mancanti nella risposta
+    del modo brief. Motivo sempre categorico, mai il testo grezzo del
+    modello (stesso stile di brain/classifier.py:ClassificazioneErrore)."""
+
+
+def _risolvi_cantiere(nome_utente, cantieri):
+    """Match tollerante per sottostringa, case-insensitive, sul testo
+    digitato da Leonardo dopo /brief. Mai un match "intelligente" o fuzzy:
+    o il testo digitato compare dentro il nome del cantiere, o no — decidere
+    cosa fare con zero o più di un risultato spetta a chi chiama
+    (genera_brief), non a questa funzione."""
+    chiave = (nome_utente or "").strip().lower()
+    if not chiave:
+        return []
+    return [c for c in cantieri if chiave in c["nome"].lower()]
+
+
+def _documento_cantiere(nome_cantiere):
+    """Documento di knowledge associato al cantiere risolto, se una parola
+    di DOCUMENTI_CANTIERE compare nel suo nome normalizzato e il file
+    esiste davvero. Ritorna (None, None) altrimenti — "se esiste", non
+    un errore se manca."""
+    chiave = stato.chiave_cantiere(nome_cantiere)
+    for parola, path in DOCUMENTI_CANTIERE.items():
+        if parola in chiave and path.exists():
+            testo = _tronca(
+                path.read_text(encoding="utf-8"),
+                LIMITE_DOCUMENTO_CANTIERE_CARATTERI,
+                fonte=path.name,
+            )
+            return path.name, testo
+    return None, None
+
+
+def _testo_campo_brief(valore):
+    """Il modello a volte restituisce un campo del brief come lista JSON
+    (una voce per riga) invece che come stringa unica, nonostante il prompt
+    chieda esplicitamente una stringa — capita soprattutto su "contesto"
+    (un elenco puntato). Normalizza entrambe le forme in una stringa unica
+    con "\\n" tra le righe, così _componi_brief non interpola mai un repr
+    Python (["- riga1", "- riga2"]) nel testo finale."""
+    if isinstance(valore, list):
+        return "\n".join(str(riga) for riga in valore).strip()
+    return valore
+
+
+def _componi_brief(cantiere, grezzo):
+    """Pura (nessuna chiamata LLM/DB): valida il JSON forzato del modello e
+    compone il testo finale, skeleton fisso incluso. Separata da
+    genera_brief per restare testabile senza rete — stesso principio delle
+    altre funzioni pure di questo file (_filtra_candidati_avviso,
+    _domanda_instrada, ...)."""
+    try:
+        risultato = json.loads(estrai_json(grezzo))
+    except Exception:
+        raise BriefErrore("JSON non valido") from None
+
+    contesto = _testo_campo_brief(risultato.get("contesto"))
+    obiettivo = _testo_campo_brief(risultato.get("obiettivo"))
+    criterio = _testo_campo_brief(risultato.get("criterio_di_chiusura"))
+    if not contesto or not obiettivo or not criterio:
+        raise BriefErrore("chiavi mancanti o vuote nel JSON del brief")
+
+    return (
+        f"{cantiere['nome']}\n\n"
+        f"Plan mode obbligatorio.\n\n"
+        f"## Contesto\n\n{contesto}\n\n{RIGA_REPO_HA_RAGIONE}\n\n"
+        f"## Obiettivo\n\n{obiettivo}\n\n"
+        f"## Vincoli\n\n{VINCOLI_STANDARD_BRIEF}\n\n"
+        f"## Criterio di chiusura\n\n{criterio}"
+    )
+
+
+def genera_brief(nome_utente):
+    """Modo "brief": risolve `nome_utente` contro il blocco '## CANTIERI' di
+    STATO.md (match tollerante per sottostringa, vedi _risolvi_cantiere —
+    MAI indovina: ambiguo o non trovato ritorna l'elenco dei nomi validi,
+    zero chiamate LLM su questo percorso), raccoglie il contesto del
+    cantiere risolto (riga CANTIERI, ultime N_SESSIONI_BRIEF sessioni,
+    documento di knowledge se mappato) e fa scrivere all'LLM
+    Contesto/Obiettivo/Criterio di chiusura in JSON forzato (vedi
+    _componi_brief per la validazione e la composizione finale)."""
+    stato_cantieri = stato.cantieri_aperti()
+    if stato_cantieri["copertura"] != "completa":
+        raise RuntimeError(
+            f"brief: blocco '## CANTIERI' non affidabile: {stato_cantieri['motivo']}"
+        )
+    cantieri = stato_cantieri["cantieri"]
+
+    trovati = _risolvi_cantiere(nome_utente, cantieri)
+    nomi_validi = "\n".join(f"- {c['nome']}" for c in cantieri)
+    if not trovati:
+        return f'Nessun cantiere corrisponde a "{nome_utente}". Cantieri validi:\n{nomi_validi}'
+    if len(trovati) > 1:
+        nomi_ambigui = ", ".join(c["nome"] for c in trovati)
+        return (
+            f'"{nome_utente}" è ambiguo, corrisponde a più di un cantiere '
+            f"({nomi_ambigui}). Cantieri validi:\n{nomi_validi}"
+        )
+
+    cantiere = trovati[0]
+    sessioni = stato.sessioni_cantiere(cantiere["nome"], n=N_SESSIONI_BRIEF)
+    nome_doc, testo_doc = _documento_cantiere(cantiere["nome"])
+
+    dati = {
+        "oggi": _data_oggi(),
+        "cantiere": cantiere,
+        "sessioni_recenti": [
+            {
+                "titolo": s["titolo"],
+                "testo": _tronca(s["testo"], LIMITE_SESSIONI_CANTIERE_CARATTERI),
+            }
+            for s in sessioni["sezioni"]
+        ],
+        "documento_knowledge": {"file": nome_doc, "testo": testo_doc} if nome_doc else None,
+    }
+
+    system = costruisci_system_prompt(dati, ISTRUZIONI_BRIEF)
+    try:
+        grezzo = chiama(system, DOMANDA_BRIEF, max_tokens=MAX_TOKENS_BRIEF, temperature=0.0)
+    except TettoLLMRaggiunto:
+        raise
+    except LLMErrore as e:
+        raise BriefErrore("chiamata LLM fallita") from e
+
+    return _componi_brief(cantiere, grezzo)

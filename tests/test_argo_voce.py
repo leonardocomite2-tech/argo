@@ -303,6 +303,228 @@ caso(
 )
 
 
+# ============================================================
+# Modo "brief" (cantiere Argo — il ponte, passo 1)
+# ============================================================
+
+# --- ISTRUZIONI_BRIEF copre i punti del brief: JSON forzato, anti-invenzione
+# rinforzata, markdown ammesso (a differenza degli altri modi), niente
+# duplicazione dello skeleton fisso ---
+_istruzioni_brief_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_BRIEF)
+for frammento in (
+    "Markdown ammesso",
+    "SOLO con un oggetto JSON",
+    "contesto",
+    "obiettivo",
+    "criterio_di_chiusura",
+    "Anti- invenzione più forte",
+    "Da precisare con Leonardo",
+    "Non scrivere tu le sezioni",
+):
+    caso(
+        f"ISTRUZIONI_BRIEF copre: {frammento!r}",
+        True,
+        frammento in _istruzioni_brief_normalizzate,
+    )
+
+# --- VINCOLI_STANDARD_BRIEF: testo fisso, mai chiesto al modello ---
+for frammento in ("guardrail-review", "Niente git push", "suite di test", "verifica_mappa.py", "STATO.md"):
+    caso(
+        f"VINCOLI_STANDARD_BRIEF cita: {frammento!r}",
+        True,
+        frammento in voce.VINCOLI_STANDARD_BRIEF,
+    )
+
+caso(
+    "RIGA_REPO_HA_RAGIONE dice esplicitamente che il repo ha ragione in caso di conflitto",
+    True,
+    "ha ragione il repo" in voce.RIGA_REPO_HA_RAGIONE,
+)
+
+# --- _risolvi_cantiere: match tollerante per sottostringa, case-insensitive ---
+CANTIERI_FINTI = [
+    {"nome": "Cantiere 2 — email"},
+    {"nome": "Designer (bonifica yourservice-it)"},
+    {"nome": "Argo — la voce"},
+    {"nome": "Argo — il ponte"},
+]
+
+caso(
+    "_risolvi_cantiere: match esatto case-insensitive",
+    ["Designer (bonifica yourservice-it)"],
+    [c["nome"] for c in voce._risolvi_cantiere("DESIGNER", CANTIERI_FINTI)],
+)
+caso(
+    "_risolvi_cantiere: match per sottostringa parziale",
+    ["Cantiere 2 — email"],
+    [c["nome"] for c in voce._risolvi_cantiere("email", CANTIERI_FINTI)],
+)
+caso(
+    "_risolvi_cantiere: nessun match -> lista vuota",
+    [],
+    voce._risolvi_cantiere("regista sonora", CANTIERI_FINTI),
+)
+caso(
+    "_risolvi_cantiere: 'argo' è ambiguo tra 'la voce' e 'il ponte'",
+    ["Argo — la voce", "Argo — il ponte"],
+    [c["nome"] for c in voce._risolvi_cantiere("argo", CANTIERI_FINTI)],
+)
+caso("_risolvi_cantiere: nome vuoto -> lista vuota, non tutti i cantieri", [], voce._risolvi_cantiere("", CANTIERI_FINTI))
+caso(
+    "_risolvi_cantiere: nome None -> lista vuota",
+    [],
+    voce._risolvi_cantiere(None, CANTIERI_FINTI),
+)
+
+# --- _documento_cantiere: mappa statica, solo se il file esiste davvero ---
+_nome_doc, _testo_doc = voce._documento_cantiere("Designer (bonifica yourservice-it)")
+caso("_documento_cantiere: 'Designer' trova CANTIERE_Designer.md", "CANTIERE_Designer.md", _nome_doc)
+caso("_documento_cantiere: il testo non è vuoto", True, bool(_testo_doc))
+
+_nome_doc_argo, _ = voce._documento_cantiere("Argo — la voce")
+caso("_documento_cantiere: 'Argo — la voce' trova IDENTITY.md", "IDENTITY.md", _nome_doc_argo)
+
+_nome_doc_ponte, _ = voce._documento_cantiere("Argo — il ponte")
+caso("_documento_cantiere: 'Argo — il ponte' trova anch'esso IDENTITY.md (stessa parola chiave 'argo')", "IDENTITY.md", _nome_doc_ponte)
+
+_nome_doc_assente, _testo_doc_assente = voce._documento_cantiere("Panoptes — Mappa")
+caso("_documento_cantiere: 'Panoptes — Mappa' non è mappato -> (None, None)", (None, None), (_nome_doc_assente, _testo_doc_assente))
+
+# --- _componi_brief: pura, nessuna chiamata LLM — valida il JSON e compone lo skeleton fisso ---
+CANTIERE_FINTO = {"nome": "Cantiere di prova"}
+
+_json_valido = (
+    '{"contesto": "- leggi x.py", "obiettivo": "fare x", '
+    '"criterio_di_chiusura": "x funziona"}'
+)
+_testo_composto = voce._componi_brief(CANTIERE_FINTO, _json_valido)
+caso("_componi_brief: il titolo è il nome esatto del cantiere", True, _testo_composto.startswith("Cantiere di prova\n"))
+caso('_componi_brief: contiene "Plan mode obbligatorio."', True, "Plan mode obbligatorio." in _testo_composto)
+caso("_componi_brief: contiene ## Contesto", True, "## Contesto" in _testo_composto)
+caso("_componi_brief: contiene il testo del modello per contesto", True, "leggi x.py" in _testo_composto)
+caso("_componi_brief: contiene la riga fissa sul repo che ha ragione", True, voce.RIGA_REPO_HA_RAGIONE in _testo_composto)
+caso("_componi_brief: contiene ## Obiettivo", True, "## Obiettivo" in _testo_composto)
+caso("_componi_brief: contiene ## Vincoli con il testo fisso", True, voce.VINCOLI_STANDARD_BRIEF in _testo_composto)
+caso("_componi_brief: contiene ## Criterio di chiusura", True, "## Criterio di chiusura" in _testo_composto)
+caso(
+    "_componi_brief: l'ordine delle sezioni è Contesto, Obiettivo, Vincoli, Criterio di chiusura",
+    True,
+    (
+        _testo_composto.index("## Contesto")
+        < _testo_composto.index("## Obiettivo")
+        < _testo_composto.index("## Vincoli")
+        < _testo_composto.index("## Criterio di chiusura")
+    ),
+)
+
+# JSON avvolto in fence markdown (capita anche con istruzioni esplicite di non farlo,
+# vedi connectors/llm.py:estrai_json) — deve essere gestito comunque
+_json_con_fence = "```json\n" + _json_valido + "\n```"
+caso(
+    "_componi_brief: gestisce un JSON avvolto in fence markdown",
+    True,
+    "leggi x.py" in voce._componi_brief(CANTIERE_FINTO, _json_con_fence),
+)
+
+# --- _componi_brief: il modello a volte manda "contesto" come lista JSON invece
+# che stringa (osservato nel collaudo reale, 12/9/2026) — mai un repr Python
+# (['- riga1', '- riga2']) nel testo finale ---
+_json_con_lista = (
+    '{"contesto": ["- leggi x.py", "- leggi y.py"], "obiettivo": "fare x", '
+    '"criterio_di_chiusura": "x funziona"}'
+)
+_testo_da_lista = voce._componi_brief(CANTIERE_FINTO, _json_con_lista)
+caso("_componi_brief: 'contesto' come lista JSON non produce un repr Python", False, "['" in _testo_da_lista)
+caso("_componi_brief: 'contesto' come lista JSON, le righe restano leggibili", True, "- leggi x.py" in _testo_da_lista and "- leggi y.py" in _testo_da_lista)
+
+# --- _testo_campo_brief: normalizza liste in stringa multi-riga, lascia le stringhe invariate ---
+caso("_testo_campo_brief: stringa invariata", "già una stringa", voce._testo_campo_brief("già una stringa"))
+caso(
+    "_testo_campo_brief: lista -> stringa con \\n tra le righe",
+    "- uno\n- due",
+    voce._testo_campo_brief(["- uno", "- due"]),
+)
+
+# --- _componi_brief: errori rumorosi, mai un brief a metà ---
+try:
+    voce._componi_brief(CANTIERE_FINTO, "questo non è JSON")
+    caso("_componi_brief: JSON non valido solleva BriefErrore", "BriefErrore", "nessuna eccezione")
+except voce.BriefErrore:
+    caso("_componi_brief: JSON non valido solleva BriefErrore", "BriefErrore", "BriefErrore")
+
+_json_incompleto = '{"contesto": "- x", "obiettivo": "y"}'  # manca criterio_di_chiusura
+try:
+    voce._componi_brief(CANTIERE_FINTO, _json_incompleto)
+    caso("_componi_brief: chiave mancante solleva BriefErrore", "BriefErrore", "nessuna eccezione")
+except voce.BriefErrore:
+    caso("_componi_brief: chiave mancante solleva BriefErrore", "BriefErrore", "BriefErrore")
+
+_json_vuoto = '{"contesto": "", "obiettivo": "y", "criterio_di_chiusura": "z"}'  # contesto vuoto
+try:
+    voce._componi_brief(CANTIERE_FINTO, _json_vuoto)
+    caso("_componi_brief: chiave vuota solleva BriefErrore", "BriefErrore", "nessuna eccezione")
+except voce.BriefErrore:
+    caso("_componi_brief: chiave vuota solleva BriefErrore", "BriefErrore", "BriefErrore")
+
+# --- genera_brief: risoluzione del nome, su un STATO.md finto (percorso
+# ambiguo/non-trovato è deterministico, zero chiamate LLM — testabile senza mock) ---
+import argo.stato as _stato_per_test  # noqa: E402
+
+CANTIERI_MD_FINTO = """# STATO — finto
+
+## CANTIERI
+
+| Nome | Stato | Aperto il | Aspetta | Sessione più recente |
+|---|---|---|---|---|
+| Cantiere 2 — email | aperto | da confermare | il sistema | nota |
+| Argo — la voce | in attesa | 10/09/2026 | calendario | nota |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | nota |
+
+## Fatto
+- niente
+"""
+_percorso_originale_voce = _stato_per_test.STATO_MD_PATH
+_stato_voce_path = REPO_ROOT / "tests" / "_stato_finto_genera_brief.md"
+_stato_voce_path.write_text(CANTIERI_MD_FINTO, encoding="utf-8")
+try:
+    _stato_per_test.STATO_MD_PATH = _stato_voce_path
+
+    _esito_non_trovato = voce.genera_brief("regista sonora")
+    caso("genera_brief: nome non trovato non chiama l'LLM, elenca i nomi validi", True, "Nessun cantiere" in _esito_non_trovato)
+    caso("genera_brief: elenco nomi validi include 'Argo — il ponte'", True, "Argo — il ponte" in _esito_non_trovato)
+
+    _esito_ambiguo = voce.genera_brief("argo")
+    caso("genera_brief: nome ambiguo non chiama l'LLM, lo dichiara", True, "ambiguo" in _esito_ambiguo)
+    caso(
+        "genera_brief: nome ambiguo elenca entrambi i cantieri coinvolti",
+        True,
+        "Argo — la voce" in _esito_ambiguo and "Argo — il ponte" in _esito_ambiguo,
+    )
+
+    _esito_vuoto = voce.genera_brief("")
+    caso("genera_brief: nome vuoto è trattato come non trovato, non come 'tutti'", True, "Nessun cantiere" in _esito_vuoto)
+finally:
+    _stato_per_test.STATO_MD_PATH = _percorso_originale_voce
+    _stato_voce_path.unlink()
+
+# --- genera_brief: blocco CANTIERI non affidabile è un errore rumoroso, non un
+# fallback silenzioso (a differenza di cantieri_aperti(), che qui va usato in
+# modalità stretta) ---
+CANTIERI_MD_ROTTO = "# STATO — finto\n\n## Fatto\n- niente\n"
+_stato_rotto_path = REPO_ROOT / "tests" / "_stato_finto_rotto.md"
+_stato_rotto_path.write_text(CANTIERI_MD_ROTTO, encoding="utf-8")
+try:
+    _stato_per_test.STATO_MD_PATH = _stato_rotto_path
+    try:
+        voce.genera_brief("designer")
+        caso("genera_brief: blocco CANTIERI assente solleva RuntimeError", "RuntimeError", "nessuna eccezione")
+    except RuntimeError:
+        caso("genera_brief: blocco CANTIERI assente solleva RuntimeError", "RuntimeError", "RuntimeError")
+finally:
+    _stato_per_test.STATO_MD_PATH = _percorso_originale_voce
+    _stato_rotto_path.unlink()
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:

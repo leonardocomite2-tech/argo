@@ -15,7 +15,8 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); resta a Leonardo il deploy (`docker compose up -d --build`) e la conferma che il primo giro reale delle 22:15 arrivi da solo |
+| Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 1: comando /brief, stesso schema di orienta/instrada/avvisa; collaudato su cantieri reali, un limite noto di invenzione su un percorso file non risolto (vedi dettaglio sotto); resta a Leonardo il deploy e il giudizio sul testo generato |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2357,3 +2358,154 @@ quella esistente di `orienta_webhook.py`); confermare che il primo avviso
 vero delle 22:15 arrivi da solo stasera (o al prossimo giro, se il deploy
 avviene dopo quell'ora — stesso comportamento di recupero già usato dal
 digest meccanico); nessun nuovo secret.
+
+## Sessione 2026-09-12 — Cantiere Argo — il ponte, passo 1: comando /brief
+
+**DEROGA regola del cantiere unico (12/9/2026, decisione di Leonardo):**
+Argo — la voce è chiuso lato tecnico (tre modi implementati e collaudati,
+passo 8), in validazione d'uso per 30 giorni da oggi — bloccato solo dal
+calendario, non da lavoro tecnico residuo. Stesso caso già previsto dal
+PIANO_OPERATIVO §1 e già usato per Panoptes-Mappa (9/9/2026): un cantiere
+bloccato solo da un'attesa può restare aperto in parallelo a uno nuovo. Il
+prossimo cantiere, **Argo — il ponte**, si apre in parallelo. Riga
+`Argo — la voce` in `## CANTIERI` aggiornata di conseguenza (Stato
+`in attesa`, Aspetta `calendario`, stesso vocabolario di Panoptes-Mappa).
+
+**Cos'è "il ponte"** (dettato dal brief di Leonardo, non da un documento
+di identità nuovo — nessun file tipo IDENTITY.md scritto per questo
+cantiere in questo passo, non richiesto): Argo smette di dire solo cosa
+fare e comincia a preparare il lavoro. Primo pezzo: i brief verso
+l'officina (Claude Code) — oggi Leonardo li scrive a mano da una chat di
+progetto, l'obiettivo è che Argo li prepari da solo, dal telefono.
+
+**Comando `/brief <nome cantiere>` — quarto modo, stesso schema esatto di
+orienta/instrada/avvisa.** Riuso totale: stesso webhook `/webhook/argo`,
+stesso job `genera_brief`, stesso lock-per-tipo
+(`_accoda_job_argo`/`genera_brief_enqueue`), stessa esclusione in
+`worker/loop.py:claim_job`, stesso consumer host
+`scripts/argo/orienta_webhook.py` (`TIPI_JOB` esteso a quattro). Nessuna
+nuova tabella, nessun nuovo secret: riusa `ARGO_VOCE_BOT_TOKEN`/
+`ARGO_VOCE_WEBHOOK_SECRET`/`TELEGRAM_CHAT_ID`/`ANTHROPIC_API_KEY`/
+`LLM_TETTO_GIORNALIERO` già configurati.
+
+- **Risoluzione del nome, deterministica, zero LLM sul percorso
+  ambiguo/non trovato** (come richiesto: "non indovina"). `argo/voce.py:
+  _risolvi_cantiere` fa match tollerante per sottostringa case-insensitive
+  sulla riga `## CANTIERI` di STATO.md; zero o più di un match ritorna
+  l'elenco fisso di tutti i nomi validi, mai una chiamata a
+  `connectors/llm.py:chiama()`. Collaudato su dati reali: `/brief argo`
+  oggi è davvero ambiguo (matcha sia "Argo — la voce" sia "Argo — il
+  ponte", la riga appena aggiunta a questa stessa tabella) e risponde con
+  l'elenco, non indovina quale dei due.
+- **Nuova `argo/stato.py:sessioni_cantiere(nome, n=3)`**: estrae le ultime
+  sessioni `## ` di STATO.md che riguardano il cantiere risolto.
+  Normalizza nome e titoli (trattino/en-dash→spazio, minuscolo, niente nota
+  tra parentesi finale) perché la tabella CANTIERI usa l'en-dash mentre i
+  titoli reali usano spesso un trattino singolo ("Panoptes — Mappa" /
+  "Cantiere Panoptes-Mappa"); non taglia al primo trattino, così "Argo —
+  la voce" e "Argo — il ponte" restano chiavi diverse anche ora che
+  coesistono. Zero sezioni trovate (Cantiere 1/2/3, Lead-gen host — nessuna
+  intestazione `## ` dedicata, come già annotato nella tabella) è un esito
+  valido, non un errore: il brief lo eredita come contesto povero, non lo
+  nasconde.
+- **Documento di knowledge: dizionario esplicito, non ricerca per
+  somiglianza di nome file** (`DOCUMENTI_CANTIERE` in `argo/voce.py`) — i
+  file in `knowledge/` non seguono una convenzione unica
+  (`CANTIERE_Designer.md`, `mappa_sistema.yaml`, `knowledge/argo/*.md` per
+  due cantieri Argo diversi). Solo "designer" → `CANTIERE_Designer.md` e
+  "argo" → `knowledge/argo/IDENTITY.md` per ora; da estendere a mano
+  quando nasce un nuovo documento di cantiere. `mappa_sistema.yaml` escluso
+  apposta per Panoptes: è l'artefatto meccanico del cantiere, non un
+  documento narrativo pensato per dare contesto a un brief.
+- **Contenuto fisso in Python, non affidato all'LLM, per le parti che non
+  devono mai variare**: titolo (nome esatto del cantiere), "Plan mode
+  obbligatorio.", la sezione "## Vincoli" (le cinque regole standard:
+  sub-agent guardrail, niente git push, suite verde, verifica_mappa.py,
+  STATO.md aggiornato) e la riga fissa "ha ragione il repo: fermati e
+  dimmelo" sono composte in `argo/voce.py:genera_brief`/`_componi_brief`,
+  mai chieste al modello — per non rischiare una parafrasi che perde un
+  vincolo in silenzio. L'LLM risponde in **JSON forzato** (stesso pattern
+  di `brain/classifier.py`) con tre sole chiavi: `contesto`, `obiettivo`,
+  `criterio_di_chiusura`. Anti-invenzione rinforzata nel prompt: solo
+  file/comandi/numeri presenti alla lettera nel contesto raccolto, "Da
+  precisare con Leonardo: ..." se l'obiettivo non è chiaro dai dati.
+  `MAX_TOKENS_BRIEF = 1500` (un brief ha tre campi liberi, non le 2-3 righe
+  degli altri modi).
+- **Bug reale trovato nel collaudo (12/9/2026)**: il modello a volte manda
+  `contesto` come lista JSON invece che come stringa unica, nonostante il
+  prompt chieda esplicitamente una stringa — senza gestirlo, il testo
+  finale mostrava il repr Python della lista (`['- riga1', '- riga2']`)
+  invece dei punti elenco. Fix in codice, non solo nel prompt: nuova
+  `argo/voce.py:_testo_campo_brief` normalizza liste in una stringa con
+  `\n` tra le righe prima di comporre il testo finale — robusto a
+  entrambe le forme, non dipende dal fatto che il modello segua
+  l'istruzione. Test aggiunto (caso reale osservato, non sintetico).
+- **Limite noto, non risolto (osservato nel collaudo reale, 12/9/2026):**
+  il modello ha inventato una cartella per un file citato nel contesto
+  raccolto solo col nome nudo (`pavimento.mjs`, mai con un percorso nelle
+  sessioni STATO.md lette), incollandogli davanti la cartella di file
+  vicini nello stesso testo (`pagine/yourservice-it/_ricomposizione/`) —
+  percorso plausibile ma non verificato, il file vero sta altrove
+  (`.claude/skills/designer/scripts/pavimento.mjs`). Rinforzata due volte
+  l'istruzione anti-invenzione su questo punto esatto (regola esplicita +
+  esempio di errore da non fare), l'errore persiste. Non un bug di codice:
+  stesso tipo di limite già osservato nel drafter (conteggio caratteri di
+  un codice sconto, STATO.md/DECISIONI APERTE) — un limite noto dei
+  modelli linguistici, non un problema risolvibile con altro codice
+  deterministico qui. La rete di sicurezza è la stessa del resto del
+  repo: la riga fissa "se qualcosa nel repo contraddice questo brief, ha
+  ragione il repo" più, soprattutto, la lettura di Leonardo prima di
+  incollare — mai un invio automatico verso host o prospect, qui il
+  destinatario è Claude Code e il controllo è la revisione umana del testo
+  prima dell'uso, non un'approvazione formale (fuori perimetro
+  `approvals` per lo stesso motivo già in CLAUDE.md sui messaggi di Argo a
+  Leonardo — Leonardo è chi incollerebbe, un'approvazione sarebbe
+  circolare).
+- **Limite di 4096 caratteri Telegram: più messaggi consecutivi, testo
+  puro.** Un brief vero supera spesso i 4096 caratteri (osservato anche
+  nel collaudo reale: 2300-2400 caratteri su un cantiere con poco
+  contesto, il brief di apertura di questa sessione ne aveva di più).
+  Nuove `connectors/telegram.py:_spezza_testo()`/`invia_lungo()`: spezzano
+  su paragrafi (poi su riga, poi taglio secco solo se una singola riga
+  supera il limite), mandano ogni blocco con `notifica()` già esistente,
+  **senza** intestazioni "parte N/M" nel testo — su Telegram più messaggi
+  consecutivi si selezionano insieme (tocca e tieni premuto il primo,
+  tocca i successivi, Copia) e si incollano come un unico blocco in
+  Claude Code, identico all'originale; un marcatore di parte verrebbe
+  incollato dentro il brief, sporcandolo. `notifica()` non toccata;
+  `orienta_webhook.py` ora chiama `invia_lungo()` per tutti e quattro i
+  modi (comportamento identico a prima quando il testo sta in un
+  messaggio, come per orienta/instrada/avvisa).
+- **Mappa Panoptes**: estesa la scheda `argo_voce` esistente (non aperta
+  una nuova) — stesso webhook/job/consumer/env del resto della pipeline,
+  è un quarto modo, non un sistema diverso. Nuovi contratti: AV05
+  ("un brief non cita un file/comando/numero assente dal contesto
+  raccolto", `garantito_da: eval`, stesso trattamento di AV03/CD01/CD02) e
+  AV06 ("nome ambiguo/non trovato risponde con l'elenco, mai un cantiere
+  indovinato", `garantito_da: file:riga`, deterministico). Range di
+  `backend/main.py`/`connectors/telegram.py` per `approvazione_telegram`
+  aggiornati dopo lo spostamento di riga (stesso tipo di correzione già
+  fatta ai passi 6/8). `verifica_mappa.py`: 0 divergenze su 14 schede dopo
+  l'aggiornamento. `impatti.py --diff`: trasversale su 6 pipeline (via i
+  condivisi `telegram_notifica`/`approvazione_telegram`, entrambi toccati
+  solo in modo additivo — nessun contratto in gioco).
+- **Collaudo reale da host, su cantieri veri** (criterio di chiusura della
+  sessione): `genera_brief('designer')` ha prodotto un brief completo e
+  corretto — ogni file citato nel Contesto (tranne il limite noto sopra)
+  verificato esistente nel repo, l'URL dell'anteprima GHL citato è copiato
+  alla lettera da STATO.md, Obiettivo e Criterio di chiusura coerenti con
+  la sessione più recente del cantiere. `genera_brief('argo')` (ambiguo,
+  dati reali) e `genera_brief('regista sonora xyz')` (non trovato)
+  rispondono entrambi correttamente senza chiamare l'LLM. Testo completo
+  incollato da Leonardo per giudizio (fuori da questo file).
+- **Verifiche**: suite completa verde (`test_argo_stato` 46/46,
+  `test_argo_voce` 126/126, `test_webhook_argo` 34/34, nuovo `test_telegram`
+  16/16, più `test_fetch`/`test_filtri_email`/`test_normalizza`/
+  `test_panoptes_lib` invariati). `python3 -m py_compile` su tutti i file
+  toccati. Sub-agent `guardrail-review` lanciato sul diff completo.
+- **Resta a Leonardo**: `docker compose up -d --build`; nessuna nuova riga
+  di crontab (riusa quella esistente di `orienta_webhook.py`); collaudo
+  reale `/brief <nome cantiere>` dal telefono; giudizio sul testo generato
+  (criterio di chiusura) e decisione su come trattare il limite noto sopra
+  (accettarlo con la rete di sicurezza esistente, o investire altro tempo
+  di prompt engineering).

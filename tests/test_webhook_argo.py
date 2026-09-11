@@ -21,6 +21,7 @@ from connectors.telegram import (  # noqa: E402
 
 COMANDO_ORIENTA = "/orienta"  # stesso valore di backend/main.py:COMANDO_ORIENTA
 COMANDO_INSTRADA = "/instrada"  # stesso valore di backend/main.py:COMANDO_INSTRADA
+COMANDO_BRIEF = "/brief"  # stesso valore di backend/main.py:COMANDO_BRIEF
 
 CASI = []
 
@@ -54,6 +55,21 @@ caso(
     "argomenti dopo un comando con suffisso @NomeBot",
     ["20", "telefono"],
     argomenti_comando("/instrada@ArgoVoceBot 20 telefono"),
+)
+
+# --- argomenti_comando su /brief <nome cantiere>: il nome può avere spazi,
+# backend/main.py:_gestisci_messaggio_argo lo ricompone con " ".join(...) ---
+caso("brief senza nome -> []", [], argomenti_comando("/brief"))
+caso("brief con nome di una parola", ["designer"], argomenti_comando("/brief designer"))
+caso(
+    "brief con nome multi-parola",
+    ["cantiere", "2"],
+    argomenti_comando("/brief cantiere 2"),
+)
+caso(
+    "brief con nome multi-parola ricomposto con spazio, come fa backend/main.py",
+    "cantiere 2",
+    " ".join(argomenti_comando("/brief cantiere 2")),
 )
 
 # --- interpreta_instrada: (minuti, contesto, errore) — mai indovina un valore mancante ---
@@ -104,6 +120,22 @@ caso(
     'backend/main.py: COMANDO_INSTRADA = "/instrada"',
     True,
     f'COMANDO_INSTRADA = "{COMANDO_INSTRADA}"' in _sorgente_main,
+)
+caso(
+    'backend/main.py: COMANDO_BRIEF = "/brief"',
+    True,
+    f'COMANDO_BRIEF = "{COMANDO_BRIEF}"' in _sorgente_main,
+)
+caso(
+    'backend/main.py: accoda il job "genera_brief" (stringa, tipo di job)',
+    True,
+    '"genera_brief"' in _sorgente_main,
+)
+caso(
+    "backend/main.py: mai import di argo.voce — la risoluzione/generazione del "
+    "brief resta host-only (argo/voce.py non gira in Docker, vedi argo/stato.py)",
+    True,
+    "import argo" not in _sorgente_main,
 )
 
 

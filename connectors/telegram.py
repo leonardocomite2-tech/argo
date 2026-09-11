@@ -111,6 +111,51 @@ AVVISO_TRONCAMENTO = "\n[bozza troncata — testo completo nel database]"
 SOGLIA_URGENZA_SCADENZA_SEC = 2 * 3600
 
 
+def _spezza_testo(testo, limite):
+    """Divide `testo` in blocchi <= `limite` caratteri: prova prima a
+    spezzare su paragrafi (doppio a capo), poi su singola riga se un
+    paragrafo da solo supera il limite, infine un taglio secco solo se
+    anche una singola riga è più lunga del limite (caso limite, mai visto
+    finora). Ogni blocco è pensato per un invio Telegram separato che,
+    incollato in sequenza, ricostruisce esattamente il testo originale —
+    usata da invia_lungo() per il modo "brief" (gli altri modi di Argo
+    stanno sempre sotto il limite in un solo messaggio)."""
+    if len(testo) <= limite:
+        return [testo]
+
+    blocchi = []
+    corrente = ""
+    for paragrafo in testo.split("\n\n"):
+        pezzo = paragrafo if not corrente else "\n\n" + paragrafo
+        if len(corrente) + len(pezzo) <= limite:
+            corrente += pezzo
+            continue
+        if corrente:
+            blocchi.append(corrente)
+            corrente = ""
+        while len(paragrafo) > limite:
+            taglio = paragrafo.rfind("\n", 0, limite)
+            if taglio <= 0:
+                taglio = limite
+            blocchi.append(paragrafo[:taglio])
+            paragrafo = paragrafo[taglio:].lstrip("\n")
+        corrente = paragrafo
+    if corrente:
+        blocchi.append(corrente)
+    return blocchi
+
+
+def invia_lungo(testo, token=None):
+    """Manda `testo` come uno o più messaggi (vedi _spezza_testo), ciascuno
+    con la notifica() già esistente. Nessun marcatore "parte N/M" inserito
+    nel testo: su Telegram più messaggi consecutivi si selezionano insieme
+    (tocca e tieni premuto il primo, tocca i successivi, Copia) e si
+    incollano come un unico blocco — un marcatore di parte verrebbe
+    incollato dentro un brief destinato a Claude Code, sporcandolo."""
+    for blocco in _spezza_testo(testo, LIMITE_TELEGRAM):
+        notifica(blocco, token=token)
+
+
 def riga_scadenza(scadenza):
     """Riga con il tempo rimanente prima della scadenza, o "" se scadenza è None
     (caso email, nessun vincolo di finestra). Sotto le 2 ore mostra i minuti

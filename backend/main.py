@@ -413,11 +413,14 @@ def _gestisci_modifica_telegram(message):
 
 COMANDO_ORIENTA = "/orienta"
 COMANDO_INSTRADA = "/instrada"
+COMANDO_BRIEF = "/brief"
 RISPOSTA_COMANDO_SCONOSCIUTO = (
-    f"Comando non riconosciuto. Usa {COMANDO_ORIENTA} oppure "
-    f"{COMANDO_INSTRADA} <minuti> telefono|computer."
+    f"Comando non riconosciuto. Usa {COMANDO_ORIENTA}, "
+    f"{COMANDO_INSTRADA} <minuti> telefono|computer oppure "
+    f"{COMANDO_BRIEF} <nome cantiere>."
 )
 RISPOSTA_GIA_IN_CORSO = "Richiesta già in corso, arriva a breve."
+RISPOSTA_BRIEF_SENZA_NOME = "Quale cantiere?"
 
 
 def _accoda_job_argo(tipo_job, payload, chiave_lock):
@@ -447,12 +450,15 @@ def _accoda_job_argo(tipo_job, payload, chiave_lock):
 
 
 def _gestisci_messaggio_argo(message):
-    """Due comportamenti, entrambi via job + consumer cron host (argo/voce.py non
+    """Tre comportamenti, tutti via job + consumer cron host (argo/voce.py non
     può girare dentro Docker, vedi argo/stato.py): /orienta accoda genera_orienta;
     /instrada <minuti> telefono|computer accoda genera_instrada se i due parametri
     sono validi, altrimenti risponde in una riga cosa manca (zero LLM, mai indovina
-    — connectors.telegram.interpreta_instrada). Qualunque altro testo, o un chat_id
-    diverso da TELEGRAM_CHAT_ID (ignorato in silenzio), non tocca l'LLM."""
+    — connectors.telegram.interpreta_instrada); /brief <nome cantiere> accoda
+    genera_brief col nome grezzo digitato — la risoluzione contro '## CANTIERI'
+    (STATO.md, solo host) vive in argo/voce.py:genera_brief, non qui. Qualunque
+    altro testo, o un chat_id diverso da TELEGRAM_CHAT_ID (ignorato in silenzio),
+    non tocca l'LLM."""
     chat_id = str((message.get("chat") or {}).get("id") or "")
     if chat_id != os.environ.get("TELEGRAM_CHAT_ID"):
         logger.warning("webhook_argo: messaggio da chat_id non autorizzato, ignorato in silenzio")
@@ -476,6 +482,20 @@ def _gestisci_messaggio_argo(message):
             "genera_instrada",
             {"minuti": minuti, "contesto": contesto},
             "genera_instrada_enqueue",
+        )
+        if not accodato:
+            notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+        return
+
+    if comando == COMANDO_BRIEF:
+        nome_cantiere = " ".join(argomenti_comando(testo)).strip()
+        if not nome_cantiere:
+            notifica(RISPOSTA_BRIEF_SENZA_NOME, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+            return
+        accodato = _accoda_job_argo(
+            "genera_brief",
+            {"nome": nome_cantiere},
+            "genera_brief_enqueue",
         )
         if not accodato:
             notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])

@@ -475,26 +475,71 @@ pipeline:
       riaccodarsi da sé — riusa il cron esistente di orienta_webhook.py
       (già ogni minuto). Collaudo reale da host in questa sessione (vedi
       STATO.md per il testo).
+      CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026) — quarto modo, "brief":
+      Argo — la voce chiuso lato tecnico (tre modi sopra) ed entrato in
+      validazione d'uso di 30 giorni (deroga cantiere-parallelo, vedi
+      STATO.md); il ponte apre in parallelo con lo stesso identico schema
+      job+cron. Comando /brief <nome cantiere>: risolve il nome contro il
+      blocco '## CANTIERI' di STATO.md con match tollerante per
+      sottostringa case-insensitive (argo/voce.py:_risolvi_cantiere) — zero
+      o più di un match risponde con l'elenco dei nomi validi, zero
+      chiamate LLM su questo percorso ("non indovina", come
+      interpreta_instrada). Nuova argo/stato.py:sessioni_cantiere(nome,
+      n=3) estrae le ultime sessioni '## ' di STATO.md che riguardano il
+      cantiere risolto: normalizza nome e titoli (trattino/en-dash→spazio,
+      minuscolo, niente nota tra parentesi finale) perché la tabella
+      CANTIERI usa l'en-dash mentre i titoli reali usano spesso un trattino
+      singolo (es. 'Panoptes — Mappa' / 'Cantiere Panoptes-Mappa') — non
+      taglia al primo trattino, così 'Argo — la voce' e 'Argo — il ponte'
+      restano chiavi diverse. Documento di knowledge opzionale da
+      DOCUMENTI_CANTIERE (argo/voce.py, dizionario esplicito parola→path,
+      non ricerca per somiglianza di nome file — i nomi in knowledge/ non
+      seguono una convenzione unica). Contenuto del brief: Contesto/
+      Obiettivo/Criterio di chiusura scritti dall'LLM in JSON forzato
+      (stesso pattern di brain/classifier.py, connectors/llm.py:estrai_json
+      riusato) con anti-invenzione rinforzata (solo file/comandi/numeri
+      presenti alla lettera nel contesto raccolto, "Da precisare con
+      Leonardo: ..." se l'obiettivo non è chiaro dai dati); titolo, "Plan
+      mode obbligatorio", Vincoli standard e la riga su chi ha ragione in
+      caso di conflitto col repo sono invece testo FISSO composto in Python
+      (argo/voce.py:genera_brief, VINCOLI_STANDARD_BRIEF,
+      RIGA_REPO_HA_RAGIONE) — mai affidati al modello, per non rischiare
+      una parafrasi che perde un vincolo in silenzio. Nuova eccezione
+      BriefErrore (stesso stile di ClassificazioneErrore). MAX_TOKENS_BRIEF
+      = 1500 (un brief ha tre campi liberi, non le 2-3 righe degli altri
+      modi — vedi argo/voce.py). Struttura fissa documentata in
+      knowledge/argo/TEMPLATE_BRIEF.md (nuovo). Nessuna nuova tabella/env:
+      stesso webhook, stesso job+cron via jobs, stesso lock-per-tipo
+      (_accoda_job_argo, chiave 'genera_brief_enqueue'), stessa esclusione
+      in worker/loop.py:claim_job, stesso consumer host
+      scripts/argo/orienta_webhook.py (TIPI_JOB esteso). Invio via nuova
+      connectors/telegram.py:invia_lungo() (vedi condiviso
+      telegram_notifica) perché un brief supera spesso i 4096 caratteri di
+      un messaggio Telegram, a differenza degli altri tre modi.
     sede: vps
     attivazione: >
       scripts/argo/stato_cli.py (harness di lettura) resta lanciato a mano
-      da host, invariato. Tre modi: orienta/instrada sullo stesso ponte via
-      jobs + cron di sempre (Leonardo scrive /orienta o /instrada <minuti>
-      telefono|computer al bot Argo, POST /webhook/argo (backend/main.py:414-504)
-      accoda 'genera_orienta'/'genera_instrada'); avvisa (PASSO 8) non ha un
-      trigger da Leonardo — worker/loop.py:garantisci_genera_avviso accoda da
-      sé 'genera_avviso' una volta al giorno (22:15). scripts/argo/orienta_webhook.py
+      da host, invariato. Quattro modi: orienta/instrada/brief sullo stesso
+      ponte via jobs + cron di sempre (Leonardo scrive /orienta, /instrada
+      <minuti> telefono|computer o /brief <nome cantiere> al bot Argo, POST
+      /webhook/argo (backend/main.py:414-524) accoda 'genera_orienta'/
+      'genera_instrada'/'genera_brief'); avvisa (PASSO 8) non ha un trigger
+      da Leonardo — worker/loop.py:garantisci_genera_avviso accoda da sé
+      'genera_avviso' una volta al giorno (22:15). scripts/argo/orienta_webhook.py
       (lanciato da cron host ogni minuto, non dal worker Docker) reclama il
-      più vecchio dei tre tipi e manda la risposta (o tace, per avvisa, se
-      non c'è nulla da dire). Il modo orienta ha anche un trigger a mano da
-      host con scripts/argo/orienta.py (invariato). Vedi PASSO 5 per il
-      perché del cron invece del worker, PASSO 6 per instrada, PASSO 8 per
-      avvisa.
+      più vecchio dei quattro tipi e manda la risposta (o tace, per avvisa,
+      se non c'è nulla da dire; o l'elenco dei nomi validi, per brief, se il
+      nome non risolve a un solo cantiere). Il modo orienta ha anche un
+      trigger a mano da host con scripts/argo/orienta.py (invariato). Vedi
+      PASSO 5 per il perché del cron invece del worker, PASSO 6 per
+      instrada, PASSO 8 per avvisa, cantiere Argo — il ponte PASSO 1 per
+      brief.
     produce:
       - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
       - "modo orienta: messaggio breve su Telegram (bot ARGO_VOCE_BOT_TOKEN) — poche righe, una sola prossima cosa con motivo, dichiarazione esplicita se una fonte ha copertura parziale/assente, mai un elenco di tutto lo stato"
       - "modo instrada: messaggio breve su Telegram (stesso bot) — una sola proposta dentro la finestra dichiarata e coerente col contesto fisico (telefono/computer), a parità di finestra ciò che chiude qualcosa prima di ciò che ne apre una; se niente si adatta, lo dice e si ferma"
       - "modo avvisa: digest serale su Telegram (stesso bot), UNA volta al giorno alle 22:15 — solo se almeno una approvazione ferma da più di 24h, un job fallito nelle ultime 24h o un'osservazione grave qualificano (mai già segnalati in passato); altrimenti nessun messaggio, il silenzio è l'esito normale"
+      - "modo brief: testo pronto da incollare in Claude Code su Telegram (stesso bot, uno o più messaggi via invia_lungo se supera 4096 caratteri) — titolo/Plan mode obbligatorio/Vincoli standard/riga sul repo fissi, Contesto/Obiettivo/Criterio di chiusura sintetizzati dall'LLM solo da dati presenti alla lettera nel contesto raccolto; nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, zero LLM"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "knowledge/argo/SOUL.md"
@@ -505,7 +550,7 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:414-504"
+      - "backend/main.py:414-524"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
       - "worker/loop.py:83-85"
@@ -590,6 +635,12 @@ pipeline:
       - id: AV04
         enunciato: "Un /orienta scritto mentre una richiesta precedente è già in coda non genera una seconda chiamata LLM"
         garantito_da: "backend/main.py:437-443 (pg_advisory_xact_lock(hashtext('genera_orienta_enqueue')) prima del check-poi-insert su tipo='genera_orienta' AND stato IN ('pending','running')) — al più un job in volo, non un cooldown temporale: una richiesta dopo che la precedente è finita (done/failed) ne accoda una nuova regolarmente. Il lock non è decorativo: sotto READ COMMITTED un WHERE NOT EXISTS da solo non è atomico fra connessioni concorrenti — stesso difetto e stesso fix di garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py, 11/9/2026), trovato in questo passo dalla review guardrail prima del commit."
+      - id: AV05
+        enunciato: "Un brief non cita un file, un comando o un numero assente dal contesto raccolto sul cantiere"
+        garantito_da: eval
+      - id: AV06
+        enunciato: "/brief con un nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, mai un cantiere indovinato a caso"
+        garantito_da: "argo/voce.py:_risolvi_cantiere + genera_brief (match per sottostringa sulla riga di STATO.md, zero o più di un risultato ritorna l'elenco fisso senza mai chiamare connectors/llm.py:chiama())"
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -607,6 +658,8 @@ pipeline:
       - "PASSO 5, decisione con Leonardo: niente refactor di argo/stato.py dentro Docker (avrebbe richiesto psycopg diretto + bind-mount di STATO.md/.git nel container + git nell'immagine) — si tiene la deviazione host-only com'è, ponte via jobs + cron. Costo accettato: latenza fino a ~1 minuto (granularità cron) prima che orienta_webhook.py veda il job, più una riga di crontab che Leonardo aggiunge a mano (non nel repo, vedi STATO.md)."
       - "PASSO 6 (11/9/2026): argomenti_comando e interpreta_instrada (nuove in connectors/telegram.py, pure, zero rete/DB) vivono nel file condiviso telegram_notifica per lo stesso motivo di normalizza_comando al passo 5 (backend/main.py non importabile da tests/, gira solo in Docker) — non sono logica della funzione notifica() in sé, sono parsing di /instrada, semplicemente co-locate nello stesso file per restare testabili. tests/test_webhook_argo.py le copre entrambe, tutti i rami (mancante/non valido per ciascun parametro)."
       - "PASSO 6: backend/main.py:414-504 (ex 407-466) e connectors/telegram.py:35-209 (ex 35-154) sono i nuovi confini dopo l'inserimento di COMANDO_INSTRADA/_accoda_job_argo/interpreta_instrada — approvazione_telegram (condiviso) aggiornato di conseguenza sui propri range in backend/main.py, spostati dalla stessa causa (righe inserite più in alto nel file)."
+      - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): AV05 garantito_da: eval, stesso trattamento di AV03/CD01/CD02 — proprietà di un testo generato da un LLM (Contesto/Obiettivo/Criterio di chiusura del brief), nessuna guardia deterministica può verificarla a runtime. Validata a mano in questo passo su un cantiere reale (vedi STATO.md per il testo generato); nessuna suite di eval automatica ancora, come per AV03/CD01/CD02."
+      - "PASSO 1 (ponte): backend/main.py:414-524 (ex 414-504) dopo l'inserimento di COMANDO_BRIEF/RISPOSTA_BRIEF_SENZA_NOME e del ramo /brief in _gestisci_messaggio_argo — approvazione_telegram (condiviso) non tocca queste righe, nessun aggiornamento al suo range necessario. worker/loop.py:claim_job (60-70/83-85/1635-1668, invariati) ha guadagnato 'genera_brief' nella stessa esclusione NOT IN, stessa riga, nessuno spostamento di riga nel file."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -665,10 +718,10 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:507-523"
+      - "backend/main.py:527-543"
       - "backend/main.py:283-386"
       - "backend/main.py:387-411"
-      - "connectors/telegram.py:35-209"
+      - "connectors/telegram.py:35-254"
     usato_da: [risposte_email, dm_instagram_facebook]
     env:
       - TELEGRAM_TOKEN
@@ -678,7 +731,8 @@ condivisi:
       - "idempotenza via UPDATE...WHERE stato=atteso...RETURNING id sulla riga approvals, non dedup_key: main.py:306-313 (appr), 324-330 (rifiu), 346-353 (modif), 401-408 (correzione testo) — eccezione dichiarata in CLAUDE.md (comandi operatore non sono eventi di dominio)"
       - "accoda job invia_risposta dopo ogni decisione: _accoda_invia_risposta main.py:283-287, chiamata a 316,333,411"
       - "usata sia dalle approvals create da _valuta_e_rispondi per email sia per DM — main.py non distingue il canale, agisce solo sulla tabella approvals"
-      - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:509, webhook_telegram — non da confondere con la stessa header per ARGO_VOCE_WEBHOOK_SECRET su webhook_argo, main.py:492)"
+      - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:529, webhook_telegram — non da confondere con la stessa header per ARGO_VOCE_WEBHOOK_SECRET su webhook_argo, main.py:512)"
+      - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): webhook_argo (argo_voce) è cresciuto di 20 righe per il ramo /brief, spostando webhook_telegram da 507-523 a 527-543 — range aggiornato di conseguenza, stesso tipo di aggiustamento già fatto ai passi 6/8. connectors/telegram.py:35-209 → 35-254: _spezza_testo()/invia_lungo() (nuove, condiviso telegram_notifica) inserite in mezzo al file (114-156) hanno spostato chiedi_approvazione/chiedi_testo_corretto/rispondi_callback di 44 righe."
 
   - nome: mailer
     codice: ["connectors/mailer.py"]
@@ -699,7 +753,7 @@ condivisi:
       - "env distinti per i due usi: SMTP_* per poster_host (via invia_email), REPLY_SMTP_*/MAIL_FROM_NAME per il resto (connectors/mailer.py:12,19,21,30,34,36,53,64) — tutti letti direttamente qui, non nelle pipeline"
 
   - nome: telegram_notifica
-    codice: ["connectors/telegram.py:12-21"]
+    codice: ["connectors/telegram.py:12-21", "connectors/telegram.py:114-156"]
     usato_da: [poster_host, risposte_email, dm_instagram_facebook, manutenzione_sistema, lead_gen_host, argo_voce]
     env:
       - TELEGRAM_TOKEN
@@ -708,6 +762,7 @@ condivisi:
       - "chiamata da praticamente ogni handler del worker e da backend/main.py per alert operativi — grep conferma import in worker/loop.py, backend/main.py, connectors/llm.py, backup/invia_backup.py, scripts/risolvi.py"
       - "env letti direttamente qui (righe 13-14), con log di warning e nessun invio se mancanti — non solleva mai eccezione"
       - "PASSO 4 argo_voce (11/9/2026): notifica() ha ora un parametro opzionale `token` (connectors/telegram.py:12) — `token = token or os.environ.get('TELEGRAM_TOKEN')`, stesso pattern parametrico già usato da connectors/mailer.py per mittente/password. Tutte le chiamate esistenti restano `notifica(testo)` senza token, comportamento identico a prima. argo_voce (scripts/argo/orienta.py) è l'unico chiamante che passa `token=ARGO_VOCE_BOT_TOKEN` (env propria della scheda, non di questo condiviso — vedi env di argo_voce): usa quindi TELEGRAM_CHAT_ID condiviso ma un token diverso, un secondo bot."
+      - "PASSO 1 argo_voce, ponte (12/9/2026): nuove _spezza_testo()/invia_lungo() (connectors/telegram.py:114-156) — un brief supera spesso i 4096 caratteri di un messaggio Telegram (gli altri tre modi di argo_voce restano sempre entro un messaggio). invia_lungo() spezza su paragrafi e manda ogni blocco con notifica() già esistente, senza intestazioni 'parte N/M' nel testo: più messaggi Telegram consecutivi si selezionano insieme e si copiano come un unico blocco, un marcatore di parte verrebbe incollato dentro il brief. notifica() non è stata toccata; scripts/argo/orienta_webhook.py ora chiama invia_lungo() per tutti e quattro i modi (comportamento identico a prima quando il testo sta in un solo messaggio)."
 
   - nome: alert_una_volta
     codice: ["worker/loop.py:761-776"]

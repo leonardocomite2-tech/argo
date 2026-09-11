@@ -374,6 +374,64 @@ def _indice_sessioni(testo, n=15):
     return indice[-n:]
 
 
+def _tutte_le_sezioni(testo):
+    """Ogni blocco '## <titolo>' del file, dal titolo al prossimo '## ' (o
+    fine file), nell'ordine in cui compaiono. A differenza di
+    _estrai_sezione (un titolo esatto alla volta) serve a scorrere TUTTI i
+    titoli per trovare quelli che riguardano un cantiere, senza conoscerne
+    la stringa esatta in anticipo."""
+    pattern = re.compile(r"^## (.+?)\s*$\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+    return [
+        {"titolo": m.group(1).strip(), "testo": m.group(2).strip()}
+        for m in pattern.finditer(testo)
+    ]
+
+
+def chiave_cantiere(nome):
+    """Normalizza il nome di un cantiere per confrontarlo coi titoli delle
+    sessioni (usata anche da argo/voce.py per la mappa dei documenti di
+    knowledge, quindi non privata): toglie un'eventuale nota tra parentesi
+    finale (spesso assente nei titoli, es. 'Designer (bonifica
+    yourservice-it)' -> 'Designer'), converte trattini/en-dash in spazi (i
+    titoli usano spesso un trattino singolo dove la tabella CANTIERI usa
+    l'en-dash — visto su 'Panoptes — Mappa' / 'Cantiere Panoptes-Mappa'),
+    minuscolo, spazi singoli. Non taglia al primo trattino: 'Argo — la
+    voce' e 'Argo — il ponte' devono restare chiavi diverse."""
+    nome = re.sub(r"\s*\([^)]*\)\s*$", "", nome).strip()
+    nome = re.sub(r"[-—]+", " ", nome)
+    return re.sub(r"\s+", " ", nome).strip().lower()
+
+
+def _normalizza_titolo(titolo):
+    titolo = re.sub(r"[-—]+", " ", titolo)
+    return re.sub(r"\s+", " ", titolo).strip().lower()
+
+
+def sessioni_cantiere(nome, n=3):
+    """Ultime `n` sezioni '## ' di STATO.md che riguardano `nome` (match per
+    sottostringa sulla chiave normalizzata, vedi _chiave_cantiere), corpo
+    intero incluso. Zero sezioni trovate è un esito valido, non un errore:
+    alcuni cantieri (es. Cantiere 1/2/3, Lead-gen host) non hanno mai avuto
+    un'intestazione '## ' dedicata, il contenuto vive altrove nel file."""
+    if not STATO_MD_PATH.exists():
+        return {
+            "copertura": "assente",
+            "motivo": (
+                f"{STATO_MD_PATH} non trovato — questa funzione va eseguita da host, "
+                "nel repo: il file non è copiato nell'immagine Docker."
+            ),
+            "sezioni": [],
+        }
+
+    testo = STATO_MD_PATH.read_text(encoding="utf-8")
+    chiave = chiave_cantiere(nome)
+    trovate = [
+        sezione for sezione in _tutte_le_sezioni(testo)
+        if chiave in _normalizza_titolo(sezione["titolo"])
+    ]
+    return {"copertura": "completa", "motivo": None, "sezioni": trovate[-n:]}
+
+
 def cantieri_aperti():
     """Parsing di STATO.md. La fonte primaria è il blocco strutturato
     '## CANTIERI' (una riga per cantiere, vocabolario fisso per stato/
