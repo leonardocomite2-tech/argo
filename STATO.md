@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 5: /orienta funzionante da Telegram (webhook + cron host), resta a Leonardo il collaudo end-to-end dal telefono e tre passi a mano (secret in .env, setWebhook, riga crontab) |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 6: modo "instrada" (/instrada <minuti> telefono\|computer), riusa webhook/job/cron di orienta, nessun secret nuovo; resta a Leonardo il collaudo end-to-end dal telefono con due finestre diverse |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2009,3 +2009,125 @@ nuovo `scripts/argo/orienta_webhook.py`, nuovo `tests/test_webhook_argo.py`,
 `knowledge/mappa_sistema.yaml`, `STATO.md`. Nessuna modifica a
 `argo/voce.py`, `argo/stato.py`, Dockerfile, docker-compose.yml, schema DB,
 bot meccanico (webhook/telegram, approvazioni, alert restano invariati).
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 6: il modo "instrada"
+
+Obiettivo: aggiungere il secondo dei tre modi di `IDENTITY.md`, quello
+principale. Non "dove sono?" (orienta) ma "ho questa finestra di tempo e
+questo contesto fisico, cosa chiude qualcosa?" — instradamento per finestra e
+contesto, non per priorità astratta. Regola che lo distingue da orienta,
+esplicita nel prompt: a parità di finestra, ciò che **chiude** qualcosa viene
+proposto prima di ciò che ne **apre** una, senza predica né insistenza.
+
+**Comando**: `/instrada <minuti> <telefono|computer>`, es. `/instrada 20
+telefono` — due parametri posizionali, testo minimo per una mano su un
+telefono. Se un parametro manca o non è valido, Argo lo chiede in una riga
+(mai indovina): minuti assenti → "Quanti minuti hai?"; minuti non un intero
+positivo → "I minuti vanno scritti come numero intero positivo (es. 20).";
+contesto assente → "Sei al telefono o al computer?"; contesto fuori enum →
+"Contesto non riconosciuto: telefono o computer?". Testo extra dopo i primi
+due token viene ignorato, stessa tolleranza di `/orienta`.
+
+**Disegno — riuso totale dell'infrastruttura di orienta, nessun secret
+nuovo**:
+- `argo/voce.py`: `costruisci_system_prompt(stato_dict, istruzioni)` — refactor,
+  l'istruzione diventa un parametro invece di essere fissata a
+  `ISTRUZIONI_ORIENTA`, così lo stesso costruttore (stessa lettura di
+  SOUL/IDENTITY/USER, stessa serializzazione JSON compatta con troncamento su
+  `decisioni_aperte_bloccano`) serve entrambi i modi. Nuova
+  `ISTRUZIONI_INSTRADA`: stessa struttura di `ISTRUZIONI_ORIENTA` (anti-
+  invenzione, copertura parziale/assente dichiarata, niente incoraggiamenti)
+  più le regole specifiche del brief — una sola proposta con il perché;
+  dentro la finestra dichiarata; rispetta il contesto fisico (niente Claude
+  Code/terminale se `telefono`); chiude-prima-di-apre a parità di finestra;
+  se niente si adatta, lo dice e si ferma. Nuova `genera_risposta_instrada(minuti,
+  contesto)`: stessa `raccogli_stato()` (le sei fonti invariate), domanda
+  costruita da `_domanda_instrada()` (pura, deriva solo da valori già
+  validati — zero rischio di invenzione perché non è testo del modello).
+- `connectors/telegram.py`: due nuove funzioni pure, stesso motivo di
+  `normalizza_comando` al passo 5 (vivono qui perché `backend/main.py` gira
+  dentro Docker e non può importare `argo/`) — `argomenti_comando(testo)`
+  (token dopo il comando) e `interpreta_instrada(argomenti)` (ritorna
+  `(minuti, contesto, errore)`, non indovina mai un parametro mancante o
+  fuori enum).
+- `backend/main.py`: `COMANDO_INSTRADA` nuovo, `_accoda_job_argo(tipo_job,
+  payload, chiave_lock)` estratta da `_gestisci_messaggio_argo` — **secondo
+  uso reale della stessa logica** (lock-poi-check-poi-insert, prima solo per
+  `genera_orienta`), non un'astrazione al primo uso. Lock/tetto indipendente
+  per tipo di job: un tap ripetuto dello stesso comando mentre uno è già in
+  coda non ne accoda un altro, ma orienta e instrada restano indipendenti tra
+  loro (nessun requisito nel brief per un tetto condiviso). Nessuna riga in
+  `events` (comando operatore, non evento di dominio — invariante CLAUDE.md,
+  invariato da passo 5).
+- `scripts/argo/orienta_webhook.py` **generalizzato, nome file invariato**:
+  il crontab di Leonardo lancia già questo script ogni minuto
+  (`orienta_webhook.log` presente sul VPS, non tracciato — prova che è
+  attivo) — rinominarlo lo avrebbe rotto in silenzio. `_reclama_job()` ora
+  seleziona il pending più vecchio tra `genera_orienta`/`genera_instrada`
+  (stesso stile `json_agg` di `argo/stato.py:_query_db` per un parsing
+  multi-colonna robusto via `docker exec psql`), `main()` dirama alla
+  funzione giusta. Un solo consumer, un solo lancio al minuto, FIFO su
+  entrambi i tipi — nessuna nuova riga di crontab.
+- `worker/loop.py:claim_job`: l'esclusione già presente per `genera_orienta`
+  estesa a `genera_instrada` (`tipo NOT IN (...)`), stesso motivo: senza,
+  il worker Docker reclamerebbe il job prima del cron host, trovando nessun
+  handler e marcando un ALERT falso a ogni `/instrada`. `python3
+  scripts/panoptes/impatti.py --file worker/loop.py:68` lanciato prima della
+  modifica (claim_job appartiene a `manutenzione_sistema`, nessun contratto
+  in gioco).
+
+**Nessuna scrittura oltre `jobs`, nessun nuovo secret**: `/instrada` riusa
+`ARGO_VOCE_BOT_TOKEN`/`ARGO_VOCE_WEBHOOK_SECRET`/`TELEGRAM_CHAT_ID`/
+`ANTHROPIC_API_KEY`/`LLM_TETTO_GIORNALIERO` già configurati al passo 5.
+Nessuna modifica a Dockerfile/docker-compose/schema DB/bot meccanico.
+
+**Stima token**: stesse sei fonti e stessa struttura di prompt di orienta
+(7.787 token in ingresso misurati dopo l'ottimizzazione del passo 4);
+`ISTRUZIONI_INSTRADA` è di lunghezza comparabile a `ISTRUZIONI_ORIENTA` —
+attesi ~7.800-8.000 token in ingresso, ≤200 in uscita (stesso
+`MAX_TOKENS_RISPOSTA`). Non ancora verificato con un lancio reale in questa
+sessione (nessun job `genera_instrada` è mai stato consumato: il collaudo
+end-to-end richiede Telegram dal telefono di Leonardo, vedi sotto) — il
+numero reale arriverà dal primo `/instrada` vero.
+
+**Aggiustamenti alla mappa dopo l'inserimento di codice**: l'aggiunta di
+`COMANDO_INSTRADA`/`_accoda_job_argo`/import multilinea in `backend/main.py`
+e delle due funzioni pure in `connectors/telegram.py` ha spostato tutte le
+righe successive nei due file — corretti nella stessa sessione i range della
+scheda `argo_voce` (`backend/main.py:407-466` → `414-504`) e del condiviso
+`approvazione_telegram` (`backend/main.py:283-377,380-404,469-485` →
+`283-386,387-411,507-523`; `connectors/telegram.py:35-154` → `35-209`), più
+le citazioni di riga nella sua `evidenza`. Trovato e corretto da
+`verifica_mappa.py` (4 divergenze reali: un env dichiarato ma non trovato su
+`argo_voce`, due su `approvazione_telegram` per lo stesso motivo, un env
+trovato ma non dichiarato per un falso positivo di range sovrapposto) — 0
+divergenze dopo la correzione.
+
+**Verifiche**: `tests/test_argo_voce.py` 43/43 (nuovi casi: `ISTRUZIONI_INSTRADA`
+copre i punti del brief, `costruisci_system_prompt` con entrambi i set di
+istruzioni, `_domanda_instrada` per i due contesti, `genera_risposta_instrada`
+verificata via source), `tests/test_webhook_argo.py` 27/27 (nuovi casi:
+`argomenti_comando` e `interpreta_instrada` su tutti i rami — valido, ciascun
+parametro mancante, minuti non numerici/zero/negativi, contesto non
+riconosciuto — più guardrail statico su `COMANDO_INSTRADA`), nessuna
+regressione sul resto della suite (`test_argo_stato` 19/19, `test_fetch`
+12/12, `test_filtri_email` 25/25, `test_normalizza` 132/132,
+`test_panoptes_lib` 35/35). `python3 -m py_compile` su tutti i file non
+importabili per intero da host. `scripts/panoptes/verifica_mappa.py`: 0
+divergenze su 14 schede. Sub-agent `guardrail-review` sul diff completo.
+
+**Cosa resta a mano a Leonardo** (nessun nuovo secret o riga di crontab,
+tutto già configurato al passo 5):
+1. `docker compose up -d --build` per far girare il nuovo `backend/main.py`.
+2. Collaudo end-to-end vero dal telefono: `/instrada` con una finestra breve
+   e una lunga (in contesti a piacere) — verificare che le due proposte
+   siano diverse e coerenti con la regola chiude-prima-di-apre, e che il
+   costo reale in token sia in linea con la stima sopra. Criterio di
+   chiusura di questa sessione: i due testi generati, incollati per giudicare
+   se la regola funziona o va riscritta nei file identità.
+
+File toccati: `argo/voce.py`, `connectors/telegram.py`, `backend/main.py`,
+`scripts/argo/orienta_webhook.py` (nome invariato), `worker/loop.py`,
+`tests/test_argo_voce.py`, `tests/test_webhook_argo.py`,
+`knowledge/mappa_sistema.yaml`, `STATO.md`. Nessuna migrazione, nessun nuovo
+secret, nessuna modifica a Dockerfile/docker-compose/schema DB/bot meccanico.

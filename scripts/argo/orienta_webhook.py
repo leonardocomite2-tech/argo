@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """python3 scripts/argo/orienta_webhook.py
 
-Consumer host-side del job 'genera_orienta', accodato da backend/main.py
-(POST /webhook/argo) quando Leonardo scrive /orienta al bot Argo da
-Telegram. Lanciato da cron ogni minuto, non da Docker: argo/voce.py passa
-da argo/stato.py, che deve girare da host (docker exec + STATO.md + git sul
-filesystem del repo — vedi il docstring di argo/stato.py). worker/loop.py
-esclude esplicitamente 'genera_orienta' dal proprio claim_job() per questo
-motivo.
+Consumer host-side dei job 'genera_orienta' e 'genera_instrada' (passo 6,
+generalizzato — nome file invariato apposta: il crontab di Leonardo lancia
+già questo script ogni minuto, rinominarlo lo romperebbe in silenzio),
+accodati da backend/main.py (POST /webhook/argo) quando Leonardo scrive
+/orienta o /instrada al bot Argo da Telegram. Lanciato da cron, non da
+Docker: argo/voce.py passa da argo/stato.py, che deve girare da host (docker
+exec + STATO.md + git sul filesystem del repo — vedi il docstring di
+argo/stato.py). worker/loop.py esclude esplicitamente entrambi i tipi dal
+proprio claim_job() per questo motivo.
 
-Ad ogni lancio reclama al più un job pending, stesso idiom atomico di
-worker/loop.py:claim_job (UPDATE ... WHERE stato='pending' RETURNING id),
-ma via `docker exec argo-db-1 psql` invece di psycopg diretto — stessa
-convenzione di argo/stato.py, dato che gira da host come quel modulo.
+Ad ogni lancio reclama al più un job pending (il più vecchio dei due tipi,
+FIFO), stesso idiom atomico di worker/loop.py:claim_job (UPDATE ...
+WHERE stato='pending' RETURNING id), ma via `docker exec argo-db-1 psql`
+invece di psycopg diretto — stessa convenzione di argo/stato.py, dato che
+gira da host come quel modulo. Selezione multi-colonna (id, tipo, payload)
+avvolta in json_agg, stesso stile robusto di argo/stato.py:_query_db.
 
 Nessun retry automatico su errore (stesso trade-off già scelto per
 classificazione/bozza, vedi STATO.md — DECISIONI APERTE): un fallimento è
-terminale per quella richiesta, Leonardo la ripete con un altro /orienta.
+terminale per quella richiesta, Leonardo la ripete con un altro comando.
 Mai un fallimento silenzioso: un errore avvisa comunque su Telegram.
 """
 
+import json
 import logging
 import os
 import subprocess
@@ -37,7 +42,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("argo.orienta_webhook")
 
 CONTAINER_DB = "argo-db-1"
-TIPO_JOB = "genera_orienta"
+TIPI_JOB = ("genera_orienta", "genera_instrada")
 
 
 def _psql(sql, timeout=15):
@@ -56,21 +61,27 @@ def _psql(sql, timeout=15):
 
 
 def _reclama_job():
-    """Claim atomico: prima trova il pending più vecchio, poi lo reclama con
-    una UPDATE guardata su stato='pending' — se nel frattempo un altro
-    lancio di questo stesso script lo ha già preso, la UPDATE non tocca
-    righe e questo lancio esce a mani vuote (nessun doppio invio)."""
+    """Claim atomico: prima trova il pending più vecchio tra i due tipi (FIFO),
+    poi lo reclama con una UPDATE guardata su stato='pending' — se nel frattempo
+    un altro lancio di questo stesso script lo ha già preso, la UPDATE non tocca
+    righe e questo lancio esce a mani vuote (nessun doppio invio). Ritorna
+    (job_id, tipo, payload) o None."""
+    tipi_sql = ",".join(f"'{t}'" for t in TIPI_JOB)
     riga = _psql(
-        f"SELECT id FROM jobs WHERE tipo='{TIPO_JOB}' AND stato='pending' ORDER BY id LIMIT 1"
+        "SELECT json_agg(t) FROM (SELECT id, tipo, payload FROM jobs "
+        f"WHERE tipo IN ({tipi_sql}) AND stato='pending' ORDER BY id LIMIT 1) t"
     )
-    if not riga:
+    if not riga or riga == "null":
         return None
-    job_id = int(riga)
+    job = json.loads(riga)[0]
+    job_id = job["id"]
     claimato = _psql(
         f"UPDATE jobs SET stato='running', tentativi=tentativi+1 "
         f"WHERE id={job_id} AND stato='pending' RETURNING id"
     )
-    return job_id if claimato else None
+    if not claimato:
+        return None
+    return job_id, job["tipo"], job.get("payload") or {}
 
 
 def _segna_done(job_id):
@@ -83,20 +94,25 @@ def _segna_failed(job_id, errore):
 
 
 def main():
-    job_id = _reclama_job()
-    if job_id is None:
+    reclamato = _reclama_job()
+    if reclamato is None:
         return
+    job_id, tipo, payload = reclamato
 
-    from argo.voce import genera_risposta
+    from argo.voce import genera_risposta, genera_risposta_instrada
     from connectors.telegram import notifica
 
+    comando_ripeti = "/orienta" if tipo == "genera_orienta" else "/instrada"
     try:
-        testo = genera_risposta()
+        if tipo == "genera_orienta":
+            testo = genera_risposta()
+        else:
+            testo = genera_risposta_instrada(payload["minuti"], payload["contesto"])
     except Exception as e:
-        logger.exception("orienta_webhook: job %s fallito", job_id)
+        logger.exception("orienta_webhook: job %s (%s) fallito", job_id, tipo)
         _segna_failed(job_id, f"{type(e).__name__}: {e}")
         notifica(
-            "Errore nel generare l'orientamento — riprova con /orienta.",
+            f"Errore nel generare la risposta — riprova con {comando_ripeti}.",
             token=os.environ["ARGO_VOCE_BOT_TOKEN"],
         )
         return

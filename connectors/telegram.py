@@ -46,6 +46,47 @@ def normalizza_comando(testo):
     return testo.split()[0].split("@", 1)[0]
 
 
+def argomenti_comando(testo):
+    """Token successivi al comando (esclude il comando stesso e l'eventuale
+    '@NomeBot'). [] se il testo è vuoto/assente o ha solo il comando. Usata da
+    /instrada per leggere minuti e contesto senza toccare il testo grezzo altrove."""
+    testo = (testo or "").strip()
+    if not testo:
+        return []
+    return testo.split()[1:]
+
+
+CONTESTI_VALIDI = {"telefono", "computer"}
+
+MESSAGGIO_MINUTI_MANCANTI = "Quanti minuti hai?"
+MESSAGGIO_MINUTI_NON_VALIDI = "I minuti vanno scritti come numero intero positivo (es. 20)."
+MESSAGGIO_CONTESTO_MANCANTE = "Sei al telefono o al computer?"
+MESSAGGIO_CONTESTO_NON_VALIDO = "Contesto non riconosciuto: telefono o computer?"
+
+
+def interpreta_instrada(argomenti):
+    """Interpreta gli argomenti di /instrada (minuti, contesto). Ritorna
+    (minuti, contesto, errore): errore è una riga pronta da mandare a Leonardo se
+    un parametro manca o non è valido, None se entrambi i valori sono buoni. Non
+    indovina mai un valore mancante o fuori dall'enum — coerente con /orienta."""
+    minuti_testo = argomenti[0] if len(argomenti) >= 1 else None
+    contesto_testo = argomenti[1] if len(argomenti) >= 2 else None
+
+    if minuti_testo is None:
+        return None, None, MESSAGGIO_MINUTI_MANCANTI
+    if not minuti_testo.isdigit() or int(minuti_testo) <= 0:
+        return None, None, MESSAGGIO_MINUTI_NON_VALIDI
+    minuti = int(minuti_testo)
+
+    if contesto_testo is None:
+        return minuti, None, MESSAGGIO_CONTESTO_MANCANTE
+    contesto = contesto_testo.strip().lower()
+    if contesto not in CONTESTI_VALIDI:
+        return minuti, None, MESSAGGIO_CONTESTO_NON_VALIDO
+
+    return minuti, contesto, None
+
+
 def _invia(metodo, corpo):
     """POST verso l'API Telegram. Solleva l'eccezione (redatta) se la chiamata fallisce."""
     token = os.environ["TELEGRAM_TOKEN"]

@@ -7,7 +7,14 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 
-from connectors.telegram import notifica, rispondi_callback, chiedi_testo_corretto, normalizza_comando
+from connectors.telegram import (
+    notifica,
+    rispondi_callback,
+    chiedi_testo_corretto,
+    normalizza_comando,
+    argomenti_comando,
+    interpreta_instrada,
+)
 
 app = FastAPI(title="Argo")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -405,45 +412,76 @@ def _gestisci_modifica_telegram(message):
 
 
 COMANDO_ORIENTA = "/orienta"
-RISPOSTA_COMANDO_SCONOSCIUTO = f"Comando non riconosciuto. Usa {COMANDO_ORIENTA}."
+COMANDO_INSTRADA = "/instrada"
+RISPOSTA_COMANDO_SCONOSCIUTO = (
+    f"Comando non riconosciuto. Usa {COMANDO_ORIENTA} oppure "
+    f"{COMANDO_INSTRADA} <minuti> telefono|computer."
+)
 RISPOSTA_GIA_IN_CORSO = "Richiesta già in corso, arriva a breve."
 
 
+def _accoda_job_argo(tipo_job, payload, chiave_lock):
+    """Comune a genera_orienta e genera_instrada (secondo uso reale della stessa
+    logica, estratta solo ora — vedi CLAUDE.md): tetto di al più un job dello
+    stesso tipo in volo, i tap ripetuti dello stesso comando mentre uno è già in
+    coda non ne accodano un altro. Lock di sessione prima del check-poi-insert:
+    sotto READ COMMITTED (default Postgres) un WHERE NOT EXISTS da solo non
+    basta — due POST concorrenti (doppio tap, o redelivery Telegram) potrebbero
+    entrambi valutarlo vero prima del commit dell'altro, aprendo due job. Stesso
+    fix di garantisci_leggi_email/controlli_periodici/digest_serale
+    (worker/loop.py, 11/9/2026). Ritorna True se accodato, False se già in coda."""
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (chiave_lock,))
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = %s AND stato IN ('pending', 'running')",
+                (tipo_job,),
+            )
+            accodato = cur.fetchone() is None
+            if accodato:
+                cur.execute(
+                    "INSERT INTO jobs (tipo, payload) VALUES (%s, %s)",
+                    (tipo_job, json.dumps(payload)),
+                )
+    return accodato
+
+
 def _gestisci_messaggio_argo(message):
-    """Un solo comportamento: /orienta accoda genera_orienta (consumato da
-    scripts/argo/orienta_webhook.py, lanciato da cron host — argo/voce.py non
-    può girare dentro Docker, vedi argo/stato.py). Tetto di chiamate: al più
-    un job 'genera_orienta' in volo, i tap ripetuti mentre uno è già in coda
-    non ne accodano un altro. Qualunque altro testo, o un chat_id diverso da
-    TELEGRAM_CHAT_ID (ignorato in silenzio), non tocca l'LLM."""
+    """Due comportamenti, entrambi via job + consumer cron host (argo/voce.py non
+    può girare dentro Docker, vedi argo/stato.py): /orienta accoda genera_orienta;
+    /instrada <minuti> telefono|computer accoda genera_instrada se i due parametri
+    sono validi, altrimenti risponde in una riga cosa manca (zero LLM, mai indovina
+    — connectors.telegram.interpreta_instrada). Qualunque altro testo, o un chat_id
+    diverso da TELEGRAM_CHAT_ID (ignorato in silenzio), non tocca l'LLM."""
     chat_id = str((message.get("chat") or {}).get("id") or "")
     if chat_id != os.environ.get("TELEGRAM_CHAT_ID"):
         logger.warning("webhook_argo: messaggio da chat_id non autorizzato, ignorato in silenzio")
         return
 
-    comando = normalizza_comando(message.get("text"))
-    if comando != COMANDO_ORIENTA:
-        notifica(RISPOSTA_COMANDO_SCONOSCIUTO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+    testo = message.get("text")
+    comando = normalizza_comando(testo)
+
+    if comando == COMANDO_ORIENTA:
+        accodato = _accoda_job_argo("genera_orienta", {}, "genera_orienta_enqueue")
+        if not accodato:
+            notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
         return
 
-    with db_connect() as conn:
-        with conn.cursor() as cur:
-            # Lock di sessione prima del check-poi-insert: sotto READ COMMITTED
-            # (default Postgres) un WHERE NOT EXISTS da solo non basta — due
-            # POST concorrenti (doppio tap, o redelivery Telegram) potrebbero
-            # entrambi valutarlo vero prima del commit dell'altro, aprendo due
-            # job. Stesso difetto e stesso fix di garantisci_leggi_email/
-            # controlli_periodici/digest_serale (worker/loop.py, 11/9/2026).
-            cur.execute("SELECT pg_advisory_xact_lock(hashtext('genera_orienta_enqueue'))")
-            cur.execute(
-                "SELECT 1 FROM jobs WHERE tipo = 'genera_orienta' AND stato IN ('pending', 'running')"
-            )
-            accodato = cur.fetchone() is None
-            if accodato:
-                cur.execute("INSERT INTO jobs (tipo, payload) VALUES ('genera_orienta', '{}')")
+    if comando == COMANDO_INSTRADA:
+        minuti, contesto, errore = interpreta_instrada(argomenti_comando(testo))
+        if errore:
+            notifica(errore, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+            return
+        accodato = _accoda_job_argo(
+            "genera_instrada",
+            {"minuti": minuti, "contesto": contesto},
+            "genera_instrada_enqueue",
+        )
+        if not accodato:
+            notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+        return
 
-    if not accodato:
-        notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+    notifica(RISPOSTA_COMANDO_SCONOSCIUTO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
 
 
 @app.post("/webhook/argo")

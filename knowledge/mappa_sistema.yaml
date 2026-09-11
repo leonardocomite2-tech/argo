@@ -369,19 +369,58 @@ pipeline:
       chiamata: da 11.485 a 7.787 token in ingresso misurati (-32%, stima di
       ~7.800 confermata quasi esatta). Nessuna tabella/env/confine di
       pipeline toccato da queste correzioni.
+      PASSO 6 (11/9/2026) — secondo modo, "instrada": risponde a "ho N minuti
+      e sono al telefono/computer, cosa chiude qualcosa?" invece di "dove
+      sono?". argo/voce.py:costruisci_system_prompt ora prende `istruzioni`
+      come parametro (stesso costruttore SOUL+IDENTITY+USER+stato per
+      entrambi i modi, solo le regole cambiano) — genera_risposta() (orienta)
+      passa ISTRUZIONI_ORIENTA, la nuova genera_risposta_instrada(minuti,
+      contesto) passa ISTRUZIONI_INSTRADA. Nessuna nuova fonte di stato: le
+      stesse sei di raccogli_stato(). Regola specifica del brief, esplicita
+      nel prompt: a parità di finestra, ciò che CHIUDE qualcosa va proposto
+      prima di ciò che ne APRE una — una sola proposta, dentro la finestra
+      dichiarata, che rispetti il contesto fisico (niente Claude Code/
+      terminale se "telefono"); se niente si adatta, lo dice e si ferma.
+      Comando `/instrada <minuti> telefono|computer`: due nuove funzioni pure
+      in connectors/telegram.py (stesso motivo di normalizza_comando al passo
+      5 — vivono lì perché backend/main.py gira in Docker e non può importare
+      argo/), argomenti_comando(testo) e interpreta_instrada(argomenti), che
+      ritorna (minuti, contesto, errore) e non indovina mai un parametro
+      mancante o fuori enum (telefono/computer, letterali). backend/main.py:
+      COMANDO_INSTRADA nuovo, _accoda_job_argo(tipo_job, payload, chiave_lock)
+      estratta da _gestisci_messaggio_argo (secondo uso reale dello stesso
+      pattern lock+check+insert, prima solo per genera_orienta) e riusata per
+      entrambi i comandi — lock e tetto (al più un job per tipo in volo)
+      indipendenti tra orienta e instrada. scripts/argo/orienta_webhook.py
+      generalizzato per reclamare job di entrambi i tipi (id,tipo,payload via
+      json_agg, stesso stile di argo/stato.py:_query_db) e dirama alla
+      funzione giusta — nome file invariato apposta: il crontab di Leonardo
+      lancia già questo script ogni minuto (confermato attivo,
+      orienta_webhook.log presente sul VPS), rinominarlo lo romperebbe in
+      silenzio. worker/loop.py:claim_job esclude ora anche 'genera_instrada'
+      dalla propria coda, stesso motivo di 'genera_orienta'. Nessuna nuova
+      tabella, nessun nuovo secret: riusa ARGO_VOCE_BOT_TOKEN/
+      ARGO_VOCE_WEBHOOK_SECRET/TELEGRAM_CHAT_ID/ANTHROPIC_API_KEY/
+      LLM_TETTO_GIORNALIERO già configurati al passo 5. Collaudo end-to-end
+      reale (due finestre diverse dal telefono) lasciato a Leonardo, come al
+      passo 5.
     sede: vps
     attivazione: >
       scripts/argo/stato_cli.py (harness di lettura) resta lanciato a mano
-      da host, invariato. Il modo orienta ha due trigger: a mano da host con
-      scripts/argo/orienta.py, oppure da Telegram — Leonardo scrive
-      /orienta al bot Argo, POST /webhook/argo (backend/main.py:407-466)
-      accoda un job 'genera_orienta', scripts/argo/orienta_webhook.py
-      (lanciato da cron host ogni minuto, non dal worker Docker) lo
-      processa e manda la risposta. Vedi PASSO 5 sopra per il perché del
-      cron invece del worker.
+      da host, invariato. Due modi, stesso ponte via jobs + cron: Leonardo
+      scrive /orienta o /instrada <minuti> telefono|computer al bot Argo,
+      POST /webhook/argo (backend/main.py:414-504) accoda rispettivamente un
+      job 'genera_orienta' o 'genera_instrada' (o risponde con una riga fissa
+      se i parametri di /instrada mancano/non sono validi, zero LLM),
+      scripts/argo/orienta_webhook.py (lanciato da cron host ogni minuto, non
+      dal worker Docker) reclama il più vecchio dei due tipi e manda la
+      risposta. Il modo orienta ha anche un trigger a mano da host con
+      scripts/argo/orienta.py (invariato). Vedi PASSO 5 per il perché del
+      cron invece del worker, PASSO 6 per il secondo modo.
     produce:
       - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
       - "modo orienta: messaggio breve su Telegram (bot ARGO_VOCE_BOT_TOKEN) — poche righe, una sola prossima cosa con motivo, dichiarazione esplicita se una fonte ha copertura parziale/assente, mai un elenco di tutto lo stato"
+      - "modo instrada: messaggio breve su Telegram (stesso bot) — una sola proposta dentro la finestra dichiarata e coerente col contesto fisico (telefono/computer), a parità di finestra ciò che chiude qualcosa prima di ciò che ne apre una; se niente si adatta, lo dice e si ferma"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "knowledge/argo/SOUL.md"
@@ -392,7 +431,7 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:407-466"
+      - "backend/main.py:414-504"
       - "connectors/llm.py"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
@@ -471,6 +510,8 @@ pipeline:
       - "ARGO_VOCE_BOT_TOKEN (nuovo in .env) è un secondo bot Telegram, letto direttamente in scripts/argo/orienta.py e passato al parametro opzionale `token` di connectors/telegram.py:notifica() — il bot meccanico (TELEGRAM_TOKEN, approvazioni/alert esistenti) resta invariato, notifica(testo) senza token usa ancora TELEGRAM_TOKEN come prima. Stesso TELEGRAM_CHAT_ID per entrambi i bot."
       - "PASSO 5 (11/9/2026): normalizza_comando (nuovo in connectors/telegram.py, pura, zero rete/DB) estrae il primo token di un messaggio Telegram gestendo il suffisso '@NomeBot' dei gruppi — vive nel condiviso telegram_notifica e non in backend/main.py apposta: quel modulo importa psycopg/fastapi, non installati nell'ambiente host usato da tests/, quindi non importabile per un test unitario. tests/test_webhook_argo.py copre normalizza_comando più un guardrail statico (letto come testo, non importato) che backend/main.py usi davvero COMANDO_ORIENTA='/orienta'."
       - "PASSO 5, decisione con Leonardo: niente refactor di argo/stato.py dentro Docker (avrebbe richiesto psycopg diretto + bind-mount di STATO.md/.git nel container + git nell'immagine) — si tiene la deviazione host-only com'è, ponte via jobs + cron. Costo accettato: latenza fino a ~1 minuto (granularità cron) prima che orienta_webhook.py veda il job, più una riga di crontab che Leonardo aggiunge a mano (non nel repo, vedi STATO.md)."
+      - "PASSO 6 (11/9/2026): argomenti_comando e interpreta_instrada (nuove in connectors/telegram.py, pure, zero rete/DB) vivono nel file condiviso telegram_notifica per lo stesso motivo di normalizza_comando al passo 5 (backend/main.py non importabile da tests/, gira solo in Docker) — non sono logica della funzione notifica() in sé, sono parsing di /instrada, semplicemente co-locate nello stesso file per restare testabili. tests/test_webhook_argo.py le copre entrambe, tutti i rami (mancante/non valido per ciascun parametro)."
+      - "PASSO 6: backend/main.py:414-504 (ex 407-466) e connectors/telegram.py:35-209 (ex 35-154) sono i nuovi confini dopo l'inserimento di COMANDO_INSTRADA/_accoda_job_argo/interpreta_instrada — approvazione_telegram (condiviso) aggiornato di conseguenza sui propri range in backend/main.py, spostati dalla stessa causa (righe inserite più in alto nel file)."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -529,20 +570,20 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:469-485"
-      - "backend/main.py:283-377"
-      - "backend/main.py:380-404"
-      - "connectors/telegram.py:35-154"
+      - "backend/main.py:507-523"
+      - "backend/main.py:283-386"
+      - "backend/main.py:387-411"
+      - "connectors/telegram.py:35-209"
     usato_da: [risposte_email, dm_instagram_facebook]
     env:
       - TELEGRAM_TOKEN
       - TELEGRAM_CHAT_ID
       - TELEGRAM_WEBHOOK_SECRET
     evidenza:
-      - "idempotenza via UPDATE...WHERE stato=atteso...RETURNING id sulla riga approvals, non dedup_key: main.py:299-306 (appr), 317-323 (rifiu), 339-346 (modif), 394-401 (correzione testo) — eccezione dichiarata in CLAUDE.md (comandi operatore non sono eventi di dominio)"
-      - "accoda job invia_risposta dopo ogni decisione: _accoda_invia_risposta main.py:276-280, chiamata a 309,326,404"
+      - "idempotenza via UPDATE...WHERE stato=atteso...RETURNING id sulla riga approvals, non dedup_key: main.py:306-313 (appr), 324-330 (rifiu), 346-353 (modif), 401-408 (correzione testo) — eccezione dichiarata in CLAUDE.md (comandi operatore non sono eventi di dominio)"
+      - "accoda job invia_risposta dopo ogni decisione: _accoda_invia_risposta main.py:283-287, chiamata a 316,333,411"
       - "usata sia dalle approvals create da _valuta_e_rispondi per email sia per DM — main.py non distingue il canale, agisce solo sulla tabella approvals"
-      - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:409)"
+      - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:509, webhook_telegram — non da confondere con la stessa header per ARGO_VOCE_WEBHOOK_SECRET su webhook_argo, main.py:492)"
 
   - nome: mailer
     codice: ["connectors/mailer.py"]

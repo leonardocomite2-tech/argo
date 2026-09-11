@@ -31,10 +31,11 @@ for nome_file in ("SOUL.md", "IDENTITY.md", "USER.md"):
     caso(f"{nome_file} non è vuoto", True, len(contenuto.strip()) > 0)
 
 # --- costruisci_system_prompt: contiene davvero identità + istruzioni + stato ---
+# istruzioni è ora un parametro (passo 6, condiviso tra orienta e instrada) ---
 STATO_FINTO = {
     "cantieri_aperti": {"copertura": "parziale", "motivo": "MARCATORE_TEST_MOTIVO"},
 }
-_prompt = voce.costruisci_system_prompt(STATO_FINTO)
+_prompt = voce.costruisci_system_prompt(STATO_FINTO, voce.ISTRUZIONI_ORIENTA)
 
 soul, identity, user = voce._leggi_identita()
 caso("il system prompt contiene SOUL.md per intero", True, soul in _prompt)
@@ -42,6 +43,20 @@ caso("il system prompt contiene IDENTITY.md per intero", True, identity in _prom
 caso("il system prompt contiene USER.md per intero", True, user in _prompt)
 caso("il system prompt contiene le istruzioni del modo orienta", True, voce.ISTRUZIONI_ORIENTA in _prompt)
 caso("il system prompt contiene lo stato serializzato passato", True, "MARCATORE_TEST_MOTIVO" in _prompt)
+
+# --- costruisci_system_prompt con ISTRUZIONI_INSTRADA: stesso costruttore, istruzioni diverse ---
+_prompt_instrada = voce.costruisci_system_prompt(STATO_FINTO, voce.ISTRUZIONI_INSTRADA)
+caso("il system prompt (instrada) contiene SOUL.md per intero", True, soul in _prompt_instrada)
+caso(
+    "il system prompt (instrada) contiene le istruzioni del modo instrada",
+    True,
+    voce.ISTRUZIONI_INSTRADA in _prompt_instrada,
+)
+caso(
+    "il system prompt (instrada) NON contiene le istruzioni di orienta",
+    False,
+    voce.ISTRUZIONI_ORIENTA in _prompt_instrada,
+)
 
 # --- le istruzioni esplicite coprono i punti richiesti dal brief ---
 _istruzioni_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_ORIENTA)
@@ -61,6 +76,54 @@ for frammento in (
         True,
         frammento in _istruzioni_normalizzate,
     )
+
+# --- ISTRUZIONI_INSTRADA copre i punti specifici del brief (chiude-prima-di-apre,
+# finestra dichiarata, contesto fisico, una sola proposta, "niente si adatta") ---
+_istruzioni_instrada_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_INSTRADA)
+for frammento in (
+    "Una SOLA proposta",
+    "DENTRO la finestra dichiarata",
+    "contesto fisico dichiarato",
+    "niente Claude Code",
+    "CHIUDE qualcosa",
+    "APRE",
+    "proposta prima",
+    "niente si adatta alla finestra",
+    "riportali SOLO se compaiono alla lettera",
+    "copertura",
+):
+    caso(
+        f"ISTRUZIONI_INSTRADA copre: {frammento!r}",
+        True,
+        frammento in _istruzioni_instrada_normalizzate,
+    )
+
+# --- _domanda_instrada: pura, deriva solo da minuti/contesto già validati ---
+caso(
+    "_domanda_instrada(20, 'telefono')",
+    "Ho 20 minuti e ho solo il telefono. Cosa chiude qualcosa?",
+    voce._domanda_instrada(20, "telefono"),
+)
+caso(
+    "_domanda_instrada(120, 'computer')",
+    "Ho 120 minuti e sono al computer. Cosa chiude qualcosa?",
+    voce._domanda_instrada(120, "computer"),
+)
+
+# --- genera_risposta_instrada esiste e usa raccogli_stato/costruisci_system_prompt/chiama
+# (verificato via source, zero chiamate DB/rete nei test, stesso stile del check su
+# raccogli_stato sotto) ---
+_sorgente_genera_instrada = sorgente[sorgente.index("def genera_risposta_instrada"):]
+caso(
+    "genera_risposta_instrada chiama raccogli_stato()",
+    True,
+    "raccogli_stato()" in _sorgente_genera_instrada,
+)
+caso(
+    "genera_risposta_instrada usa ISTRUZIONI_INSTRADA",
+    True,
+    "ISTRUZIONI_INSTRADA" in _sorgente_genera_instrada,
+)
 
 # --- anti-invenzione anche in SOUL.md (non solo nel prompt operativo) ---
 caso(

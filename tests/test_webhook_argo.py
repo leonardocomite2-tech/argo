@@ -1,10 +1,10 @@
-"""Test di connectors/telegram.py:normalizza_comando, usata dal webhook
-/webhook/argo (backend/main.py) per riconoscere /orienta. Stile CASI (vedi
-tests/test_argo_voce.py). Vive fuori da backend/main.py apposta: quel modulo
-importa psycopg/fastapi, non installati nell'ambiente host di test (gira solo
-in Docker) — connectors/telegram.py no, quindi resta testabile da qui senza
-mock. Il resto di _gestisci_messaggio_argo (DB + invio Telegram) è collaudato
-a mano.
+"""Test di connectors/telegram.py: normalizza_comando/argomenti_comando/
+interpreta_instrada, usate dal webhook /webhook/argo (backend/main.py) per
+riconoscere /orienta e /instrada. Stile CASI (vedi tests/test_argo_voce.py).
+Vivono fuori da backend/main.py apposta: quel modulo importa psycopg/fastapi,
+non installati nell'ambiente host di test (gira solo in Docker) —
+connectors/telegram.py no, quindi resta testabile da qui senza mock. Il resto
+di _gestisci_messaggio_argo (DB + invio Telegram) è collaudato a mano.
 Lancio: python3 tests/test_webhook_argo.py
 """
 import sys
@@ -13,9 +13,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.telegram import normalizza_comando  # noqa: E402
+from connectors.telegram import (  # noqa: E402
+    normalizza_comando,
+    argomenti_comando,
+    interpreta_instrada,
+)
 
 COMANDO_ORIENTA = "/orienta"  # stesso valore di backend/main.py:COMANDO_ORIENTA
+COMANDO_INSTRADA = "/instrada"  # stesso valore di backend/main.py:COMANDO_INSTRADA
 
 CASI = []
 
@@ -34,7 +39,59 @@ caso("None -> None", None, normalizza_comando(None))
 caso("altro comando resta se stesso, non COMANDO_ORIENTA", "/stato", normalizza_comando("/stato"))
 caso("testo libero non è un comando riconosciuto", "ciao,", normalizza_comando("ciao, come va?"))
 
-# --- guardrail statico: backend/main.py usa davvero questo valore per COMANDO_ORIENTA
+# --- argomenti_comando: token dopo il comando ---
+caso("nessun testo -> []", [], argomenti_comando(""))
+caso("solo il comando -> []", [], argomenti_comando("/instrada"))
+caso("comando con testo extra -> None -> []", [], argomenti_comando(None))
+caso("un argomento", ["20"], argomenti_comando("/instrada 20"))
+caso("due argomenti", ["20", "telefono"], argomenti_comando("/instrada 20 telefono"))
+caso(
+    "due argomenti + testo extra, ignorato più avanti da chi chiama",
+    ["20", "telefono", "ora"],
+    argomenti_comando("/instrada 20 telefono ora"),
+)
+caso(
+    "argomenti dopo un comando con suffisso @NomeBot",
+    ["20", "telefono"],
+    argomenti_comando("/instrada@ArgoVoceBot 20 telefono"),
+)
+
+# --- interpreta_instrada: (minuti, contesto, errore) — mai indovina un valore mancante ---
+caso("minuti+contesto validi", (20, "telefono", None), interpreta_instrada(["20", "telefono"]))
+caso("minuti+contesto validi, computer", (120, "computer", None), interpreta_instrada(["120", "computer"]))
+caso(
+    "contesto maiuscolo normalizzato",
+    (5, "telefono", None),
+    interpreta_instrada(["5", "TELEFONO"]),
+)
+caso("nessun argomento -> chiede i minuti", (None, None, "Quanti minuti hai?"), interpreta_instrada([]))
+caso(
+    "minuti non numerici -> chiede un numero intero positivo",
+    (None, None, "I minuti vanno scritti come numero intero positivo (es. 20)."),
+    interpreta_instrada(["venti", "telefono"]),
+)
+caso(
+    "minuti zero -> non valido",
+    (None, None, "I minuti vanno scritti come numero intero positivo (es. 20)."),
+    interpreta_instrada(["0", "telefono"]),
+)
+caso(
+    "minuti negativi -> non valido (isdigit() rifiuta il segno)",
+    (None, None, "I minuti vanno scritti come numero intero positivo (es. 20)."),
+    interpreta_instrada(["-5", "telefono"]),
+)
+caso(
+    "contesto mancante -> chiede telefono o computer",
+    (20, None, "Sei al telefono o al computer?"),
+    interpreta_instrada(["20"]),
+)
+caso(
+    "contesto non riconosciuto -> non indovina",
+    (20, None, "Contesto non riconosciuto: telefono o computer?"),
+    interpreta_instrada(["20", "metropolitana"]),
+)
+
+# --- guardrail statico: backend/main.py usa davvero questi valori per i comandi
 # (letto come testo, non importato: backend/main.py richiede psycopg/fastapi, non
 # installati nell'ambiente host di test) ---
 _sorgente_main = (REPO_ROOT / "backend" / "main.py").read_text(encoding="utf-8")
@@ -42,6 +99,11 @@ caso(
     'backend/main.py: COMANDO_ORIENTA = "/orienta"',
     True,
     f'COMANDO_ORIENTA = "{COMANDO_ORIENTA}"' in _sorgente_main,
+)
+caso(
+    'backend/main.py: COMANDO_INSTRADA = "/instrada"',
+    True,
+    f'COMANDO_INSTRADA = "{COMANDO_INSTRADA}"' in _sorgente_main,
 )
 
 
