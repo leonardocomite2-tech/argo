@@ -36,6 +36,16 @@ def notifica(testo, token=None):
         logger.error("notifica: invio a Telegram fallito (%s): %s", type(e).__name__, messaggio)
 
 
+def normalizza_comando(testo):
+    """Primo token di un messaggio Telegram, senza l'eventuale suffisso
+    '@NomeBot' che Telegram aggiunge nei gruppi — None se il testo è
+    vuoto/assente. Non convalida che sia un comando noto, solo lo estrae."""
+    testo = (testo or "").strip()
+    if not testo:
+        return None
+    return testo.split()[0].split("@", 1)[0]
+
+
 def _invia(metodo, corpo):
     """POST verso l'API Telegram. Solleva l'eccezione (redatta) se la chiamata fallisce."""
     token = os.environ["TELEGRAM_TOKEN"]

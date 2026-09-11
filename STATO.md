@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 4 + correzioni: anti-invenzione, brevità, costo (7.787 token/chiamata) — in attesa del giudizio di Leonardo sul carattere, nulla committato |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 5: /orienta funzionante da Telegram (webhook + cron host), resta a Leonardo il collaudo end-to-end dal telefono e tre passi a mano (secret in .env, setWebhook, riga crontab) |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -1880,3 +1880,132 @@ File toccati: `knowledge/argo/SOUL.md` (regola anti-invenzione),
 `STATO.md` (questa sezione). Nessun commit, nessun push in questa
 sotto-sessione (richiesto esplicitamente da Leonardo): li fa lui dopo aver
 letto il testo sopra.
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 5: /orienta da Telegram
+
+Obiettivo: Leonardo scrive `/orienta` al bot Argo dal telefono e riceve la
+risposta — oggi il modo "orienta" si lanciava solo a mano da host.
+
+**Vincolo scoperto in esplorazione, decisivo per il disegno**: `argo/stato.py`
+è dichiaratamente pensato per girare solo da host (DEVIAZIONE 10/9/2026 —
+legge il DB via `docker exec argo-db-1 psql`, legge `STATO.md`/git dal
+filesystem del repo). Il Dockerfile non copia `argo/`, `STATO.md` né `.git`
+nell'immagine: `argo.voce.genera_risposta()` non può girare dentro i
+container `api`/`worker`. Un webhook Telegram deve però rispondere da dentro
+`api`. **Chiesto a Leonardo** come colmare il salto: confermata l'opzione a
+footprint minimo — tenere la deviazione host-only com'è (nessun refactor di
+`argo/stato.py`, nessuna modifica a Dockerfile/docker-compose), e fare da
+ponte con la tabella `jobs` + un consumer lanciato da cron sull'host, invece
+di portare `argo/stato.py` dentro Docker (psycopg diretto + bind-mount di
+`STATO.md`/`.git` + `git` nell'immagine — scartata: footprint maggiore per
+un passo che voleva restare piccolo).
+
+**Disegno implementato**:
+- `backend/main.py` (nuovo `POST /webhook/argo`, righe 407-464): endpoint
+  separato da `/webhook/telegram` del bot meccanico, secret proprio
+  (`ARGO_VOCE_WEBHOOK_SECRET`). Valida `chat.id == TELEGRAM_CHAT_ID`
+  (altrimenti ignora in silenzio, nessuna eccezione), poi il comando: solo
+  `/orienta` (gestisce anche `/orienta@NomeBot` e testo extra dopo) accoda
+  un job `genera_orienta`; qualunque altro testo riceve una risposta fissa
+  breve ("Comando non riconosciuto. Usa /orienta."), zero LLM. Try/except
+  attorno a tutto, ALERT sul bot meccanico in caso di errore — stesso
+  pattern esatto di `webhook_telegram`, non uno nuovo.
+- **Tetto di chiamate**: l'accodamento del job è un check-poi-insert
+  (`SELECT 1 FROM jobs WHERE tipo='genera_orienta' AND stato IN
+  ('pending','running')`, poi `INSERT` solo se nessuna riga) guardato da
+  `pg_advisory_xact_lock(hashtext('genera_orienta_enqueue'))` — al più un
+  job in volo, i tap ripetuti mentre uno è già in coda mandano solo
+  "Richiesta già in corso, arriva a breve.", niente nuova chiamata LLM. Non
+  è un cooldown temporale: una richiesta dopo che la precedente è finita
+  (done/failed) ne accoda regolarmente una nuova. **Prima versione senza
+  lock, corretta dopo la review guardrail** (vedi sotto): un
+  `WHERE NOT EXISTS` da solo non è atomico sotto READ COMMITTED — due POST
+  concorrenti (doppio tap, o redelivery Telegram) potevano entrambi valutarlo
+  vero prima del commit dell'altro e aprire due job, esattamente il difetto
+  già trovato e corretto l'11/9/2026 su `garantisci_leggi_email`/
+  `controlli_periodici`/`digest_serale` (stesso fix, stesso lock). Nessuna
+  riga in `events` (comando dell'operatore, non evento di dominio —
+  invariante CLAUDE.md).
+- `scripts/argo/orienta_webhook.py` (nuovo): consumer host, lanciato da cron
+  (non da Docker). Ad ogni lancio reclama al più un job `genera_orienta`
+  pending con lo stesso idiom atomico di `worker/loop.py:claim_job`
+  (`UPDATE ... WHERE stato='pending' RETURNING id`), ma via `docker exec
+  argo-db-1 psql` invece di psycopg — stessa convenzione di `argo/stato.py`,
+  dato che gira da host come quel modulo. Se trovato: chiama
+  `argo.voce.genera_risposta()`, manda il testo su Telegram, marca `done`.
+  Su eccezione: marca `failed` con l'errore e avvisa comunque Leonardo con
+  un messaggio fisso — mai un fallimento silenzioso. Nessun retry
+  automatico (stesso trade-off già scelto per classificazione/bozza, vedi
+  DECISIONI APERTE).
+- **Problema trovato e risolto nel disegno**: senza modifiche, il worker
+  Docker (poll ogni 5s su `jobs`) avrebbe reclamato i job `genera_orienta`
+  prima ancora che il cron host (ogni 60s) li vedesse, trovato nessun
+  handler registrato per quel tipo e marcato ogni job `failed` con un ALERT
+  falso sul bot meccanico ad ogni `/orienta`. Fix: `worker/loop.py:claim_job`
+  ora esclude esplicitamente `tipo <> 'genera_orienta'` dalla propria
+  `SELECT`.
+- `connectors/telegram.py`: nuova `normalizza_comando(testo)` (pura, zero
+  rete/DB) — vive qui e non in `backend/main.py` apposta: quel modulo
+  importa `psycopg`/`fastapi`, non installati nell'ambiente host usato dai
+  test (`tests/test_argo_stato.py` e simili girano fuori Docker), quindi non
+  sarebbe stato importabile per un test unitario.
+
+**Verifiche**: `python3 scripts/panoptes/impatti.py --file
+worker/loop.py:69` prima di editare `claim_job` (mappa non copriva ancora
+quella riga — corretto, vedi sotto). Suite completa verde: `test_argo_stato`
+19/19, `test_argo_voce` 26/26, `test_fetch` 12/12, `test_filtri_email`
+25/25, `test_normalizza` 132/132, `test_panoptes_lib` 35/35,
+`test_webhook_argo` (nuovo) 10/10 — copre solo `normalizza_comando` più un
+guardrail statico (letto come testo, non importato) che conferma che
+`backend/main.py` usa davvero `COMANDO_ORIENTA = "/orienta"`.
+`python3 -m py_compile` su `backend/main.py`/`worker/loop.py`/
+`scripts/argo/orienta_webhook.py`/`connectors/telegram.py` (non importabili
+per intero da host, vedi sopra). `scripts/panoptes/verifica_mappa.py`:
+0 divergenze su 14 schede (2 indecidibili nuove attese/dichiarate,
+`argo_voce` — stesso motivo delle sei preesistenti: `docker exec psql`
+invece di `cur.execute()`; risolte anche due divergenze reali emerse
+mentre aggiornavo la mappa — `TELEGRAM_CHAT_ID` non dichiarato in
+`argo_voce.env`, e il range `backend/main.py:407-423` di
+`approvazione_telegram` spezzato dall'inserimento di `/webhook/argo` in
+mezzo al file, ora `283-404,469-485`). Aggiunta anche
+`worker/loop.py:68-95` (`claim_job`) al `codice` di `manutenzione_sistema`:
+mancava nonostante fosse già citata in `evidenza`, gap preesistente non
+causato da questo passo, chiuso comunque.
+
+**Revisione guardrail (subagent `guardrail-review`) sul diff completo**:
+un punto reale trovato — il primo tentativo del tetto di chiamate
+(`INSERT INTO jobs ... WHERE NOT EXISTS`, senza lock) non è atomico sotto
+READ COMMITTED, vedi dettaglio sopra nel punto "Tetto di chiamate". Fix
+applicato (`pg_advisory_xact_lock`), suite e `verifica_mappa.py` rilanciati
+dopo il fix, entrambi verdi. Tutti gli altri sei punti della review (niente
+`events` per un comando operatore, nessun invio LLM fuori da
+`TELEGRAM_CHAT_ID`, segreti solo da env, bot meccanico invariato,
+`claim_job` puramente additivo, `backend/main.py` su psycopg vs
+`orienta_webhook.py` su `docker exec`) confermati a posto.
+
+**Cosa resta a mano a Leonardo** (fuori da questo commit, mai visto un
+segreto in questa sessione):
+1. Aggiungere `ARGO_VOCE_WEBHOOK_SECRET=<valore a piacere>` a
+   `/root/argo/.env`.
+2. `docker compose up -d --build`.
+3. Registrare il webhook su Telegram (una volta sola), da host:
+   ```
+   source /root/argo/.env
+   curl -s -X POST "https://api.telegram.org/bot${ARGO_VOCE_BOT_TOKEN}/setWebhook" \
+     -d "url=https://argo.narratour-review.com/webhook/argo" \
+     --data-urlencode "secret_token=${ARGO_VOCE_WEBHOOK_SECRET}"
+   ```
+4. Aggiungere al crontab di root:
+   ```
+   * * * * * cd /root/argo && /usr/bin/python3 scripts/argo/orienta_webhook.py >> /root/argo/orienta_webhook.log 2>&1
+   ```
+5. Collaudo end-to-end vero: `/orienta` dal telefono, verificare che la
+   risposta arrivi entro ~1 minuto (granularità del cron), che un testo
+   diverso riceva il messaggio breve, e che un tap ripetuto durante l'attesa
+   non produca due risposte.
+
+File toccati: `backend/main.py`, `worker/loop.py`, `connectors/telegram.py`,
+nuovo `scripts/argo/orienta_webhook.py`, nuovo `tests/test_webhook_argo.py`,
+`knowledge/mappa_sistema.yaml`, `STATO.md`. Nessuna modifica a
+`argo/voce.py`, `argo/stato.py`, Dockerfile, docker-compose.yml, schema DB,
+bot meccanico (webhook/telegram, approvazioni, alert restano invariati).

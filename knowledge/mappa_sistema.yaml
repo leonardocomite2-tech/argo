@@ -113,7 +113,7 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1228-1232 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-423). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1228-1232."
+        garantito_da: "worker/loop.py:1228-1232 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-404,469-485 — range spezzato dal passo 5 di argo_voce, che si è inserito in mezzo). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1228-1232."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
@@ -204,6 +204,7 @@ pipeline:
       - digest testuale serale via Telegram
       - riaccodo automatico dei job perenni se mancanti (self-healing)
     codice:
+      - "worker/loop.py:68-95"
       - "worker/loop.py:441-746"
       - "worker/loop.py:749-913"
       - "worker/loop.py:1554-1660"
@@ -236,6 +237,7 @@ pipeline:
       - "self-healing: garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py:1554-1614, SELECT 1 FROM jobs WHERE tipo=%s AND stato IN ('pending','running'), reinseriscono il job se assente, eseguite a ogni giro del loop — dall'11/9/2026 precedute da pg_advisory_xact_lock, vedi FIX sotto)"
       - "recover_orphaned_jobs: worker/loop.py:1629-1638 — presuppone un solo worker, commento esplicito a 1630-1633. Verificato al passo 2: docker-compose.yml non dichiara repliche per il servizio worker, quindi l'assunzione è corretta oggi (MS04)"
       - "migra_job_notifica_risposta: worker/loop.py:1617-1626, migrazione una tantum all'avvio (rinomina job classifica_messaggio -> notifica_risposta), non più rilevante a regime ma resta nel codice"
+      - "PASSO 5 argo_voce (11/9/2026): claim_job (worker/loop.py:68-95, range mancante dal codice sopra nonostante fosse già citata in evidenza — CORRETTO in questo stesso passo) esclude ora esplicitamente tipo='genera_orienta' dalla propria SELECT. Quel tipo di job è consumato da scripts/argo/orienta_webhook.py da host (cron), non dal worker: senza l'esclusione questo loop lo avrebbe reclamato per primo (poll ogni 5s contro un cron ogni 60s), trovato nessun handler registrato e marcato 'failed' con un ALERT falso a ogni /orienta. Vedi argo_voce per il resto del disegno."
 
   - nome: lead_gen_host
     stato: concluso_roma
@@ -318,16 +320,39 @@ pipeline:
       (argo/voce.py:genera_risposta — raccoglie le sei fonti di
       argo/stato.py, costruisce il system prompt da SOUL/IDENTITY/USER.md +
       istruzioni comportamentali esplicite + stato serializzato, chiama
-      connectors/llm.py:chiama() con Haiku temperatura 0). Attivato a mano
-      da host con scripts/argo/orienta.py, che manda il testo generato sul
-      bot Telegram nuovo (ARGO_VOCE_BOT_TOKEN, stesso TELEGRAM_CHAT_ID del
-      bot meccanico) — vedi condiviso telegram_notifica sotto per come
+      connectors/llm.py:chiama() con Haiku temperatura 0). Attivabile sia a
+      mano da host con scripts/argo/orienta.py, sia da Telegram (PASSO 5,
+      vedi sotto) — entrambi mandano il testo generato sul bot Telegram
+      nuovo (ARGO_VOCE_BOT_TOKEN, stesso TELEGRAM_CHAT_ID del bot meccanico)
+      — vedi condiviso telegram_notifica sotto per come
       connectors/telegram.py:notifica() è stato reso parametrico sul token
-      senza toccare il bot esistente. Ancora nessun webhook/polling/
-      scheduler: uno script lanciato a mano, per decidere se il canale
-      merita di restare sempre acceso solo dopo aver letto l'output vero.
-      tabelle.scrive resta vuoto: solo SELECT, mai una scrittura — argo/voce.py
-      usa esclusivamente le funzioni di lettura di argo/stato.py.
+      senza toccare il bot esistente.
+      PASSO 5 (11/9/2026): /orienta da Telegram. argo/voce.py deve girare da
+      host (argo/stato.py:docker exec + STATO.md/git sul filesystem, vedi
+      DEVIAZIONE sotto), ma un webhook Telegram risponde per forza da dentro
+      il container api — ponte via la tabella jobs, non un refactor di
+      argo/stato.py dentro Docker (decisione con Leonardo, footprint
+      minimo): backend/main.py:407-466 (nuovo POST /webhook/argo, secret
+      proprio ARGO_VOCE_WEBHOOK_SECRET, separato da /webhook/telegram del
+      bot meccanico) valida chat_id==TELEGRAM_CHAT_ID (altrimenti ignora in
+      silenzio) e comando==/orienta (altrimenti risposta fissa breve, niente
+      LLM), poi accoda un job tipo='genera_orienta' con un check-poi-insert
+      guardato da pg_advisory_xact_lock (pending/running) — è il tetto di
+      chiamate: al più un job in volo, i tap ripetuti non moltiplicano le
+      chiamate LLM. Il lock non è decorativo: un WHERE NOT EXISTS da solo
+      non è atomico sotto READ COMMITTED fra connessioni concorrenti — trovato
+      dalla review guardrail prima del commit, stesso fix già usato per
+      garantisci_leggi_email/controlli_periodici/digest_serale. Nessuna
+      riga in events (comando dell'operatore, non evento di dominio).
+      scripts/argo/orienta_webhook.py (nuovo) lo consuma da cron host ogni
+      minuto — claim atomico stesso idiom di worker/loop.py:claim_job ma via
+      docker exec psql (non psycopg, stessa convenzione di argo/stato.py).
+      worker/loop.py:claim_job esclude ora esplicitamente 'genera_orienta'
+      dalla propria coda (altrimenti lo reclamerebbe per primo e fallirebbe
+      con un ALERT falso). tabelle.scrive non è più vuoto: jobs, sia da
+      backend/main.py che da orienta_webhook.py. Manuale, non in questo
+      commit: ARGO_VOCE_WEBHOOK_SECRET in .env, setWebhook su Telegram,
+      riga crontab per orienta_webhook.py — vedi STATO.md.
       CORREZIONI (11/9/2026, stesso giorno, dopo il primo collaudo reale):
       il testo aveva inventato una data e un hash di commit (dati che erano
       corretti nello stato passato) ed era più verboso del richiesto. Tre
@@ -345,7 +370,15 @@ pipeline:
       ~7.800 confermata quasi esatta). Nessuna tabella/env/confine di
       pipeline toccato da queste correzioni.
     sede: vps
-    attivazione: "nessuna automatica — script lanciato a mano da host: scripts/argo/stato_cli.py (harness di lettura) o scripts/argo/orienta.py (modo orienta, manda su Telegram), nessun webhook/bot/scheduler"
+    attivazione: >
+      scripts/argo/stato_cli.py (harness di lettura) resta lanciato a mano
+      da host, invariato. Il modo orienta ha due trigger: a mano da host con
+      scripts/argo/orienta.py, oppure da Telegram — Leonardo scrive
+      /orienta al bot Argo, POST /webhook/argo (backend/main.py:407-466)
+      accoda un job 'genera_orienta', scripts/argo/orienta_webhook.py
+      (lanciato da cron host ogni minuto, non dal worker Docker) lo
+      processa e manda la risposta. Vedi PASSO 5 sopra per il perché del
+      cron invece del worker.
     produce:
       - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
       - "modo orienta: messaggio breve su Telegram (bot ARGO_VOCE_BOT_TOKEN) — poche righe, una sola prossima cosa con motivo, dichiarazione esplicita se una fonte ha copertura parziale/assente, mai un elenco di tutto lo stato"
@@ -358,10 +391,12 @@ pipeline:
       - "scripts/argo/stato_cli.py"
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
+      - "scripts/argo/orienta_webhook.py"
+      - "backend/main.py:407-466"
       - "connectors/llm.py"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
-      scrive: []
+      scrive: [jobs]
     verifica:
       indecidibile:
         - campo: tabelle.legge
@@ -405,6 +440,8 @@ pipeline:
       - ANTHROPIC_API_KEY
       - LLM_TETTO_GIORNALIERO
       - ARGO_VOCE_BOT_TOKEN
+      - ARGO_VOCE_WEBHOOK_SECRET
+      - TELEGRAM_CHAT_ID
     esterni: ["Anthropic API (Haiku, via connectors/llm.py)", Telegram]
     contratti:
       - id: AV01
@@ -416,6 +453,9 @@ pipeline:
       - id: AV03
         enunciato: "In modo orienta, la risposta non elenca tutto lo stato: sceglie una sola prossima cosa e dichiara esplicitamente le fonti a copertura parziale/assente invece di riempire il buco"
         garantito_da: eval
+      - id: AV04
+        enunciato: "Un /orienta scritto mentre una richiesta precedente è già in coda non genera una seconda chiamata LLM"
+        garantito_da: "backend/main.py:437-443 (pg_advisory_xact_lock(hashtext('genera_orienta_enqueue')) prima del check-poi-insert su tipo='genera_orienta' AND stato IN ('pending','running')) — al più un job in volo, non un cooldown temporale: una richiesta dopo che la precedente è finita (done/failed) ne accoda una nuova regolarmente. Il lock non è decorativo: sotto READ COMMITTED un WHERE NOT EXISTS da solo non è atomico fra connessioni concorrenti — stesso difetto e stesso fix di garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py, 11/9/2026), trovato in questo passo dalla review guardrail prima del commit."
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -429,6 +469,8 @@ pipeline:
       - "PASSO 4 (11/9/2026): argo/voce.py:genera_risposta chiama connectors/llm.py:chiama() direttamente (Haiku, temperatura 0), senza passare da brain/classifier.py o brain/drafter.py — nessun enum di categorie, nessuna base di conoscenza, solo testo libero per Leonardo a partire da SOUL/IDENTITY/USER.md + le sei fonti di argo/stato.py serializzate. connectors/llm.py è quindi bare nel codice di tre schede (classificatore, drafter, argo_voce): stesso file, tre punti di ingresso indipendenti, già tollerato da verifica_mappa.py per classificatore/drafter."
       - "AV03 garantito_da: eval, stesso trattamento di CD01/CD02 (drafter): proprietà di un testo generato da un LLM, nessuna guardia deterministica può verificarla a runtime. Validata solo a mano in questa sessione (un lancio reale di scripts/argo/orienta.py, testo incollato in STATO.md) — nessuna suite di eval automatica ancora, come per CD01/CD02."
       - "ARGO_VOCE_BOT_TOKEN (nuovo in .env) è un secondo bot Telegram, letto direttamente in scripts/argo/orienta.py e passato al parametro opzionale `token` di connectors/telegram.py:notifica() — il bot meccanico (TELEGRAM_TOKEN, approvazioni/alert esistenti) resta invariato, notifica(testo) senza token usa ancora TELEGRAM_TOKEN come prima. Stesso TELEGRAM_CHAT_ID per entrambi i bot."
+      - "PASSO 5 (11/9/2026): normalizza_comando (nuovo in connectors/telegram.py, pura, zero rete/DB) estrae il primo token di un messaggio Telegram gestendo il suffisso '@NomeBot' dei gruppi — vive nel condiviso telegram_notifica e non in backend/main.py apposta: quel modulo importa psycopg/fastapi, non installati nell'ambiente host usato da tests/, quindi non importabile per un test unitario. tests/test_webhook_argo.py copre normalizza_comando più un guardrail statico (letto come testo, non importato) che backend/main.py usi davvero COMANDO_ORIENTA='/orienta'."
+      - "PASSO 5, decisione con Leonardo: niente refactor di argo/stato.py dentro Docker (avrebbe richiesto psycopg diretto + bind-mount di STATO.md/.git nel container + git nell'immagine) — si tiene la deviazione host-only com'è, ponte via jobs + cron. Costo accettato: latenza fino a ~1 minuto (granularità cron) prima che orienta_webhook.py veda il job, più una riga di crontab che Leonardo aggiunge a mano (non nel repo, vedi STATO.md)."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -487,7 +529,7 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:407-423"
+      - "backend/main.py:469-485"
       - "backend/main.py:283-377"
       - "backend/main.py:380-404"
       - "connectors/telegram.py:35-154"

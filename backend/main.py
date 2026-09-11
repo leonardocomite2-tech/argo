@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 
-from connectors.telegram import notifica, rispondi_callback, chiedi_testo_corretto
+from connectors.telegram import notifica, rispondi_callback, chiedi_testo_corretto, normalizza_comando
 
 app = FastAPI(title="Argo")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -402,6 +402,68 @@ def _gestisci_modifica_telegram(message):
             row = cur.fetchone()
             if row is not None:
                 _accoda_invia_risposta(cur, row[0])
+
+
+COMANDO_ORIENTA = "/orienta"
+RISPOSTA_COMANDO_SCONOSCIUTO = f"Comando non riconosciuto. Usa {COMANDO_ORIENTA}."
+RISPOSTA_GIA_IN_CORSO = "Richiesta già in corso, arriva a breve."
+
+
+def _gestisci_messaggio_argo(message):
+    """Un solo comportamento: /orienta accoda genera_orienta (consumato da
+    scripts/argo/orienta_webhook.py, lanciato da cron host — argo/voce.py non
+    può girare dentro Docker, vedi argo/stato.py). Tetto di chiamate: al più
+    un job 'genera_orienta' in volo, i tap ripetuti mentre uno è già in coda
+    non ne accodano un altro. Qualunque altro testo, o un chat_id diverso da
+    TELEGRAM_CHAT_ID (ignorato in silenzio), non tocca l'LLM."""
+    chat_id = str((message.get("chat") or {}).get("id") or "")
+    if chat_id != os.environ.get("TELEGRAM_CHAT_ID"):
+        logger.warning("webhook_argo: messaggio da chat_id non autorizzato, ignorato in silenzio")
+        return
+
+    comando = normalizza_comando(message.get("text"))
+    if comando != COMANDO_ORIENTA:
+        notifica(RISPOSTA_COMANDO_SCONOSCIUTO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+        return
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            # Lock di sessione prima del check-poi-insert: sotto READ COMMITTED
+            # (default Postgres) un WHERE NOT EXISTS da solo non basta — due
+            # POST concorrenti (doppio tap, o redelivery Telegram) potrebbero
+            # entrambi valutarlo vero prima del commit dell'altro, aprendo due
+            # job. Stesso difetto e stesso fix di garantisci_leggi_email/
+            # controlli_periodici/digest_serale (worker/loop.py, 11/9/2026).
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('genera_orienta_enqueue'))")
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'genera_orienta' AND stato IN ('pending', 'running')"
+            )
+            accodato = cur.fetchone() is None
+            if accodato:
+                cur.execute("INSERT INTO jobs (tipo, payload) VALUES ('genera_orienta', '{}')")
+
+    if not accodato:
+        notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+
+
+@app.post("/webhook/argo")
+async def webhook_argo(request: Request):
+    """Webhook dedicato al bot Argo (ARGO_VOCE_BOT_TOKEN) — separato da
+    /webhook/telegram del bot meccanico, secret proprio (ARGO_VOCE_WEBHOOK_SECRET),
+    mai tocca approvals/jobs del bot meccanico."""
+    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != os.environ["ARGO_VOCE_WEBHOOK_SECRET"]:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+
+    try:
+        if isinstance(body, dict) and body.get("message"):
+            _gestisci_messaggio_argo(body["message"])
+    except Exception as e:
+        logger.exception("webhook_argo: errore nel processare un update")
+        notifica(f"ALERT: webhook Argo, errore nel processare un update ({type(e).__name__})")
+
+    return {"ok": True}
 
 
 @app.post("/webhook/telegram")
