@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 4: modo "orienta" collaudato su Telegram, in attesa del giudizio di Leonardo sul carattere |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 4 + correzioni: anti-invenzione, brevità, costo (7.787 token/chiamata) — in attesa del giudizio di Leonardo sul carattere, nulla committato |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -1797,3 +1797,86 @@ evidenza), `CLAUDE.md` (scope dell'invariante approvals), `STATO.md`
 (blocco CANTIERI, questa sezione). Nessun commit, nessun push (lo fa
 Leonardo). Aspetta: Leonardo legge il testo sopra e giudica se il carattere
 è giusto o va corretto in `knowledge/argo/{SOUL,IDENTITY,USER}.md`.
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, correzioni post-collaudo
+
+Il primo collaudo reale (sessione precedente, stesso giorno) ha mostrato tre
+problemi: due invenzioni fattuali su dati che il modello aveva davanti
+(data sbagliata, hash del commit con una cifra in più), verbosità oltre il
+richiesto (una sezione "dietro quel gate stanno aspettando" più una nota sui
+job falliti, non richieste), e un costo quasi doppio della stima per via del
+`json.dumps` indentato. Tre correzioni mirate, decise da Leonardo dopo aver
+letto il testo — priorità alla prima: un agente che inventa dettagli
+plausibili su dati che ha davanti non è usabile.
+
+**1. Regola anti-invenzione, in tre punti**:
+- `knowledge/argo/SOUL.md`, sotto "Il tratto fondamentale": date, hash,
+  numeri, nomi di file e ID si riportano solo se presenti alla lettera nello
+  stato ricevuto, copiati senza modifiche; se un dettaglio non c'è, si omette
+  la frase, mai ricostruirlo a memoria o per plausibilità.
+- `argo/voce.py:ISTRUZIONI_ORIENTA`: stessa regola in forma operativa,
+  esplicitamente collegata al campo `"oggi"` (vedi sotto) come unico posto
+  dove trovare la data.
+- `argo/voce.py:raccogli_stato()`: nuovo campo `"oggi"` (data odierna, fuso
+  Europe/Rome via `_data_oggi()`, formato ISO `YYYY-MM-DD`) — l'unico dei due
+  errori del primo collaudo causato da un dato davvero mancante, non da
+  un'invenzione pura: ora non c'è nulla da calcolare.
+
+**2. Verbosità**: `ISTRUZIONI_ORIENTA` rinforzata — "una sola prossima cosa,
+col motivo, poi FERMATI: niente sezioni aggiuntive, niente elenco di
+cos'altro aspetta, niente nota a parte sui job falliti a meno che sia
+proprio quella la scelta". `MAX_TOKENS_RISPOSTA` 400 → 200 (backstop, non il
+meccanismo primario).
+
+**3. Costo — stima poi verificata**: `costruisci_system_prompt()` ora
+serializza lo stato con `json.dumps(..., separators=(",", ":"))` (compatto,
+non `indent=2`) e tronca `decisioni_aperte_bloccano` oltre
+`LIMITE_DECISIONI_APERTE_CARATTERI = 3000` caratteri (era 11.166 caratteri
+reali, la voce singola più pesante del prompt) con una nota esplicita nel
+testo passato al modello ("[TRONCATO — N caratteri totali, testo completo in
+STATO.md]"). Il troncamento avviene su una copia dentro
+`_stato_per_prompt()` (`copy.deepcopy`): `argo/stato.py` e chi lo consuma
+per un umano (`scripts/argo/stato_cli.py`) restano fedeli e completi, non
+tagliati. Stima nel piano, prima di implementare: ricostruito il system
+prompt reale del primo collaudo (31.353 caratteri → 11.485 token misurati,
+rapporto 0,366 token/carattere) e simulata la versione nuova →
+~21.400 caratteri stimati, **~7.800 token attesi**. Rilanciato
+`scripts/argo/orienta.py` per verificare: **7.787 token in ingresso reali**
+— stima confermata quasi esatta, -32% rispetto agli 11.485 originali.
+
+**Testo del secondo collaudo (11/9/2026, ~11:18)**, incollato senza
+modifiche:
+
+> Sei nel cantiere Argo — la voce, passo 4: il modo "orienta" che hai appena
+> collaudato su Telegram è pronto, e aspetta il tuo giudizio sul carattere
+> (SOUL.md, IDENTITY.md, USER.md).
+>
+> Hai tre file modificati non committati (`argo/voce.py`, `SOUL.md`,
+> `tests/test_argo_voce.py`). La prossima cosa è decidere se il carattere
+> che hai scritto regge, oppure se serve una correzione prima di
+> committare.
+
+138 token in uscita (tetto 200), una sola prossima cosa, nessuna sezione
+extra. I tre file citati corrispondono esattamente a `git status` al
+momento del lancio — nessuna data, hash o nome inventato: la regola
+anti-invenzione non è ancora stata messa alla prova su un caso con dati
+mancanti veri (in questo stato, alla portata del modello c'era tutto quello
+che ha detto), ma il collaudo minimo (niente di inventato su dati presenti)
+è passato.
+
+**Verifiche finali**: `tests/test_argo_voce.py` 26/26 (10 casi nuovi:
+regola anti-invenzione in `ISTRUZIONI_ORIENTA` e in SOUL.md, `_data_oggi()`
+formato ISO, `_stato_per_prompt()` tronca sopra soglia con nota e lascia
+intatto sotto soglia senza modificare l'originale, `raccogli_stato()`
+include `"oggi"`), `tests/test_argo_stato.py` 19/19 (nessuna regressione).
+`verifica_mappa.py` non rilanciato in questa sotto-sessione: nessun cambio a
+tabelle/env/confini di pipeline, solo `nota_stato` (testuale, non
+verificato dallo script).
+
+File toccati: `knowledge/argo/SOUL.md` (regola anti-invenzione),
+`argo/voce.py` (istruzioni rinforzate, campo `oggi`, `_data_oggi()`,
+`_stato_per_prompt()`, `MAX_TOKENS_RISPOSTA` 200), `tests/test_argo_voce.py`
+(10 casi nuovi), `knowledge/mappa_sistema.yaml` (nota_stato di `argo_voce`),
+`STATO.md` (questa sezione). Nessun commit, nessun push in questa
+sotto-sessione (richiesto esplicitamente da Leonardo): li fa lui dopo aver
+letto il testo sopra.

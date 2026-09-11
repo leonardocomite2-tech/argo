@@ -3,6 +3,7 @@ Zero chiamate di rete: il collaudo del testo vero generato dall'LLM è a
 mano, con scripts/argo/orienta.py (criterio di chiusura della sessione).
 Lancio: python3 tests/test_argo_voce.py
 """
+import copy
 import re
 import sys
 from pathlib import Path
@@ -43,11 +44,14 @@ caso("il system prompt contiene le istruzioni del modo orienta", True, voce.ISTR
 caso("il system prompt contiene lo stato serializzato passato", True, "MARCATORE_TEST_MOTIVO" in _prompt)
 
 # --- le istruzioni esplicite coprono i punti richiesti dal brief ---
+_istruzioni_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_ORIENTA)
 for frammento in (
     "Poche righe",
     "Dai del tu",
     "Conclusione prima",
     "UNA SOLA prossima cosa",
+    "FERMATI",
+    "riportali SOLO se compaiono alla lettera",
     "copertura",
     "silenzio è un esito normale",
     "Niente incoraggiamenti",
@@ -55,8 +59,43 @@ for frammento in (
     caso(
         f"ISTRUZIONI_ORIENTA copre: {frammento!r}",
         True,
-        frammento in voce.ISTRUZIONI_ORIENTA,
+        frammento in _istruzioni_normalizzate,
     )
+
+# --- anti-invenzione anche in SOUL.md (non solo nel prompt operativo) ---
+caso(
+    "SOUL.md dichiara la regola anti-invenzione",
+    True,
+    "mai ricostruirlo a memoria" in re.sub(r"\s+", " ", soul),
+)
+
+# --- _data_oggi(): formato ISO, pura, zero DB ---
+_oggi = voce._data_oggi()
+caso("_data_oggi() ha formato ISO YYYY-MM-DD", True, bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", _oggi)))
+
+# --- _stato_per_prompt: tronca solo sopra soglia, con nota esplicita ---
+_testo_lungo = "X" * (voce.LIMITE_DECISIONI_APERTE_CARATTERI + 500)
+_stato_lungo = {"cantieri_aperti": {"decisioni_aperte_bloccano": _testo_lungo}}
+_originale_intatto = copy.deepcopy(_stato_lungo)
+_risultato = voce._stato_per_prompt(_stato_lungo)
+_troncato = _risultato["cantieri_aperti"]["decisioni_aperte_bloccano"]
+caso("testo sopra soglia: troncato, resta sotto la soglia + nota", True, len(_troncato) < len(_testo_lungo))
+caso("testo sopra soglia: nota di troncamento presente", True, "[TRONCATO" in _troncato)
+caso("testo sopra soglia: nota riporta il totale di caratteri originale", True, str(len(_testo_lungo)) in _troncato)
+caso("_stato_per_prompt non modifica l'originale (lavora su una copia)", _originale_intatto, _stato_lungo)
+
+_testo_corto = "Y" * 100
+_stato_corto = {"cantieri_aperti": {"decisioni_aperte_bloccano": _testo_corto}}
+_risultato_corto = voce._stato_per_prompt(_stato_corto)
+caso(
+    "testo sotto soglia: non toccato",
+    _testo_corto,
+    _risultato_corto["cantieri_aperti"]["decisioni_aperte_bloccano"],
+)
+
+# --- raccogli_stato include il campo "oggi" (verificato via source, zero chiamate DB nei test) ---
+sorgente_raccogli = sorgente[sorgente.index("def raccogli_stato"):]
+caso('raccogli_stato() include il campo "oggi"', True, '"oggi": _data_oggi()' in sorgente_raccogli)
 
 
 def main():

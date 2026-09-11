@@ -328,6 +328,22 @@ pipeline:
       merita di restare sempre acceso solo dopo aver letto l'output vero.
       tabelle.scrive resta vuoto: solo SELECT, mai una scrittura — argo/voce.py
       usa esclusivamente le funzioni di lettura di argo/stato.py.
+      CORREZIONI (11/9/2026, stesso giorno, dopo il primo collaudo reale):
+      il testo aveva inventato una data e un hash di commit (dati che erano
+      corretti nello stato passato) ed era più verboso del richiesto. Tre
+      fix: (1) regola anti-invenzione esplicita in SOUL.md + in
+      ISTRUZIONI_ORIENTA — date/hash/numeri/nomi/ID solo se presenti alla
+      lettera nello stato, mai ricostruiti; nuovo campo "oggi" in
+      raccogli_stato() così la data non va più calcolata dal modello; (2)
+      ISTRUZIONI_ORIENTA rinforzata su "una sola prossima cosa poi stop,
+      niente sezioni extra"; MAX_TOKENS_RISPOSTA 400→200; (3) stato
+      serializzato in JSON compatto (non indentato) e
+      decisioni_aperte_bloccano troncato a 3.000 caratteri (con nota
+      esplicita) su una copia dentro _stato_per_prompt() — argo/stato.py e
+      scripts/argo/stato_cli.py restano fedeli e completi. Costo per
+      chiamata: da 11.485 a 7.787 token in ingresso misurati (-32%, stima di
+      ~7.800 confermata quasi esatta). Nessuna tabella/env/confine di
+      pipeline toccato da queste correzioni.
     sede: vps
     attivazione: "nessuna automatica — script lanciato a mano da host: scripts/argo/stato_cli.py (harness di lettura) o scripts/argo/orienta.py (modo orienta, manda su Telegram), nessun webhook/bot/scheduler"
     produce:
