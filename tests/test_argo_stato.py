@@ -38,6 +38,42 @@ caso(
     "sconosciuto (prefisso 'chiavesenzadue punti')",
     stato.categoria_da_chiave_alert("chiavesenzadue punti"),
 )
+caso(
+    "prefisso avvisa_appr riconosciuto (passo 8)",
+    "approvazione già segnalata dall'avviso serale di Argo",
+    stato.categoria_da_chiave_alert("avvisa_appr:10"),
+)
+caso(
+    "prefisso avvisa_job riconosciuto (passo 8)",
+    "job fallito già segnalato dall'avviso serale di Argo",
+    stato.categoria_da_chiave_alert("avvisa_job:digest_serale:abc123"),
+)
+
+# --- job_falliti_recenti: stessa forma esplicita nel sorgente di job_falliti,
+# ma CON finestra temporale (passo 8: senza, mostrerebbe i 109 fallimenti
+# storici di digest_serale del 27-29/08, vedi STATO.md) ed esclude
+# 'test_approvazione' come fa worker/loop.py:digest_serale ---
+_sorgente_stato = (REPO_ROOT / "argo" / "stato.py").read_text(encoding="utf-8")
+_sorgente_job_falliti_recenti = _sorgente_stato[_sorgente_stato.index("def job_falliti_recenti"):]
+caso(
+    "job_falliti_recenti ha una finestra temporale su created_at",
+    True,
+    "created_at >= now() - interval" in _sorgente_job_falliti_recenti,
+)
+caso(
+    "job_falliti_recenti esclude test_approvazione",
+    True,
+    "tipo != 'test_approvazione'" in _sorgente_job_falliti_recenti,
+)
+
+# --- chiavi_alert_con_prefisso: nessuna finestra temporale (anti-ripetizione
+# per sempre, non nelle 24h come escalation_aperte) ---
+_sorgente_chiavi_alert = _sorgente_stato[_sorgente_stato.index("def chiavi_alert_con_prefisso"):]
+caso(
+    "chiavi_alert_con_prefisso non ha finestra temporale (per sempre)",
+    False,
+    "interval" in _sorgente_chiavi_alert[:_sorgente_chiavi_alert.index("def ", 1)],
+)
 
 # --- _estrai_sezione / _indice_sessioni su un STATO.md finto ---
 STATO_FINTO = """# STATO — finto

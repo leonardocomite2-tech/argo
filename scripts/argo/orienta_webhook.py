@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """python3 scripts/argo/orienta_webhook.py
 
-Consumer host-side dei job 'genera_orienta' e 'genera_instrada' (passo 6,
-generalizzato — nome file invariato apposta: il crontab di Leonardo lancia
-già questo script ogni minuto, rinominarlo lo romperebbe in silenzio),
-accodati da backend/main.py (POST /webhook/argo) quando Leonardo scrive
-/orienta o /instrada al bot Argo da Telegram. Lanciato da cron, non da
-Docker: argo/voce.py passa da argo/stato.py, che deve girare da host (docker
-exec + STATO.md + git sul filesystem del repo — vedi il docstring di
-argo/stato.py). worker/loop.py esclude esplicitamente entrambi i tipi dal
-proprio claim_job() per questo motivo.
+Consumer host-side dei job 'genera_orienta', 'genera_instrada' e (passo 8)
+'genera_avviso' — nome file invariato apposta: il crontab di Leonardo lancia
+già questo script ogni minuto, rinominarlo lo romperebbe in silenzio. I
+primi due sono accodati da backend/main.py (POST /webhook/argo) quando
+Leonardo scrive /orienta o /instrada al bot Argo da Telegram; il terzo è
+accodato una volta al giorno da worker/loop.py:garantisci_genera_avviso()
+(nessuna riga di crontab nuova). Lanciato da cron, non da Docker: argo/voce.py
+passa da argo/stato.py, che deve girare da host (docker exec + STATO.md +
+git sul filesystem del repo — vedi il docstring di argo/stato.py).
+worker/loop.py esclude esplicitamente i tre tipi dal proprio claim_job() per
+questo motivo.
 
-Ad ogni lancio reclama al più un job pending (il più vecchio dei due tipi,
+Ad ogni lancio reclama al più un job pending (il più vecchio dei tre tipi,
 FIFO), stesso idiom atomico di worker/loop.py:claim_job (UPDATE ...
 WHERE stato='pending' RETURNING id), ma via `docker exec argo-db-1 psql`
 invece di psycopg diretto — stessa convenzione di argo/stato.py, dato che
@@ -20,8 +22,17 @@ avvolta in json_agg, stesso stile robusto di argo/stato.py:_query_db.
 
 Nessun retry automatico su errore (stesso trade-off già scelto per
 classificazione/bozza, vedi STATO.md — DECISIONI APERTE): un fallimento è
-terminale per quella richiesta, Leonardo la ripete con un altro comando.
-Mai un fallimento silenzioso: un errore avvisa comunque su Telegram.
+terminale per quella richiesta, Leonardo la ripete con un altro comando (per
+genera_avviso non c'è nulla da ripetere a mano: la schedulazione lo
+riaccoderà da sé, vedi worker/loop.py:garantisci_genera_avviso). Mai un
+fallimento silenzioso: un errore avvisa comunque su Telegram.
+
+Unico punto che scrive, oltre a `jobs`: per genera_avviso, PRIMA dell'invio
+(mai dopo — stesso ordine "scritto prima dell'invio" del resto del repo),
+marca in `alert_inviati`/`osservazioni.stato` le voci segnalate
+(_marca_avviso_inviato) — così l'avviso non si ripete la sera dopo. argo/voce.py
+resta sola lettura (vedi il suo guardrail statico), la scrittura vera vive
+qui, che già scrive su `jobs` per lo stesso motivo (gira da host).
 """
 
 import json
@@ -42,7 +53,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("argo.orienta_webhook")
 
 CONTAINER_DB = "argo-db-1"
-TIPI_JOB = ("genera_orienta", "genera_instrada")
+TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso")
 
 
 def _psql(sql, timeout=15):
@@ -61,7 +72,7 @@ def _psql(sql, timeout=15):
 
 
 def _reclama_job():
-    """Claim atomico: prima trova il pending più vecchio tra i due tipi (FIFO),
+    """Claim atomico: prima trova il pending più vecchio tra i tre tipi (FIFO),
     poi lo reclama con una UPDATE guardata su stato='pending' — se nel frattempo
     un altro lancio di questo stesso script lo ha già preso, la UPDATE non tocca
     righe e questo lancio esce a mani vuote (nessun doppio invio). Ritorna
@@ -93,29 +104,61 @@ def _segna_failed(job_id, errore):
     _psql(f"UPDATE jobs SET stato='failed', ultimo_errore='{errore_sql}' WHERE id={job_id}")
 
 
+def _marca_avviso_inviato(marcatori):
+    """Scrive PRIMA dell'invio, mai dopo — chiamata da main() prima di
+    notifica(): stesso ordine "scritto prima dell'invio" usato ovunque nel
+    repo per evitare doppi invii — stesso trade-off accettato (STATO.md,
+    DECISIONI APERTE): se il processo muore fra questa scrittura e
+    notifica(), il fatto risulta segnalato ma il messaggio potrebbe non
+    essere arrivato, da gestire a mano se capita."""
+    for chiave in marcatori.get("alert_chiavi", []):
+        chiave_sql = chiave.replace("'", "''")
+        _psql(f"INSERT INTO alert_inviati (chiave) VALUES ('{chiave_sql}') ON CONFLICT DO NOTHING")
+    for oss_id in marcatori.get("osservazioni_id", []):
+        _psql(f"UPDATE osservazioni SET stato='riferita' WHERE id={int(oss_id)} AND stato='nuova'")
+
+
+ERRORE_RIPETI = {
+    "genera_orienta": "riprova con /orienta",
+    "genera_instrada": "riprova con /instrada",
+    "genera_avviso": "controllo al prossimo giro",
+}
+
+
 def main():
     reclamato = _reclama_job()
     if reclamato is None:
         return
     job_id, tipo, payload = reclamato
 
-    from argo.voce import genera_risposta, genera_risposta_instrada
+    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso
     from connectors.telegram import notifica
 
-    comando_ripeti = "/orienta" if tipo == "genera_orienta" else "/instrada"
     try:
         if tipo == "genera_orienta":
-            testo = genera_risposta()
+            testo, marcatori = genera_risposta(), None
+        elif tipo == "genera_instrada":
+            testo, marcatori = genera_risposta_instrada(payload["minuti"], payload["contesto"]), None
         else:
-            testo = genera_risposta_instrada(payload["minuti"], payload["contesto"])
+            testo, marcatori = genera_avviso()
     except Exception as e:
         logger.exception("orienta_webhook: job %s (%s) fallito", job_id, tipo)
         _segna_failed(job_id, f"{type(e).__name__}: {e}")
         notifica(
-            f"Errore nel generare la risposta — riprova con {comando_ripeti}.",
+            f"Errore nel generare la risposta — {ERRORE_RIPETI[tipo]}.",
             token=os.environ["ARGO_VOCE_BOT_TOKEN"],
         )
         return
+
+    if not testo:
+        # Solo genera_avviso può arrivare qui: niente da segnalare stasera,
+        # il silenzio è un esito normale (deciso in argo/voce.py, prima di
+        # ogni chiamata LLM) — nessun invio, job comunque riuscito.
+        _segna_done(job_id)
+        return
+
+    if marcatori:
+        _marca_avviso_inviato(marcatori)
 
     notifica(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)

@@ -31,6 +31,7 @@ POSTER_AI_PATH = BASE_DIR / "templates" / "poster_ai.png"
 TESTO_MAX_LEN = 20000
 FUSO_ROMA = ZoneInfo("Europe/Rome")
 ORA_DIGEST = dtime(22, 0)
+ORA_AVVISO = dtime(22, 15)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
@@ -56,6 +57,17 @@ def prossimo_orario_digest():
     return candidato
 
 
+def prossimo_orario_avviso():
+    """Stesso idiom di prossimo_orario_digest, 15 minuti dopo (22:15): Leonardo
+    vede prima il quadro completo del digest meccanico, poi solo se serve la
+    nota più corta di Argo."""
+    adesso_roma = datetime.now(FUSO_ROMA)
+    candidato = datetime.combine(adesso_roma.date(), ORA_AVVISO, tzinfo=FUSO_ROMA)
+    if candidato <= adesso_roma:
+        candidato += timedelta(days=1)
+    return candidato
+
+
 def db_connect():
     return psycopg.connect(
         host="db",
@@ -68,18 +80,18 @@ def db_connect():
 def claim_job():
     """Reclama un job pending: SELECT ... FOR UPDATE SKIP LOCKED + transizione a running,
     nella stessa transazione (commit implicito all'uscita del `with conn`).
-    Esclude 'genera_orienta'/'genera_instrada': quei tipi li consuma
-    scripts/argo/orienta_webhook.py da host (argo/stato.py deve girare fuori da
-    Docker, vedi il suo docstring) — senza l'esclusione questo loop li
+    Esclude 'genera_orienta'/'genera_instrada'/'genera_avviso': quei tipi li
+    consuma scripts/argo/orienta_webhook.py da host (argo/stato.py deve girare
+    fuori da Docker, vedi il suo docstring) — senza l'esclusione questo loop li
     reclamerebbe prima, trovando un handler inesistente e marcandoli failed con
-    un ALERT falso a ogni /orienta o /instrada."""
+    un ALERT falso a ogni /orienta, /instrada o avviso serale."""
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, tipo, payload FROM jobs
                 WHERE stato = 'pending' AND run_after <= now()
-                  AND tipo NOT IN ('genera_orienta', 'genera_instrada')
+                  AND tipo NOT IN ('genera_orienta', 'genera_instrada', 'genera_avviso')
                 ORDER BY id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -1620,6 +1632,40 @@ def garantisci_digest_serale():
                 )
 
 
+def garantisci_genera_avviso():
+    """A differenza delle altre garantisci_*, questa non è solo un recupero
+    d'emergenza: è IL meccanismo di schedulazione del modo "avvisa" (passo 8).
+    Non esiste un handler Docker per 'genera_avviso' (deve girare da host,
+    stesso motivo di genera_orienta/genera_instrada — vedi claim_job), quindi
+    nessun handler può riaccodarsi da sé come fa digest_serale. Ogni tick
+    trova la coda vuota dopo che scripts/argo/orienta_webhook.py ha marcato
+    il job precedente 'done' (silenzio o invio) e la ripopola per
+    l'occorrenza successiva — zero righe di crontab nuove, riusa il cron
+    esistente di orienta_webhook.py (già ogni minuto)."""
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext('genera_avviso_schedule'))")
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'genera_avviso' AND stato IN ('pending', 'running')"
+            )
+            if cur.fetchone() is None:
+                adesso_roma = datetime.now(FUSO_ROMA)
+                if adesso_roma.time() >= ORA_AVVISO:
+                    run_after = adesso_roma
+                    motivo = "recupero in ritardo (22:15 di oggi già passate)"
+                else:
+                    run_after = prossimo_orario_avviso()
+                    motivo = "programmazione regolare alle 22:15"
+                cur.execute(
+                    "INSERT INTO jobs (tipo, payload, run_after) VALUES ('genera_avviso', '{}', %s)",
+                    (run_after,),
+                )
+                logger.info(
+                    "garantisci_genera_avviso: prossimo avviso per %s (%s)",
+                    run_after, motivo,
+                )
+
+
 def migra_job_notifica_risposta():
     with db_connect() as conn:
         with conn.cursor() as cur:
@@ -1651,11 +1697,13 @@ def main():
     garantisci_leggi_email()
     garantisci_digest_serale()
     garantisci_controlli_periodici()
+    garantisci_genera_avviso()
     while True:
         try:
             garantisci_leggi_email()
             garantisci_digest_serale()
             garantisci_controlli_periodici()
+            garantisci_genera_avviso()
             process_next_job()
         except Exception:
             logger.exception("errore imprevisto nel loop worker")

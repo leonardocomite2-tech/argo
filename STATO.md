@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 7: rifinitura post-collaudo (niente domande di rilancio, niente markdown, contesto a un solo riferimento temporale) su orienta+instrada; collaudo reale da host fatto in sessione, tre testi generati incollati a Leonardo; resta a Leonardo la conferma end-to-end da Telegram vero e la decisione su modo "avvisa" (non ancora costruito) |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); resta a Leonardo il deploy (`docker compose up -d --build`) e la conferma che il primo giro reale delle 22:15 arrivi da solo |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2214,3 +2214,146 @@ File toccati: `knowledge/argo/SOUL.md`, `argo/voce.py`,
 `tests/test_argo_voce.py`, `knowledge/mappa_sistema.yaml`, `STATO.md`.
 Nessuna tabella, nessun env, nessun confine di pipeline toccato — solo
 testo di prompt/istruzioni e i test corrispondenti.
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 8: il modo "avvisa"
+
+Obiettivo: il terzo e ultimo modo di `knowledge/argo/IDENTITY.md` — l'unico
+in cui è Argo a scrivere per primo. Digest serale (non notifiche
+real-time), una volta al giorno, silenzio se non c'è niente da dire, su tre
+soli segnali: approvazione ferma >24h, job fallito due volte, osservazione
+Panoptes grave.
+
+**Verifica sovrapposizione col digest meccanico esistente (prima di
+scrivere codice)**: un'approvazione ferma genera già un alert Telegram
+immediato e una tantum a 6h (`_controllo_approvazioni_bloccate`,
+worker/loop.py), e il digest meccanico delle 22:00 elenca *ogni sera* tutte
+le approvazioni in attesa (⚠️ oltre 12h). Un job fallito due volte genera
+già un alert immediato e non deduplicato al momento del fallimento
+(`fail_job`, scatta quando `tentativi>=2` — esattamente "fallito due
+volte"), più il conteggio nel digest. Il terzo criterio (osservazioni
+gravi) non ha invece nessuna copertura oggi. **Deciso con Leonardo**:
+mantenere i tre criteri come da brief, con anti-ripetizione *one-shot per
+singolo item* — un'approvazione/job/osservazione viene segnalata da Argo
+una volta sola (la prima sera in cui qualifica), mai più nelle sere
+successive, a differenza del digest meccanico che la ripete ogni sera
+finché resta aperta. La prima sera può quindi comparire in entrambi i
+messaggi; dalla sera dopo solo il digest meccanico continua a mostrarla.
+
+**Anti-ripetizione: riuso, zero tabelle nuove.** Deciso con Leonardo:
+`alert_inviati` (esistente, stesso meccanismo INSERT...ON CONFLICT di
+`_alert_una_volta`) con due prefissi nuovi, `avvisa_appr:<id>` e
+`avvisa_job:<tipo>:<firma>` (firma = sha256(tipo|ultimo_errore)[:12], così
+lo stesso tipo di errore su un job diverso genera una firma diversa, non
+un'unica voce silenziata per sempre); e `osservazioni.stato: nuova→riferita`
+per le osservazioni — contratto AV02 già dichiarato in
+`knowledge/mappa_sistema.yaml` ("Panoptes deposita in osservazioni; solo
+Argo aggiorna osservazioni.stato"), ora implementato per la metà che
+riguarda Argo.
+
+**Scoperta in sessione (non nel brief)**: `jobs` contiene 109 righe
+`stato='failed'` di `digest_serale` dal 27-29/08 — lo storico bug
+`thread_id::int` già noto e risolto (STATO.md, CLAUDE.md). Riusare
+`argo/stato.py:job_falliti()` (all-time, per disegno, usato da
+orienta/instrada) avrebbe fatto comparire questo storico morto al primo
+avviso. Nuova `argo/stato.py:job_falliti_recenti(ore=24)`, stessa finestra
+del digest meccanico, esclude `test_approvazione` come fa quel digest.
+
+**Selezione deterministica, LLM solo per la redazione**: `argo/voce.py:
+_filtra_candidati_avviso` (pura, testabile senza DB) applica le tre soglie
+e l'anti-ripetizione, taglia a 5 voci per categoria (l'eccedenza non è
+persa: riemerge al giro successivo, semplicemente non ancora marcata).
+Ritorna `(None, {})` se nulla qualifica — `genera_avviso()` ritorna a
+quel punto **senza mai chiamare `connectors/llm.py:chiama()`**: il
+silenzio è deciso in Python, non lasciato al giudizio del modello (stesso
+principio di CLAUDE.md su classificazione/bozze: l'LLM redige, non decide
+se inviare). `_raccogli_dati_avviso` solleva eccezione se una fonte ha
+copertura "assente" (lettura DB fallita davvero), invece di trattarla come
+"niente da dire" — un guasto di lettura non deve poter sembrare una sera
+tranquilla. Il prompt passato all'LLM contiene solo i candidati già
+filtrati (non le sei fonti intere di orienta/instrada): costo per chiamata
+molto più basso, 3.040 token in ingresso misurati nel collaudo reale contro
+i ~7.800 di orienta/instrada, e zero rischio che il modello scelga di
+menzionare qualcosa fuori dalle tre categorie approvate, perché non lo
+vede nel prompt.
+
+**`argo/voce.py` resta sola lettura** (guardrail statico verificato):
+`genera_avviso()` ritorna anche `marcatori` (chiavi `alert_inviati` + id
+`osservazioni` da passare a 'riferita') ma non scrive nulla. L'unica
+scrittura di questo cantiere oltre a `jobs` vive in
+`scripts/argo/orienta_webhook.py:_marca_avviso_inviato` (host, via `docker
+exec psql`, stessa convenzione di `argo/stato.py`), chiamata **prima**
+dell'invio Telegram, mai dopo — stesso ordine "scrivi prima di inviare" già
+in uso ovunque nel repo per evitare doppi invii (stesso trade-off
+accettato, STATO.md → DECISIONI APERTE: se il processo muore tra le due
+istruzioni, il fatto risulta segnalato ma il messaggio potrebbe non essere
+arrivato, da gestire a mano se capita). Se il testo è vuoto (silenzio),
+`orienta_webhook.py` marca il job `done` e non chiama `notifica()` — mai
+un invio, mai una scrittura in quel caso.
+
+**Schedulazione senza nuova riga di crontab**: `worker/loop.py:
+garantisci_genera_avviso` (nuova, chiamata all'avvio e a ogni giro del
+loop come le altre tre `garantisci_*`) accoda un job `genera_avviso` una
+volta al giorno, alle 22:15 — 15 minuti dopo il digest meccanico, così
+Leonardo vede prima il quadro completo e solo dopo, se serve, la nota più
+corta di Argo. A differenza delle altre `garantisci_*`, questa non è solo
+un recupero d'emergenza: **è il meccanismo di schedulazione stesso**, dato
+che non esiste (e non può esistere) un handler Docker per `genera_avviso`
+(deve girare da host, come `genera_orienta`/`genera_instrada` — motivo
+identico, `argo/stato.py` non può girare in Docker). Ogni tick trova la
+coda vuota dopo che `orienta_webhook.py` ha marcato il job precedente
+`done` (silenzio o invio) e la ripopola per l'occorrenza successiva. Riusa
+il cron esistente di `orienta_webhook.py` (già ogni minuto, `TIPI_JOB`
+esteso al terzo tipo). `worker/loop.py:claim_job` esclude ora anche
+`'genera_avviso'` dalla propria coda, stesso motivo degli altri due.
+
+**Collaudo reale da host, in sessione, sullo stato vero**: prima chiamata
+a `genera_avviso()` — approvazione id 10 (ferma da ~196 ore, oggetto
+"ogetto") ha qualificato, nessun job fallito nelle ultime 24h, nessuna
+osservazione (tabella vuota). Testo generato e mandato davvero su Telegram:
+
+> Approvazione ferma da 8 giorni: id 10, oggetto "ogetto", mittente
+> Leonardo Comite.
+
+Marcatore scritto in `alert_inviati` (`avvisa_appr:10`), verificato via
+query diretta. **Seconda chiamata a `genera_avviso()` subito dopo, stesso
+stato**: ha ritornato `(None, {})` senza generare nessun testo e senza
+nessuna chiamata LLM — l'anti-ripetizione funziona, e questo è anche il
+collaudo dal vivo (non solo unitario) della "sera senza niente da dire":
+zero messaggio, zero costo, comportamento verificato sui dati reali, non
+solo su input sintetici nei test.
+
+**Verifiche**: `tests/test_argo_voce.py` 78/78 (nuovi casi:
+`ISTRUZIONI_AVVISA` copre i punti del brief, `costruisci_system_prompt`
+col terzo blocco di istruzioni, `_filtra_candidati_avviso` — soglia 24h al
+limite esatto, dedup per id/firma, filtro severità case-insensitive, cap a
+5 voci per categoria, caso "niente qualifica" → `(None, {})`, il return
+silenzioso precede la chiamata a `chiama()` nel sorgente), nessuna
+regressione sul resto della suite (`test_argo_stato` 24/24 — nuovi casi
+per i due prefissi `avvisa_*` in `PREFISSI_ALERT` e per la forma di
+`job_falliti_recenti`/`chiavi_alert_con_prefisso`, `test_webhook_argo`
+27/27, `test_filtri_email` 25/25, `test_normalizza` 132/132, `test_fetch`
+12/12, `test_panoptes_lib` 35/35). `scripts/panoptes/impatti.py --diff`:
+`argo_voce` + `manutenzione_sistema` (tocco minimo e precedente a
+`worker/loop.py`, stessa classe di modifica dei passi 5/6), nessun
+contratto condiviso rotto. `verifica_mappa.py`: 0 divergenze — due nuove
+voci `indecidibile atteso, dichiarato` per `tabelle.scrive: alert_inviati`
+e `osservazioni` su `argo_voce` (stessa deviazione già dichiarata per le
+letture di `argo/stato.py`: SQL passata a `docker exec psql`, non
+`cur.execute()`, verifica_mappa.py non la vede). **Aggiustamenti di riga
+dopo l'inserimento di codice in `worker/loop.py`** (stesso tipo di
+correzione già fatto al passo 6): l'aggiunta di `ORA_AVVISO`/
+`prossimo_orario_avviso` (+12 righe prima di `db_connect`) e di
+`garantisci_genera_avviso` (+34 righe prima di `migra_job_notifica_risposta`)
+ha spostato tutte le righe successive — corretti sistematicamente tutti i
+riferimenti `worker/loop.py:N`/`loop.py:N` in `knowledge/mappa_sistema.yaml`
+(63 sostituzioni via script, più 3 correzioni a mano su numeri senza
+prefisso file nello stesso paragrafo), verificato con `verifica_mappa.py`
+fino a tornare a 0 divergenze prima di proseguire. Sub-agent
+`guardrail-review` lanciato sul diff completo.
+
+**Resta a Leonardo**: `docker compose up -d --build` per far girare il
+nuovo `worker/loop.py`; nessuna riga di crontab da aggiungere (riusa
+quella esistente di `orienta_webhook.py`); confermare che il primo avviso
+vero delle 22:15 arrivi da solo stasera (o al prossimo giro, se il deploy
+avviene dopo quell'ora — stesso comportamento di recupero già usato dal
+digest meccanico); nessun nuovo secret.

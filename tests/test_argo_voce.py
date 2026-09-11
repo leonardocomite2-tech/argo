@@ -177,6 +177,132 @@ sorgente_raccogli = sorgente[sorgente.index("def raccogli_stato"):]
 caso('raccogli_stato() include il campo "oggi"', True, '"oggi": _data_oggi()' in sorgente_raccogli)
 
 
+# ============================================================
+# Modo "avvisa" (passo 8)
+# ============================================================
+
+# --- ISTRUZIONI_AVVISA copre i punti del brief ---
+_istruzioni_avvisa_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_AVVISA)
+for frammento in (
+    "Poche righe",
+    "Dai del tu",
+    "elenco è ammesso",
+    "mai con una domanda",
+    "senza markdown",
+    "niente backtick",
+    "riportali SOLO se compaiono alla lettera",
+    "mai calcolarlo o ricostruirlo a memoria",
+):
+    caso(
+        f"ISTRUZIONI_AVVISA copre: {frammento!r}",
+        True,
+        frammento in _istruzioni_avvisa_normalizzate,
+    )
+
+# --- costruisci_system_prompt con ISTRUZIONI_AVVISA: stesso costruttore, terze istruzioni ---
+_prompt_avvisa = voce.costruisci_system_prompt(STATO_FINTO, voce.ISTRUZIONI_AVVISA)
+caso("il system prompt (avvisa) contiene SOUL.md per intero", True, soul in _prompt_avvisa)
+caso(
+    "il system prompt (avvisa) contiene le istruzioni del modo avvisa",
+    True,
+    voce.ISTRUZIONI_AVVISA in _prompt_avvisa,
+)
+caso(
+    "il system prompt (avvisa) NON contiene le istruzioni di orienta",
+    False,
+    voce.ISTRUZIONI_ORIENTA in _prompt_avvisa,
+)
+
+# --- genera_avviso: il silenzio è deciso PRIMA di chiamare l'LLM (verificato
+# via source — il return anticipato precede la chiamata a chiama()) ---
+sorgente_genera_avviso = sorgente[sorgente.index("def genera_avviso"):]
+_pos_return_none = sorgente_genera_avviso.index("return None, {}")
+_pos_chiama = sorgente_genera_avviso.index("chiama(")
+caso(
+    "genera_avviso: il return silenzioso precede la chiamata a chiama() (nel sorgente)",
+    True,
+    _pos_return_none < _pos_chiama,
+)
+
+# --- _filtra_candidati_avviso: pura, nessun accesso DB — CASI stile CASI ---
+
+RIGA_APPR = lambda id_, ore_ferma: {"id": id_, "mittente": "x", "oggetto": "y", "ore_ferma": ore_ferma}
+RIGA_JOB = lambda tipo, errore: {"tipo": tipo, "ultimo_errore": errore, "quante": 1}
+RIGA_OSS = lambda id_, severita: {"id": id_, "fonte": "panoptes", "severita": severita, "testo": "z"}
+
+# Niente qualifica: nessuna chiamata LLM, nessun invio (criterio di chiusura del brief)
+caso(
+    "_filtra_candidati_avviso: niente qualifica -> (None, {})",
+    (None, {}),
+    voce._filtra_candidati_avviso([], [], [], set()),
+)
+
+# Soglia approvazioni: esattamente 24h NON qualifica (soglia è '>', non '>=')
+caso(
+    "_filtra_candidati_avviso: approvazione a esattamente 24h non qualifica",
+    (None, {}),
+    voce._filtra_candidati_avviso([RIGA_APPR(1, 24)], [], [], set()),
+)
+
+# Approvazione oltre soglia, non ancora segnalata -> qualifica
+_cand, _marc = voce._filtra_candidati_avviso([RIGA_APPR(10, 193.7)], [], [], set())
+caso("_filtra_candidati_avviso: approvazione >24h qualifica", 1, len(_cand["approvazioni_da_segnalare"]))
+caso(
+    "_filtra_candidati_avviso: marcatore approvazione ha la forma avvisa_appr:<id>",
+    ["avvisa_appr:10"],
+    _marc["alert_chiavi"],
+)
+
+# Approvazione oltre soglia ma già segnalata in passato -> esclusa (anti-ripetizione)
+caso(
+    "_filtra_candidati_avviso: approvazione già avvisata non si ripete",
+    (None, {}),
+    voce._filtra_candidati_avviso([RIGA_APPR(10, 193.7)], [], [], {"avvisa_appr:10"}),
+)
+
+# Job fallito di recente, non ancora segnalato -> qualifica, firma stabile
+_cand, _marc = voce._filtra_candidati_avviso([], [RIGA_JOB("invia_risposta", "boom")], [], set())
+caso("_filtra_candidati_avviso: job fallito recente qualifica", 1, len(_cand["job_falliti_da_segnalare"]))
+caso(
+    "_filtra_candidati_avviso: marcatore job ha prefisso avvisa_job:<tipo>:",
+    True,
+    _marc["alert_chiavi"][0].startswith("avvisa_job:invia_risposta:"),
+)
+
+# Stessa (tipo, errore) di un job già segnalato -> esclusa (firma identica)
+_chiave_gia_nota = _marc["alert_chiavi"][0]
+caso(
+    "_filtra_candidati_avviso: job con stessa firma già avvisata non si ripete",
+    (None, {}),
+    voce._filtra_candidati_avviso([], [RIGA_JOB("invia_risposta", "boom")], [], {_chiave_gia_nota}),
+)
+
+# Osservazione grave (case-insensitive) -> qualifica; severità non grave -> esclusa
+_cand, _marc = voce._filtra_candidati_avviso([], [], [RIGA_OSS(7, "Grave")], set())
+caso("_filtra_candidati_avviso: osservazione 'Grave' qualifica (case-insensitive)", 1, len(_cand["osservazioni_da_segnalare"]))
+caso("_filtra_candidati_avviso: marcatore osservazione è l'id, non una chiave alert", [7], _marc["osservazioni_id"])
+caso(
+    "_filtra_candidati_avviso: osservazione severità 'bassa' non qualifica",
+    (None, {}),
+    voce._filtra_candidati_avviso([], [], [RIGA_OSS(8, "bassa")], set()),
+)
+
+# Cap a LIMITE_VOCI_AVVISO per categoria: l'eccedenza non è nei marcatori
+# (riemerge da sola al giro successivo, non è persa)
+_sette_approvazioni = [RIGA_APPR(i, 100) for i in range(1, 8)]
+_cand, _marc = voce._filtra_candidati_avviso(_sette_approvazioni, [], [], set())
+caso(
+    "_filtra_candidati_avviso: cap a LIMITE_VOCI_AVVISO voci per categoria",
+    voce.LIMITE_VOCI_AVVISO,
+    len(_cand["approvazioni_da_segnalare"]),
+)
+caso(
+    "_filtra_candidati_avviso: marcatori tagliati insieme ai candidati",
+    voce.LIMITE_VOCI_AVVISO,
+    len(_marc["alert_chiavi"]),
+)
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:

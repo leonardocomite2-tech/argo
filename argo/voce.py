@@ -1,16 +1,22 @@
-"""Argo — la voce: modo "orienta".
+"""Argo — la voce: i tre modi (orienta, instrada, avvisa).
 
-Un solo comportamento: Leonardo è perso, vuole sapere dove. Raccoglie lo
-stato con le sei funzioni di sola lettura di `argo/stato.py`, lo passa a un
-LLM insieme ai file identità (SOUL/IDENTITY/USER, letti dai file — non
-duplicati qui dentro), e ritorna il testo da mandare.
+Orienta e instrada rispondono a Leonardo: raccolgono lo stato con le sei
+funzioni di sola lettura di `argo/stato.py`, lo passano a un LLM insieme ai
+file identità (SOUL/IDENTITY/USER, letti dai file — non duplicati qui
+dentro), e ritornano il testo da mandare. Avvisa è l'unico modo in cui è
+Argo a scrivere per primo (digest serale) — la selezione di COSA dire è
+deterministica in Python (vedi _filtra_candidati_avviso), l'LLM redige solo
+il testo di ciò che è già stato deciso di dire.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
-tests/test_argo_voce.py, come già per argo/stato.py). Zero instrada, zero
-avvisa, zero mandati: quelli sono passi futuri del cantiere.
+tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
+ritorna anche `marcatori` — cosa andrebbe scritto DOPO un invio riuscito —
+ma non lo scrive: tocca a chi chiama (scripts/argo/orienta_webhook.py, che
+gira da host e può scrivere). Zero mandati: passo futuro del cantiere.
 """
 
 import copy
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +38,16 @@ DOMANDA_LEONARDO = "sono perso, dove sono?"
 # pesante del prompt: 11.166 caratteri reali su un totale di ~24.000 dello
 # stato serializzato, misurato l'11/9/2026.
 LIMITE_DECISIONI_APERTE_CARATTERI = 3000
+
+# Soglie deterministiche del modo "avvisa" (passo 8) — la selezione di cosa
+# dire è in Python, non lasciata al giudizio dell'LLM. Vedi
+# _filtra_candidati_avviso per come sono usate.
+SOGLIA_APPROVAZIONE_ORE = 24
+FINESTRA_JOB_FALLITI_ORE = 24
+SEVERITA_GRAVE = "grave"
+LIMITE_VOCI_AVVISO = 5
+PREFISSO_ALERT_APPROVAZIONE = "avvisa_appr"
+PREFISSO_ALERT_JOB = "avvisa_job"
 
 ISTRUZIONI_ORIENTA = """
 ## Modo "orienta" — istruzioni per questa risposta
@@ -116,6 +132,40 @@ seguendo queste regole, senza eccezioni:
   percentuali di completamento.
 """.strip()
 
+ISTRUZIONI_AVVISA = """
+## Modo "avvisa" — istruzioni per questa risposta
+
+Sei tu a scrivere per primo: Leonardo non ha chiesto niente. Nello stato qui
+sotto trovi SOLO le voci già selezionate per stasera (approvazioni ferme da
+più di 24 ore, job falliti nelle ultime 24 ore, osservazioni gravi) — non
+devi scegliere cosa includere, solo scriverlo. Rispondi seguendo queste
+regole, senza eccezioni:
+
+- Poche righe. Se le voci da segnalare sono più di una, elencale in modo
+  asciutto (una riga per voce) — qui l'elenco è ammesso: non è una proposta
+  tra cui scegliere, è un riepilogo di fatti già decisi.
+- Dai del tu.
+- Ogni voce porta al massimo un riferimento temporale essenziale (es. da
+  quanto è ferma, quante volte è fallito) — niente riferimenti ridondanti o
+  secondari sulla stessa voce.
+- Date, hash, numeri, nomi di file e ID: riportali SOLO se compaiono alla
+  lettera nello stato qui sotto, copiati senza modifiche. Se un dettaglio
+  non c'è, ometti la frase — mai calcolarlo o ricostruirlo a memoria.
+- La risposta finisce con l'ultima voce, mai con una domanda: niente "vuoi
+  che...", niente offerte di passi successivi. Se Leonardo vuole altro, lo
+  chiede lui.
+- Testo semplice, senza markdown in nessuna forma: niente asterischi,
+  niente backtick, niente cancelletti per le intestazioni. Un elenco va
+  scritto come righe semplici, non con elenchi puntati a simboli — Telegram
+  mostra tutto letterale, non lo renderizza. Nomi di file e comandi si
+  scrivono senza backtick, come testo normale (es. voce.py, non `voce.py`).
+- Niente incoraggiamenti, niente riassunti di ciò che è stato fatto, niente
+  percentuali di completamento.
+- Le cose ferme sono informazione, non rimprovero.
+""".strip()
+
+DOMANDA_AVVISA = "Scrivi l'avviso di stasera con le voci selezionate qui sotto."
+
 FRASE_CONTESTO = {
     "telefono": "ho solo il telefono",
     "computer": "sono al computer",
@@ -176,9 +226,12 @@ def _stato_per_prompt(stato_dict):
 
 
 def costruisci_system_prompt(stato_dict, istruzioni):
-    """`istruzioni` è il blocco specifico del modo (ISTRUZIONI_ORIENTA o
-    ISTRUZIONI_INSTRADA): SOUL/IDENTITY/USER e la serializzazione dello stato sono
-    identiche per ogni modo, solo le regole comportamentali cambiano."""
+    """`istruzioni` è il blocco specifico del modo (ISTRUZIONI_ORIENTA,
+    ISTRUZIONI_INSTRADA o ISTRUZIONI_AVVISA): SOUL/IDENTITY/USER e la
+    serializzazione dello stato sono identiche per ogni modo, solo le
+    regole comportamentali e la forma di `stato_dict` cambiano — orienta e
+    instrada passano le sei fonti di raccogli_stato(), avvisa passa solo i
+    candidati già filtrati (vedi _filtra_candidati_avviso)."""
     soul, identity, user = _leggi_identita()
     stato_serializzato = json.dumps(
         _stato_per_prompt(stato_dict), default=str, ensure_ascii=False, separators=(",", ":")
@@ -186,7 +239,7 @@ def costruisci_system_prompt(stato_dict, istruzioni):
     return (
         f"{soul}\n\n{identity}\n\n{user}\n\n"
         f"{istruzioni}\n\n"
-        f"## Stato attuale del sistema (sei fonti + data odierna, formato JSON compatto)\n\n"
+        f"## Dati per questa risposta (formato JSON compatto)\n\n"
         f"{stato_serializzato}"
     )
 
@@ -207,3 +260,100 @@ def genera_risposta_instrada(minuti, contesto):
     system = costruisci_system_prompt(stato_dict, ISTRUZIONI_INSTRADA)
     domanda = _domanda_instrada(minuti, contesto)
     return chiama(system, domanda, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+
+
+def _filtra_candidati_avviso(righe_approvazioni, righe_job_falliti, righe_osservazioni, chiavi_gia_avvisate):
+    """Pura: nessun accesso DB, nessuna chiamata LLM. Applica le tre soglie
+    del brief e l'anti-ripetizione one-shot (chiavi_gia_avvisate, da
+    alert_inviati con prefisso avvisa_*/osservazioni già 'nuova' — chi
+    chiama passa solo osservazioni non ancora riferite). Ritorna
+    (candidati, marcatori): candidati è None se NIENTE qualifica — è questo
+    il punto in cui si decide il silenzio, prima di ogni chiamata LLM.
+    Taglia a LIMITE_VOCI_AVVISO per categoria; l'eccedenza resta non
+    marcata e riemerge alla prossima esecuzione, non è persa."""
+    approvazioni_ok, chiavi_appr = [], []
+    for riga in righe_approvazioni:
+        if (riga.get("ore_ferma") or 0) <= SOGLIA_APPROVAZIONE_ORE:
+            continue
+        chiave = f"{PREFISSO_ALERT_APPROVAZIONE}:{riga['id']}"
+        if chiave in chiavi_gia_avvisate:
+            continue
+        approvazioni_ok.append(riga)
+        chiavi_appr.append(chiave)
+    approvazioni_ok = approvazioni_ok[:LIMITE_VOCI_AVVISO]
+    chiavi_appr = chiavi_appr[:LIMITE_VOCI_AVVISO]
+
+    job_ok, chiavi_job = [], []
+    for riga in righe_job_falliti:
+        firma = hashlib.sha256(
+            f"{riga.get('tipo')}|{riga.get('ultimo_errore')}".encode("utf-8")
+        ).hexdigest()[:12]
+        chiave = f"{PREFISSO_ALERT_JOB}:{riga.get('tipo')}:{firma}"
+        if chiave in chiavi_gia_avvisate:
+            continue
+        job_ok.append(riga)
+        chiavi_job.append(chiave)
+    job_ok = job_ok[:LIMITE_VOCI_AVVISO]
+    chiavi_job = chiavi_job[:LIMITE_VOCI_AVVISO]
+
+    osservazioni_ok = [
+        r for r in righe_osservazioni
+        if (r.get("severita") or "").strip().lower() == SEVERITA_GRAVE
+    ][:LIMITE_VOCI_AVVISO]
+
+    if not approvazioni_ok and not job_ok and not osservazioni_ok:
+        return None, {}
+
+    candidati = {
+        "oggi": _data_oggi(),
+        "approvazioni_da_segnalare": approvazioni_ok,
+        "job_falliti_da_segnalare": job_ok,
+        "osservazioni_da_segnalare": osservazioni_ok,
+    }
+    marcatori = {
+        "alert_chiavi": chiavi_appr + chiavi_job,
+        "osservazioni_id": [r["id"] for r in osservazioni_ok],
+    }
+    return candidati, marcatori
+
+
+def _raccogli_dati_avviso():
+    """Impura: le tre letture di stato + le due su alert_inviati, poi
+    _filtra_candidati_avviso. Solleva RuntimeError se una fonte ha
+    copertura "assente" (lettura DB fallita davvero) invece di trattarla
+    come "niente da dire" — altrimenti un guasto di lettura sembrerebbe una
+    sera tranquilla, il contrario della fedeltà di SOUL.md."""
+    approvazioni = stato.approvazioni_in_attesa()
+    job_falliti = stato.job_falliti_recenti(FINESTRA_JOB_FALLITI_ORE)
+    osservazioni = stato.osservazioni_nuove()
+    chiavi_appr = stato.chiavi_alert_con_prefisso(PREFISSO_ALERT_APPROVAZIONE)
+    chiavi_job = stato.chiavi_alert_con_prefisso(PREFISSO_ALERT_JOB)
+
+    for fonte, nome in (
+        (approvazioni, "approvazioni_in_attesa"),
+        (job_falliti, "job_falliti_recenti"),
+        (osservazioni, "osservazioni_nuove"),
+        (chiavi_appr, "chiavi_alert_con_prefisso (approvazioni)"),
+        (chiavi_job, "chiavi_alert_con_prefisso (job)"),
+    ):
+        if fonte["copertura"] == "assente":
+            raise RuntimeError(f"avviso: lettura di stato fallita per {nome}: {fonte['motivo']}")
+
+    chiavi_gia_avvisate = chiavi_appr["chiavi"] | chiavi_job["chiavi"]
+    return _filtra_candidati_avviso(
+        approvazioni["righe"], job_falliti["righe"], osservazioni["righe"], chiavi_gia_avvisate
+    )
+
+
+def genera_avviso():
+    """Modo "avvisa": digest serale. Se non c'è nessun candidato, ritorna
+    (None, {}) SENZA MAI chiamare l'LLM — il silenzio è deciso in Python,
+    non lasciato al giudizio del modello. Altrimenti ritorna (testo,
+    marcatori): marcatori va scritto da chi chiama DOPO un invio riuscito
+    (questo modulo resta sola lettura, vedi guardrail statico nei test)."""
+    candidati, marcatori = _raccogli_dati_avviso()
+    if candidati is None:
+        return None, {}
+    system = costruisci_system_prompt(candidati, ISTRUZIONI_AVVISA)
+    testo = chiama(system, DOMANDA_AVVISA, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+    return testo, marcatori

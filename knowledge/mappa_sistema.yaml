@@ -38,7 +38,7 @@ pipeline:
       - alert Telegram se il codice ricevuto ha caratteri non validi o è troppo lungo
     codice:
       - "backend/main.py:47-177"
-      - "worker/loop.py:151-311"
+      - "worker/loop.py:163-323"
       - "media/poster.py"
       - "templates/poster_base.png"
       - "templates/Montserrat-Bold.ttf"
@@ -59,21 +59,21 @@ pipeline:
         garantito_da: "backend/main.py:78-141 (validazione host_code prima dell'instradamento) + backend/main.py:169-174 (job genera_poster accodato solo nel ramo senza motivo_invalido, mai in quello form.codice_invalido)"
       - id: PH03
         enunciato: "Il depliant parte 24h dopo il poster, mai prima"
-        garantito_da: "worker/loop.py:210-214 (INSERT jobs invia_depliant con run_after = now() + interval '24 hours') + worker/loop.py:76 (claim_job, WHERE run_after <= now())"
+        garantito_da: "worker/loop.py:222-226 (INSERT jobs invia_depliant con run_after = now() + interval '24 hours') + worker/loop.py:88 (claim_job, WHERE run_after <= now())"
       - id: PH04
         enunciato: "Nessuna doppia email (poster/avviso/depliant) per lo stesso evento, anche se il job viene rilanciato"
-        garantito_da: "indice unico messages_thread_canale_direzione_uniq (db/migrations/001_messages_unique.sql) + guardia ON CONFLICT ... DO NOTHING RETURNING id in worker/loop.py:186-193,246-253,294-301"
+        garantito_da: "indice unico messages_thread_canale_direzione_uniq (db/migrations/001_messages_unique.sql) + guardia ON CONFLICT ... DO NOTHING RETURNING id in worker/loop.py:198-205,258-265,306-313"
     evidenza:
       - "route: backend/main.py:47-177 (POST /webhook/ghl/form)"
       - "auth: backend/main.py:49-50 (header X-Argo-Secret vs GHL_WEBHOOK_SECRET)"
       - "scrive events: backend/main.py:117-127 (form.codice_invalido), 153-163 (form.submitted) — CORRETTO al passo 2, mancava in tabelle.scrive nella bozza del passo 1 nonostante l'evidenza lo documentasse già"
       - "job accodati: backend/main.py:135 (avvisa_codice_invalido), 171 (genera_poster)"
-      - "handler genera_poster: worker/loop.py:151-216, legge events 159-163, scrive messages con guardia ON CONFLICT (thread_id,canale,direzione) 186-193, accoda invia_depliant fra 24h 210-214"
-      - "handler avvisa_codice_invalido: worker/loop.py:219-261"
-      - "handler invia_depliant: worker/loop.py:264-311, thread_id distinto f\"{event_id}:depliant\" per non collidere col thread del poster (nota esplicita a loop.py:285-289) — eccezione email transazionale documentata in CLAUDE.md, non passa da approvals"
+      - "handler genera_poster: worker/loop.py:163-228, legge events 159-163, scrive messages con guardia ON CONFLICT (thread_id,canale,direzione) 186-193, accoda invia_depliant fra 24h 210-214"
+      - "handler avvisa_codice_invalido: worker/loop.py:231-273"
+      - "handler invia_depliant: worker/loop.py:276-323, thread_id distinto f\"{event_id}:depliant\" per non collidere col thread del poster (nota esplicita a loop.py:297-301) — eccezione email transazionale documentata in CLAUDE.md, non passa da approvals"
       - "self-contained: worker/loop.py — nessuna di queste tre funzioni tocca contacts/identities/approvals"
       - "generazione immagine: media/poster.py:18-40 (auto-fit font 80->20, box (994,2580)-(1423,2680), font Montserrat-Bold)"
-      - "invio: connectors/mailer.py invia_email, chiamata a worker/loop.py:205,260; invia_email_reply_box per il depliant, worker/loop.py:309"
+      - "invio: connectors/mailer.py invia_email, chiamata a worker/loop.py:217,272; invia_email_reply_box per il depliant, worker/loop.py:321"
       - "alert su codice invalido malformato: backend/main.py:87-91,98-102 (notifica Telegram — il JS di sanificazione del form potrebbe essere rotto)"
 
   - nome: risposte_email
@@ -87,10 +87,10 @@ pipeline:
       - riga in soppressioni per bounce definitivo o categoria di disiscrizione/non_interessato
       - aggiornamento contacts.stato per disiscrizione/non_interessato
     codice:
-      - "worker/loop.py:314-413"
-      - "worker/loop.py:916-967"
-      - "worker/loop.py:1210-1388"
-      - "worker/loop.py:1391-1459"
+      - "worker/loop.py:326-425"
+      - "worker/loop.py:928-979"
+      - "worker/loop.py:1222-1400"
+      - "worker/loop.py:1403-1471"
       - "connectors/imap_reader.py"
     tabelle:
       legge: [events, approvals, messages]
@@ -113,25 +113,25 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1228-1232 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-404,469-485 — range spezzato dal passo 5 di argo_voce, che si è inserito in mezzo). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1228-1232."
+        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-404,469-485 — range spezzato dal passo 5 di argo_voce, che si è inserito in mezzo). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
       - id: RE03
         enunciato: "Un'email riconosciuta come warmup (tag noto o pattern strutturale dell'oggetto) non genera mai una risposta automatica"
-        garantito_da: "connectors/imap_reader.py:196-198 (classifica_messaggio → motivo 'warmup' se _contiene_tag_warmup o _e_pattern_warmup_soggetto) + worker/loop.py:349,387-391 (motivo_scarto non-None → tipo_evento 'email.filtrata', nessun job notifica_risposta accodato)"
+        garantito_da: "connectors/imap_reader.py:196-198 (classifica_messaggio → motivo 'warmup' se _contiene_tag_warmup o _e_pattern_warmup_soggetto) + worker/loop.py:361,399-403 (motivo_scarto non-None → tipo_evento 'email.filtrata', nessun job notifica_risposta accodato)"
       - id: RE04
         enunciato: "La risposta esce sempre dalla stessa casella che ha ricevuto il messaggio originale"
-        garantito_da: "worker/loop.py:1311-1322 (password_per(destinatario_originale), invia_risposta_email(...,destinatario_originale, mittente_pass)) + connectors/mailer.py:46-53 (From = mittente_user, il parametro passato)"
+        garantito_da: "worker/loop.py:1323-1334 (password_per(destinatario_originale), invia_risposta_email(...,destinatario_originale, mittente_pass)) + connectors/mailer.py:46-53 (From = mittente_user, il parametro passato)"
     evidenza:
       - "catena reale nel codice: leggi_email -> notifica_risposta -> _valuta_e_rispondi (condivisa) -> approvazione Telegram -> invia_risposta (ramo email). 'Lettura IMAP' e 'risposte email' nominate come due pipeline separate nel prompt originale sono la stessa catena — DECISIONE confermata con Leonardo il 9/9/2026 (STATO.md)"
-      - "leggi_email: worker/loop.py:314-413, chiama connectors.imap_reader.leggi_nuove() (316) per i filtri deterministici, scrive events 375-381 — CORRETTO al passo 2, mancava in tabelle.scrive"
-      - "dedup_key: worker/loop.py:330-344,373-381 — imap:{message_id} o imap-sint:{sha256(...)} se manca Message-ID, ON CONFLICT (dedup_key) DO NOTHING"
-      - "bounce definitivo -> soppressioni: worker/loop.py:392-398 (ON CONFLICT (tipo,valore) DO NOTHING) — MA nessun punto del codice legge soppressioni prima di un invio automatico: vedi RE02 e STATO.md, sezione DECISIONI APERTE"
-      - "riaccodo perenne ogni 2 minuti: worker/loop.py:408-413, auto-guarito da garantisci_leggi_email (loop.py:1554-1567, componente di manutenzione_sistema — range aggiornato 11/9/2026, vedi fix corsa in manutenzione_sistema)"
-      - "notifica_risposta: worker/loop.py:916-967, legge events 924-928, scrive messages direzione 'in' con guardia ON CONFLICT (thread_id,canale,direzione) 939-945"
-      - "scrive anche alert_inviati tramite il condiviso alert_una_volta (worker/loop.py:749-764, INSERT ... ON CONFLICT DO NOTHING RETURNING chiave), usato dentro invia_risposta per l'alert di invio fallito — CORRETTO al passo 4 (verifica_mappa.py): mancava in tabelle.scrive nonostante alert_una_volta fosse già elencato in condivisi"
-      - "invia_risposta (condiviso): legge approvals+messages JOIN events 1216-1277, guardia scadenza+stato 1210-1259 (comune a email e DM — CORRETTO al passo 2: mancavano approvals e messages in tabelle.legge), ramo email 1287-1327 scrive messages, invia con connectors.mailer.invia_risposta_email usando password_per() (connectors.imap_reader) per la casella originale, Reply-To = env REPLY_SMTP_USER letto qui dentro (loop.py:1317 — env del condiviso invia_risposta, non di questa pipeline, per la regola A2)"
+      - "leggi_email: worker/loop.py:326-425, chiama connectors.imap_reader.leggi_nuove() (316) per i filtri deterministici, scrive events 375-381 — CORRETTO al passo 2, mancava in tabelle.scrive"
+      - "dedup_key: worker/loop.py:342-356,385-393 — imap:{message_id} o imap-sint:{sha256(...)} se manca Message-ID, ON CONFLICT (dedup_key) DO NOTHING"
+      - "bounce definitivo -> soppressioni: worker/loop.py:404-410 (ON CONFLICT (tipo,valore) DO NOTHING) — MA nessun punto del codice legge soppressioni prima di un invio automatico: vedi RE02 e STATO.md, sezione DECISIONI APERTE"
+      - "riaccodo perenne ogni 2 minuti: worker/loop.py:420-425, auto-guarito da garantisci_leggi_email (loop.py:1566-1579, componente di manutenzione_sistema — range aggiornato 11/9/2026, vedi fix corsa in manutenzione_sistema)"
+      - "notifica_risposta: worker/loop.py:928-979, legge events 924-928, scrive messages direzione 'in' con guardia ON CONFLICT (thread_id,canale,direzione) 939-945"
+      - "scrive anche alert_inviati tramite il condiviso alert_una_volta (worker/loop.py:761-776, INSERT ... ON CONFLICT DO NOTHING RETURNING chiave), usato dentro invia_risposta per l'alert di invio fallito — CORRETTO al passo 4 (verifica_mappa.py): mancava in tabelle.scrive nonostante alert_una_volta fosse già elencato in condivisi"
+      - "invia_risposta (condiviso): legge approvals+messages JOIN events 1228-1289, guardia scadenza+stato 1222-1271 (comune a email e DM — CORRETTO al passo 2: mancavano approvals e messages in tabelle.legge), ramo email 1299-1339 scrive messages, invia con connectors.mailer.invia_risposta_email usando password_per() (connectors.imap_reader) per la casella originale, Reply-To = env REPLY_SMTP_USER letto qui dentro (loop.py:1329 — env del condiviso invia_risposta, non di questa pipeline, per la regola A2)"
       - "errore di classificazione/bozza terminale, mai ritentato: DECISIONI APERTE in STATO.md — la guardia su messages è scritta prima della classificazione, un retry del job vede 'già notificato' ed esce senza richiamare l'LLM"
       - "MAILBOX_{n}_USER/PASS configurate in .env vanno da 1 a 6 (grep sui nomi, 9/9/2026): 4 caselle attive + 2 in warmup, confermato da Leonardo (9/9/2026) — le altre 2 caselle in arrivo non sono ancora in .env, previsto passaggio a 8 quando entreranno in warmup"
       - "DA_VERIFICARE: il filtro warmup (RE03) è basato sul CONTENUTO del messaggio (tag o pattern d'oggetto), non sull'identità della casella — il codice non sa quali MAILBOX_N sono 'in warmup' nel senso operativo di Leonardo, legge tutte le caselle configurate allo stesso modo. Se una casella in warmup ricevesse un'email di warmup che non rispetta il tag/pattern noto, verrebbe processata come una risposta vera"
@@ -146,10 +146,10 @@ pipeline:
       - risposta DM inviata via GHL dopo approvazione
     codice:
       - "backend/main.py:180-273"
-      - "worker/loop.py:1136-1194"
-      - "worker/loop.py:1210-1388"
-      - "worker/loop.py:1462-1531"
-      - "worker/loop.py:1534-1551"
+      - "worker/loop.py:1148-1206"
+      - "worker/loop.py:1222-1400"
+      - "worker/loop.py:1474-1543"
+      - "worker/loop.py:1546-1563"
       - "connectors/ghl.py"
     tabelle:
       legge: [events, approvals, messages]
@@ -169,7 +169,7 @@ pipeline:
     contratti:
       - id: DM01
         enunciato: "Nessuna risposta esce oltre la finestra Meta di 24h"
-        garantito_da: "worker/loop.py:1234-1259 (controllo scadenza comune a invia_risposta, eseguito PRIMA del ramo per canale — se scadenza < now(), l'approvazione viene chiusa 'scaduta' e non si invia nulla)"
+        garantito_da: "worker/loop.py:1246-1271 (controllo scadenza comune a invia_risposta, eseguito PRIMA del ramo per canale — se scadenza < now(), l'approvazione viene chiusa 'scaduta' e non si invia nulla)"
       - id: DM02
         enunciato: "Lo stesso DM non riceve mai due risposte"
         garantito_da: nessuno
@@ -178,17 +178,17 @@ pipeline:
         garantito_da: "backend/main.py:21-30 (_normalizza_canale_dm, match per sottostringa case-insensitive) + backend/main.py:231-234 (evento scartato, non scritto in events, se il canale normalizzato è None)"
       - id: DM04
         enunciato: "Nessuna risposta DM redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1228-1232 (stessa guardia condivisa di RE01, comune a email e DM). Stessa catena a due anelli di RE01 (10/9/2026): la guardia si fida di approvals.stato, scritto dal componente condiviso approvazione_telegram — un difetto nelle sue transizioni di stato svuota la garanzia senza toccare questa guardia."
+        garantito_da: "worker/loop.py:1240-1244 (stessa guardia condivisa di RE01, comune a email e DM). Stessa catena a due anelli di RE01 (10/9/2026): la guardia si fida di approvals.stato, scritto dal componente condiviso approvazione_telegram — un difetto nelle sue transizioni di stato svuota la garanzia senza toccare questa guardia."
     evidenza:
       - "route: backend/main.py:180-273 (POST /webhook/ghl/dm), auth header X-Argo-Secret vs GHL_WEBHOOK_SECRET (182-183)"
       - "scrive events: backend/main.py:252-262 (dm.received) — CORRETTO al passo 2, mancava in tabelle.scrive"
       - "dedup_key: backend/main.py:237,254-262 (ghl-dm:{contact_id}:{triggered_at}) — DA_VERIFICARE: non esiste conversation_id né id univoco di messaggio nel payload GHL (STATO.md, sezione dedup_key DM); dedup_key su triggered_at grezzo dedupe solo repliche esatte dello stesso webhook, non lo stesso DM reale rinviato con un triggered_at diverso — vedi DM02"
       - "job accodato: backend/main.py:269-271 (notifica_dm)"
-      - "handler notifica_dm: worker/loop.py:1136-1194, legge events (1144-1150, incluso contact_id esterno GHL non risolto su contacts — nota a 1161-1165), scrive messages con contact_id NULL (1166-1175), chiama _valuta_e_rispondi passando contatto_where_col='ghl_contact_id'"
-      - "_valuta_e_rispondi (condiviso, invocato da qui) scrive anche soppressioni (worker/loop.py:1023-1027, tipo=canale instagram/facebook, valore=contact_id_ghl) e contacts (1041-1045, UPDATE ... WHERE ghl_contact_id) quando la categoria è di soppressione — CORRETTO al passo 2: soppressioni e contacts mancavano in tabelle.scrive nonostante il codice condiviso li scriva anche in questo ramo"
-      - "scrive anche alert_inviati tramite il condiviso alert_una_volta (worker/loop.py:749-764, INSERT ... ON CONFLICT DO NOTHING RETURNING chiave), usato dentro invia_risposta per l'alert di invio fallito — CORRETTO al passo 4 (verifica_mappa.py): mancava in tabelle.scrive nonostante alert_una_volta fosse già elencato in condivisi"
-      - "invia_risposta ramo DM: worker/loop.py:1329-1386, guardia scadenza specifica DM comune con email (1234-1259), invio via connectors.ghl.invia_messaggio (1347), salvataggio conversationId/messageId in messages.payload (1356-1365)"
-      - "handler di test (non produzione, ma stesso codice): test_approvazione_dm worker/loop.py:1462-1531, test_invio_dm worker/loop.py:1534-1551 (quest'ultimo non tocca il DB, lo dice esplicitamente a 1536-1538)"
+      - "handler notifica_dm: worker/loop.py:1148-1206, legge events (1144-1150, incluso contact_id esterno GHL non risolto su contacts — nota a 1161-1165), scrive messages con contact_id NULL (1166-1175), chiama _valuta_e_rispondi passando contatto_where_col='ghl_contact_id'"
+      - "_valuta_e_rispondi (condiviso, invocato da qui) scrive anche soppressioni (worker/loop.py:1035-1039, tipo=canale instagram/facebook, valore=contact_id_ghl) e contacts (1041-1045, UPDATE ... WHERE ghl_contact_id) quando la categoria è di soppressione — CORRETTO al passo 2: soppressioni e contacts mancavano in tabelle.scrive nonostante il codice condiviso li scriva anche in questo ramo"
+      - "scrive anche alert_inviati tramite il condiviso alert_una_volta (worker/loop.py:761-776, INSERT ... ON CONFLICT DO NOTHING RETURNING chiave), usato dentro invia_risposta per l'alert di invio fallito — CORRETTO al passo 4 (verifica_mappa.py): mancava in tabelle.scrive nonostante alert_una_volta fosse già elencato in condivisi"
+      - "invia_risposta ramo DM: worker/loop.py:1341-1398, guardia scadenza specifica DM comune con email (1234-1259), invio via connectors.ghl.invia_messaggio (1347), salvataggio conversationId/messageId in messages.payload (1356-1365)"
+      - "handler di test (non produzione, ma stesso codice): test_approvazione_dm worker/loop.py:1474-1543, test_invio_dm worker/loop.py:1546-1563 (quest'ultimo non tocca il DB, lo dice esplicitamente a 1536-1538)"
 
   - nome: manutenzione_sistema
     stato: produzione
@@ -204,10 +204,10 @@ pipeline:
       - digest testuale serale via Telegram
       - riaccodo automatico dei job perenni se mancanti (self-healing)
     codice:
-      - "worker/loop.py:68-95"
-      - "worker/loop.py:441-746"
-      - "worker/loop.py:749-913"
-      - "worker/loop.py:1554-1660"
+      - "worker/loop.py:80-107"
+      - "worker/loop.py:453-758"
+      - "worker/loop.py:761-925"
+      - "worker/loop.py:1566-1706"
     tabelle:
       legge: [jobs, events, messages, approvals, soppressioni, alert_inviati]
       scrive: [alert_inviati, approvals, jobs]
@@ -217,27 +217,27 @@ pipeline:
     contratti:
       - id: MS01
         enunciato: "Un'approvazione scaduta viene chiusa entro 15 minuti dalla scadenza"
-        garantito_da: "worker/loop.py:841-892 (_controllo_scadenza_vicina chiude le scadute) richiamato da controlli_periodici ogni 15 minuti (worker/loop.py:895-913, riaccodo con run_after = now() + interval '15 minutes')"
+        garantito_da: "worker/loop.py:853-904 (_controllo_scadenza_vicina chiude le scadute) richiamato da controlli_periodici ogni 15 minuti (worker/loop.py:907-925, riaccodo con run_after = now() + interval '15 minutes')"
       - id: MS02
         enunciato: "Il digest serale non salta le 22:00 anche a worker riavviato"
-        garantito_da: "worker/loop.py:1583-1614 (garantisci_digest_serale, chiamata all'avvio e a ogni giro del loop; se le 22:00 di oggi sono già passate senza un job pending/running, lo riaccoda subito invece di aspettare il giorno dopo)"
+        garantito_da: "worker/loop.py:1595-1626 (garantisci_digest_serale, chiamata all'avvio e a ogni giro del loop; se le 22:00 di oggi sono già passate senza un job pending/running, lo riaccoda subito invece di aspettare il giorno dopo)"
       - id: MS03
         enunciato: "Nessun job resta in 'running' oltre un riavvio del worker"
-        garantito_da: "worker/loop.py:1629-1638 (recover_orphaned_jobs, UPDATE jobs SET stato='pending' WHERE stato='running', eseguito a ogni avvio) — vedi MS04 per il limite di questa garanzia"
+        garantito_da: "worker/loop.py:1675-1684 (recover_orphaned_jobs, UPDATE jobs SET stato='pending' WHERE stato='running', eseguito a ogni avvio) — vedi MS04 per il limite di questa garanzia"
       - id: MS04
         enunciato: "recover_orphaned_jobs è corretto solo con un worker unico: con due, un riavvio rimetterebbe a pending job ancora vivi dell'altro worker"
-        garantito_da: "docker-compose.yml, servizio worker senza deploy/replicas dichiarate (default: un solo container) — non è un guard nel codice, solo la topologia del compose; il commento a worker/loop.py:1630-1633 documenta l'assunzione ma non la impone"
+        garantito_da: "docker-compose.yml, servizio worker senza deploy/replicas dichiarate (default: un solo container) — non è un guard nel codice, solo la topologia del compose; il commento a worker/loop.py:1676-1679 documenta l'assunzione ma non la impone"
     evidenza:
       - "DA_VERIFICARE / SOSPESO: questo flusso non è uno dei quattro nominati all'apertura del cantiere — non è innescato da un evento di dominio (poster/email/DM), opera sul sistema stesso (job, alert, digest). Trattato come quinta scheda pipeline, non come componente condiviso: DECISIONE confermata con Leonardo il 9/9/2026 (STATO.md)"
-      - "loop principale ogni 5s: worker/loop.py:1656 (time.sleep(5)), claim_job worker/loop.py:68-95 (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE stato='running')"
+      - "loop principale ogni 5s: worker/loop.py:1702 (time.sleep(5)), claim_job worker/loop.py:80-107 (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE stato='running')"
       - "FIX (11/9/2026): le tre garantisci_* (leggi_email/controlli_periodici/digest_serale) facevano un check-poi-insert non atomico — due processi worker sovrapposti (es. durante un redeploy) potevano entrambi trovare 'nessun job' e inserirne due, osservato in produzione su digest_serale (due job, stesso run_after, creati a 6 secondi di distanza). Corretto con pg_advisory_xact_lock (chiave propria per funzione) in testa a ciascuna, prima della SELECT — nessuna migrazione, nessun rischio per il self-chaining esistente. Dettagli in STATO.md, sessione 2026-09-11."
-      - "controlli_periodici ogni 15 min: worker/loop.py:895-913, orchestratore di _controllo_approvazioni_bloccate (767-789), _controllo_poster_mancante (792-813), _controllo_volume_anomalo (816-838), _controllo_scadenza_vicina (841-892)"
-      - "digest_serale: worker/loop.py:619-746, legge approvals/jobs/events/messages/soppressioni/alert_inviati in sola lettura (622-724 — legge alert_inviati a 697-701, CORRETTO al passo 2: mancava in tabelle.legge), riaccoda sé stesso alle 22:00 (738-743, prossimo_orario_digest)"
-      - "idempotenza propria: _alert_una_volta worker/loop.py:749-764 (INSERT INTO alert_inviati ... ON CONFLICT DO NOTHING RETURNING chiave, chiave è PRIMARY KEY — db/migrations/002_alert_inviati.sql) — non è dedup_key su events né guardia di stato operatore, è un terzo meccanismo"
-      - "self-healing: garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py:1554-1614, SELECT 1 FROM jobs WHERE tipo=%s AND stato IN ('pending','running'), reinseriscono il job se assente, eseguite a ogni giro del loop — dall'11/9/2026 precedute da pg_advisory_xact_lock, vedi FIX sotto)"
-      - "recover_orphaned_jobs: worker/loop.py:1629-1638 — presuppone un solo worker, commento esplicito a 1630-1633. Verificato al passo 2: docker-compose.yml non dichiara repliche per il servizio worker, quindi l'assunzione è corretta oggi (MS04)"
-      - "migra_job_notifica_risposta: worker/loop.py:1617-1626, migrazione una tantum all'avvio (rinomina job classifica_messaggio -> notifica_risposta), non più rilevante a regime ma resta nel codice"
-      - "PASSO 5 argo_voce (11/9/2026): claim_job (worker/loop.py:68-95, range mancante dal codice sopra nonostante fosse già citata in evidenza — CORRETTO in questo stesso passo) esclude ora esplicitamente tipo='genera_orienta' dalla propria SELECT. Quel tipo di job è consumato da scripts/argo/orienta_webhook.py da host (cron), non dal worker: senza l'esclusione questo loop lo avrebbe reclamato per primo (poll ogni 5s contro un cron ogni 60s), trovato nessun handler registrato e marcato 'failed' con un ALERT falso a ogni /orienta. Vedi argo_voce per il resto del disegno."
+      - "controlli_periodici ogni 15 min: worker/loop.py:907-925, orchestratore di _controllo_approvazioni_bloccate (767-789), _controllo_poster_mancante (792-813), _controllo_volume_anomalo (816-838), _controllo_scadenza_vicina (841-892)"
+      - "digest_serale: worker/loop.py:631-758, legge approvals/jobs/events/messages/soppressioni/alert_inviati in sola lettura (622-724 — legge alert_inviati a 697-701, CORRETTO al passo 2: mancava in tabelle.legge), riaccoda sé stesso alle 22:00 (738-743, prossimo_orario_digest)"
+      - "idempotenza propria: _alert_una_volta worker/loop.py:761-776 (INSERT INTO alert_inviati ... ON CONFLICT DO NOTHING RETURNING chiave, chiave è PRIMARY KEY — db/migrations/002_alert_inviati.sql) — non è dedup_key su events né guardia di stato operatore, è un terzo meccanismo"
+      - "self-healing: garantisci_leggi_email/controlli_periodici/digest_serale (worker/loop.py:1566-1626, SELECT 1 FROM jobs WHERE tipo=%s AND stato IN ('pending','running'), reinseriscono il job se assente, eseguite a ogni giro del loop — dall'11/9/2026 precedute da pg_advisory_xact_lock, vedi FIX sotto)"
+      - "recover_orphaned_jobs: worker/loop.py:1675-1684 — presuppone un solo worker, commento esplicito a 1630-1633. Verificato al passo 2: docker-compose.yml non dichiara repliche per il servizio worker, quindi l'assunzione è corretta oggi (MS04)"
+      - "migra_job_notifica_risposta: worker/loop.py:1629-1672, migrazione una tantum all'avvio (rinomina job classifica_messaggio -> notifica_risposta), non più rilevante a regime ma resta nel codice"
+      - "PASSO 5 argo_voce (11/9/2026): claim_job (worker/loop.py:80-107, range mancante dal codice sopra nonostante fosse già citata in evidenza — CORRETTO in questo stesso passo) esclude ora esplicitamente tipo='genera_orienta' dalla propria SELECT. Quel tipo di job è consumato da scripts/argo/orienta_webhook.py da host (cron), non dal worker: senza l'esclusione questo loop lo avrebbe reclamato per primo (poll ogni 5s contro un cron ogni 60s), trovato nessun handler registrato e marcato 'failed' con un ALERT falso a ogni /orienta. Vedi argo_voce per il resto del disegno."
 
   - nome: lead_gen_host
     stato: concluso_roma
@@ -432,23 +432,69 @@ pipeline:
       nessun backtick, nessuna domanda finale, un solo riferimento
       temporale, 2-4 righe — dati citati verificati veri via argo/stato.py
       e git log. Nessuna tabella/env/confine di pipeline toccato.
+      PASSO 8 (11/9/2026) — terzo modo, "avvisa": digest serale, l'unico in
+      cui Argo scrive per primo. Verificata la sovrapposizione col digest
+      meccanico esistente (worker/loop.py:digest_serale, 22:00) prima di
+      scrivere codice: un'approvazione ferma genera già un alert Telegram
+      immediato e una tantum a 6h (_controllo_approvazioni_bloccate) e il
+      digest meccanico le elenca comunque ogni sera; un job fallito due
+      volte genera già un alert immediato non deduplicato (fail_job,
+      worker/loop.py:135, scatta quando tentativi>=2) più il conteggio nel
+      digest. Decisione con Leonardo: mantenere i tre criteri del brief
+      (approvazione >24h, job fallito due volte, osservazione grave) con
+      anti-ripetizione ONE-SHOT per singolo item — mai lo stesso id/firma
+      due sere di fila, a differenza del digest meccanico che ripete ogni
+      sera; riuso di alert_inviati (nuovi prefissi avvisa_appr:/avvisa_job:)
+      e di osservazioni.stato (nuova→riferita, contratto già dichiarato
+      sotto) — zero tabelle nuove, zero migrazioni. Selezione deterministica
+      in Python PRIMA di ogni chiamata LLM (argo/voce.py:_filtra_candidati_avviso,
+      pura, e _raccogli_dati_avviso): se nessun candidato qualifica,
+      genera_avviso() ritorna senza mai chiamare connectors/llm.py:chiama()
+      — il silenzio è un esito di codice, non lasciato al giudizio del
+      modello. Scoperta in sessione: jobs conteneva 109 righe stato='failed'
+      di digest_serale dal 27-29/08 (bug thread_id::int, già noto e
+      risolto) — riusare argo/stato.py:job_falliti() (all-time, per
+      disegno) avrebbe inquinato il primo avviso; nuova
+      argo/stato.py:job_falliti_recenti(ore=24) con finestra temporale,
+      stessa di worker/loop.py:digest_serale, esclude test_approvazione
+      come quel digest. Nuova argo/stato.py:chiavi_alert_con_prefisso()
+      (nessuna finestra: l'anti-ripetizione di avvisa è per sempre).
+      argo/voce.py resta sola lettura (guardrail statico invariato):
+      genera_avviso() ritorna anche `marcatori` (chiavi alert_inviati +
+      id osservazioni) ma non scrive — l'unico punto che scrive, oltre a
+      jobs, è scripts/argo/orienta_webhook.py (gira da host, può scrivere),
+      PRIMA dell'invio, mai dopo (stesso ordine "scrivi prima di inviare"
+      già in uso altrove nel repo, stesso trade-off accettato in STATO.md).
+      Schedulazione senza nuova riga di crontab: worker/loop.py:garantisci_genera_avviso
+      (nuova, 22:15 — 15 minuti dopo il digest meccanico) enqueue-a un job
+      'genera_avviso' una volta al giorno; non essendoci un handler Docker
+      per questo tipo (deve girare da host, come genera_orienta/genera_instrada
+      — worker/loop.py:claim_job esclude ora anche questo tipo), la funzione
+      NON è solo un recupero d'emergenza come le altre garantisci_*: è il
+      meccanismo di schedulazione stesso, perché nessun handler Docker può
+      riaccodarsi da sé — riusa il cron esistente di orienta_webhook.py
+      (già ogni minuto). Collaudo reale da host in questa sessione (vedi
+      STATO.md per il testo).
     sede: vps
     attivazione: >
       scripts/argo/stato_cli.py (harness di lettura) resta lanciato a mano
-      da host, invariato. Due modi, stesso ponte via jobs + cron: Leonardo
-      scrive /orienta o /instrada <minuti> telefono|computer al bot Argo,
-      POST /webhook/argo (backend/main.py:414-504) accoda rispettivamente un
-      job 'genera_orienta' o 'genera_instrada' (o risponde con una riga fissa
-      se i parametri di /instrada mancano/non sono validi, zero LLM),
-      scripts/argo/orienta_webhook.py (lanciato da cron host ogni minuto, non
-      dal worker Docker) reclama il più vecchio dei due tipi e manda la
-      risposta. Il modo orienta ha anche un trigger a mano da host con
-      scripts/argo/orienta.py (invariato). Vedi PASSO 5 per il perché del
-      cron invece del worker, PASSO 6 per il secondo modo.
+      da host, invariato. Tre modi: orienta/instrada sullo stesso ponte via
+      jobs + cron di sempre (Leonardo scrive /orienta o /instrada <minuti>
+      telefono|computer al bot Argo, POST /webhook/argo (backend/main.py:414-504)
+      accoda 'genera_orienta'/'genera_instrada'); avvisa (PASSO 8) non ha un
+      trigger da Leonardo — worker/loop.py:garantisci_genera_avviso accoda da
+      sé 'genera_avviso' una volta al giorno (22:15). scripts/argo/orienta_webhook.py
+      (lanciato da cron host ogni minuto, non dal worker Docker) reclama il
+      più vecchio dei tre tipi e manda la risposta (o tace, per avvisa, se
+      non c'è nulla da dire). Il modo orienta ha anche un trigger a mano da
+      host con scripts/argo/orienta.py (invariato). Vedi PASSO 5 per il
+      perché del cron invece del worker, PASSO 6 per instrada, PASSO 8 per
+      avvisa.
     produce:
       - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
       - "modo orienta: messaggio breve su Telegram (bot ARGO_VOCE_BOT_TOKEN) — poche righe, una sola prossima cosa con motivo, dichiarazione esplicita se una fonte ha copertura parziale/assente, mai un elenco di tutto lo stato"
       - "modo instrada: messaggio breve su Telegram (stesso bot) — una sola proposta dentro la finestra dichiarata e coerente col contesto fisico (telefono/computer), a parità di finestra ciò che chiude qualcosa prima di ciò che ne apre una; se niente si adatta, lo dice e si ferma"
+      - "modo avvisa: digest serale su Telegram (stesso bot), UNA volta al giorno alle 22:15 — solo se almeno una approvazione ferma da più di 24h, un job fallito nelle ultime 24h o un'osservazione grave qualificano (mai già segnalati in passato); altrimenti nessun messaggio, il silenzio è l'esito normale"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "knowledge/argo/SOUL.md"
@@ -461,9 +507,12 @@ pipeline:
       - "scripts/argo/orienta_webhook.py"
       - "backend/main.py:414-504"
       - "connectors/llm.py"
+      - "worker/loop.py:60-70"
+      - "worker/loop.py:83-85"
+      - "worker/loop.py:1635-1668"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
-      scrive: [jobs]
+      scrive: [jobs, alert_inviati, osservazioni]
     verifica:
       indecidibile:
         - campo: tabelle.legge
@@ -502,6 +551,24 @@ pipeline:
           motivo: >
             stesso motivo di 'approvals' sopra — osservazioni_nuove() legge
             osservazioni WHERE stato='nuova'.
+        - campo: tabelle.scrive
+          valore: alert_inviati
+          motivo: >
+            PASSO 8: scripts/argo/orienta_webhook.py:_marca_avviso_inviato
+            scrive qui (INSERT ... ON CONFLICT DO NOTHING, prefissi
+            avvisa_appr:/avvisa_job:), ma passa la SQL come stringa a
+            `docker exec argo-db-1 psql -c "..."` via subprocess (stessa
+            deviazione dichiarata di argo/stato.py sopra, non cur.execute())
+            — verifica_mappa.py non la vede. Scritta PRIMA dell'invio
+            Telegram, mai dopo, e mai da argo/voce.py (resta sola lettura,
+            guardrail statico).
+        - campo: tabelle.scrive
+          valore: osservazioni
+          motivo: >
+            stesso motivo del punto sopra — scripts/argo/orienta_webhook.py:_marca_avviso_inviato
+            fa UPDATE osservazioni SET stato='riferita' WHERE id=... AND
+            stato='nuova', via docker exec psql. Implementa AV02 sotto
+            ("solo Argo aggiorna osservazioni.stato").
     condivisi: [telegram_notifica]
     env:
       - ANTHROPIC_API_KEY
@@ -516,7 +583,7 @@ pipeline:
         garantito_da: "db/migrations/006_osservazioni_mandati.sql:18 (origine_msg TEXT NOT NULL — vincolo di schema, un INSERT senza origine_msg fallisce sempre; nessun codice applicativo lo popola ancora)"
       - id: AV02
         enunciato: "Panoptes deposita in osservazioni; solo Argo aggiorna osservazioni.stato"
-        garantito_da: nessuno
+        garantito_da: "PASSO 8 (11/9/2026): scripts/argo/orienta_webhook.py:_marca_avviso_inviato (UPDATE osservazioni SET stato='riferita' WHERE id=... AND stato='nuova', via docker exec psql — nessun altro punto del codice scrive osservazioni.stato) copre solo la metà 'solo Argo aggiorna osservazioni.stato'. La metà 'Panoptes deposita in osservazioni' resta senza scrittore: nessuna pipeline Panoptes esiste ancora (osservazioni_nuove() vede tuttora zero righe, vedi evidenza sotto)."
       - id: AV03
         enunciato: "In modo orienta, la risposta non elenca tutto lo stato: sceglie una sola prossima cosa e dichiara esplicitamente le fonti a copertura parziale/assente invece di riempire il buco"
         garantito_da: eval
@@ -527,9 +594,9 @@ pipeline:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
       - "AV01 è oggi un vincolo di schema, non di codice: nessun processo scrive ancora in mandati — pronto per quando Argo verrà costruito (prossimo cantiere)."
-      - "AV02 garantito_da: nessuno — enunciato aspirazionale, stile RE02/DM02: lista dei test del prossimo cantiere, non un difetto della mappa."
+      - "AV02 (PASSO 8, 11/9/2026): metà 'solo Argo aggiorna osservazioni.stato' ora implementata (scripts/argo/orienta_webhook.py:_marca_avviso_inviato). Metà 'Panoptes deposita' resta senza scrittore — nessuna pipeline Panoptes esiste ancora, osservazioni_nuove() vede zero righe (collaudo 10/9/2026 e ripetuto in questa sessione)."
       - "DEVIAZIONE (10/9/2026, decisione di Leonardo): argo/stato.py non usa psycopg diretto come il resto del repo — legge il DB via 'docker exec argo-db-1 psql' da subprocess, per poter girare interamente su host (dove STATO.md e .git sono raggiungibili nativamente; il Dockerfile non li copia nell'immagine). Deviazione dichiarata per un tool diagnostico sola-lettura lanciato a mano, non per codice di pipeline."
-      - "'escalations' non esiste nello schema, né nel DB, né nel codice — confermato anche in knowledge/registro_attriti.md:115. escalation_aperte() (argo/stato.py) legge alert_inviati come proxy dichiarato (finestra 24h, prefisso della chiave mappato a categoria): quella tabella è un log 'inviato una volta' senza stato aperto/risolto, e alcuni alert reali (tetto giornaliero LLM in connectors/llm.py, notifica di job fallito in worker/loop.py:124, alert ad-hoc di backend/main.py) non ci passano mai — copertura dichiarata parziale, non nascosta."
+      - "'escalations' non esiste nello schema, né nel DB, né nel codice — confermato anche in knowledge/registro_attriti.md:115. escalation_aperte() (argo/stato.py) legge alert_inviati come proxy dichiarato (finestra 24h, prefisso della chiave mappato a categoria): quella tabella è un log 'inviato una volta' senza stato aperto/risolto, e alcuni alert reali (tetto giornaliero LLM in connectors/llm.py, notifica di job fallito in worker/loop.py:136, alert ad-hoc di backend/main.py) non ci passano mai — copertura dichiarata parziale, non nascosta."
       - "jobs non ha updated_at/started_at, solo created_at: job_falliti() (argo/stato.py) lo dichiara come limite (copertura parziale) invece di far finta di sapere da quando un job 'running' è davvero bloccato."
       - "collaudo dal vivo (10/9/2026): 111 job failed reali nel DB (109 digest_serale con lo stesso errore storico thread_id::int, già noto), un'approvazione ferma da giorni (id=10), zero osservazioni/mandati (nessun writer ancora) — output completo in STATO.md, sessione del giorno."
       - "PASSO 3 (11/9/2026): cantieri_aperti() ora legge anche un blocco strutturato '## CANTIERI' in testa a STATO.md (_estrai_cantieri, nuovo in argo/stato.py) — copertura 'completa' quando il blocco è presente e ben formato (intestazioni + vocabolario fisso di Stato/Aspetta), 'parziale' con motivo altrimenti. Le due sezioni alla lettera ('In corso', 'DECISIONI APERTE — bloccano') restano sempre esposte, non solo come fallback. Nessuna nuova tabella letta, nessun writer aggiunto — resta un lettore puro."
@@ -543,24 +610,24 @@ pipeline:
 
 condivisi:
   - nome: valuta_e_rispondi
-    codice: ["worker/loop.py:977-1134"]
+    codice: ["worker/loop.py:989-1146"]
     usato_da: [risposte_email, dm_instagram_facebook]
     env: []
     evidenza:
-      - "funzione interna condivisa, non un handler di job: chiamata da notifica_risposta (loop.py:967) e da notifica_dm (loop.py: dentro 1136-1194)"
+      - "funzione interna condivisa, non un handler di job: chiamata da notifica_risposta (loop.py:979) e da notifica_dm (loop.py: dentro 1148-1206)"
       - "orchestra classificazione (brain.classifier.classifica, 989), soglia SOGLIA_CONFIDENZA_BOZZA>0.7 (972), bozza (brain.drafter.redigi_bozza, 1068), scrittura approvals (1088-1099), chiedi_approvazione Telegram (1102)"
       - "scrive anche soppressioni (1023-1027) e contacts (1037-1045) quando la categoria è di soppressione — per questo entrambe le pipeline che la usano hanno queste due tabelle in tabelle.scrive"
 
   - nome: invia_risposta
-    codice: ["worker/loop.py:1210-1388"]
+    codice: ["worker/loop.py:1222-1400"]
     usato_da: [risposte_email, dm_instagram_facebook]
     env:
       - REPLY_SMTP_USER
     evidenza:
       - "unico handler di job tipo invia_risposta, biforcato per messages.canale (letto via JOIN con events, non serve messages.contact_id): ramo email 1287-1327, ramo instagram/facebook 1329-1386"
-      - "guardia stato IN ('approvata','modificata') comune a entrambi i rami: loop.py:1228-1232 — garantisce RE01/DM04"
-      - "guardia scadenza comune a entrambi i rami: loop.py:1234-1259 — garantisce DM01 (per l'email scadenza è sempre NULL, il controllo è un no-op)"
-      - "REPLY_SMTP_USER letto direttamente qui (loop.py:1317, ramo email, come Reply-To) — env del componente condiviso, non della pipeline (regola A2), anche se rilevante solo per il ramo email"
+      - "guardia stato IN ('approvata','modificata') comune a entrambi i rami: loop.py:1240-1244 — garantisce RE01/DM04"
+      - "guardia scadenza comune a entrambi i rami: loop.py:1246-1271 — garantisce DM01 (per l'email scadenza è sempre NULL, il controllo è un no-op)"
+      - "REPLY_SMTP_USER letto direttamente qui (loop.py:1329, ramo email, come Reply-To) — env del componente condiviso, non della pipeline (regola A2), anche se rilevante solo per il ramo email"
 
   - nome: classificatore
     codice: ["brain/classifier.py", "connectors/llm.py"]
@@ -570,7 +637,7 @@ condivisi:
       - LLM_TETTO_GIORNALIERO
     evidenza:
       - "brain/classifier.py:47-75, enum chiuso CATEGORIE di 7 valori (righe 5-13), ClassificazioneErrore su JSON non valido o categoria fuori enum (righe 42-44,64,71)"
-      - "chiamato da _valuta_e_rispondi: worker/loop.py:989 — condiviso fra email (via notifica_risposta) e DM (via notifica_dm)"
+      - "chiamato da _valuta_e_rispondi: worker/loop.py:1001 — condiviso fra email (via notifica_risposta) e DM (via notifica_dm)"
       - "modello: connectors/llm.py:17 (claude-haiku-4-5-20251001), tetto giornaliero LLM_TETTO_GIORNALIERO con notifica Telegram al superamento (connectors/llm.py:66,72-75)"
       - "errore di classificazione mai ritentato a livello job: guardia di idempotenza su messages scritta prima della classificazione (DECISIONI APERTE, STATO.md)"
     contratti:
@@ -586,7 +653,7 @@ condivisi:
       - LLM_TETTO_GIORNALIERO
     evidenza:
       - "brain/drafter.py:53-87, legge knowledge/conoscenza.md come base di conoscenza (righe 6-7,54), risponde solo con fatti presenti nel testo, mai inventa (system prompt righe 9-14) — CD01/CD02 sono proprietà del TESTO generato dall'LLM, non del codice che lo orchestra: nessuna guardia deterministica può verificarle, garantito_da: eval (vedi legenda_garantito_da in cima al file)"
-      - "chiamato da _valuta_e_rispondi: worker/loop.py:1068 — condiviso email/DM"
+      - "chiamato da _valuta_e_rispondi: worker/loop.py:1080 — condiviso email/DM"
       - "connectors/llm.py aggiunto al codice al passo 2: drafter.py lo importa direttamente (riga 4) per chiamare l'LLM, esattamente come classifier.py — condiviso da entrambi i condivisi classificatore/drafter, non solo dal primo"
     contratti:
       - id: CD01
@@ -628,7 +695,7 @@ condivisi:
       - REPLY_SMTP_PORT
       - REPLY_SMTP_PASS
     evidenza:
-      - "invia_email/invia_email_reply_box usate da poster_host (worker/loop.py:205,260,309); invia_risposta_email usata dal condiviso invia_risposta (worker/loop.py:1318, ramo email di risposte_email)"
+      - "invia_email/invia_email_reply_box usate da poster_host (worker/loop.py:217,272,321); invia_risposta_email usata dal condiviso invia_risposta (worker/loop.py:1330, ramo email di risposte_email)"
       - "env distinti per i due usi: SMTP_* per poster_host (via invia_email), REPLY_SMTP_*/MAIL_FROM_NAME per il resto (connectors/mailer.py:12,19,21,30,34,36,53,64) — tutti letti direttamente qui, non nelle pipeline"
 
   - nome: telegram_notifica
@@ -643,16 +710,16 @@ condivisi:
       - "PASSO 4 argo_voce (11/9/2026): notifica() ha ora un parametro opzionale `token` (connectors/telegram.py:12) — `token = token or os.environ.get('TELEGRAM_TOKEN')`, stesso pattern parametrico già usato da connectors/mailer.py per mittente/password. Tutte le chiamate esistenti restano `notifica(testo)` senza token, comportamento identico a prima. argo_voce (scripts/argo/orienta.py) è l'unico chiamante che passa `token=ARGO_VOCE_BOT_TOKEN` (env propria della scheda, non di questo condiviso — vedi env di argo_voce): usa quindi TELEGRAM_CHAT_ID condiviso ma un token diverso, un secondo bot."
 
   - nome: alert_una_volta
-    codice: ["worker/loop.py:749-764"]
+    codice: ["worker/loop.py:761-776"]
     usato_da: [manutenzione_sistema, risposte_email, dm_instagram_facebook]
     env: []
     evidenza:
       - "usata da tutti i controlli periodici (manutenzione_sistema) e dentro invia_risposta per alert di invio fallito — condivisa anche dalle pipeline di risposta, non solo da manutenzione_sistema"
-      - "idempotenza propria: INSERT INTO alert_inviati (chiave) VALUES (%s) ON CONFLICT DO NOTHING RETURNING chiave (worker/loop.py:749-764), chiave è PRIMARY KEY (db/migrations/002_alert_inviati.sql) — meccanismo distinto da dedup_key su events e da UPDATE...WHERE stato=atteso"
+      - "idempotenza propria: INSERT INTO alert_inviati (chiave) VALUES (%s) ON CONFLICT DO NOTHING RETURNING chiave (worker/loop.py:761-776), chiave è PRIMARY KEY (db/migrations/002_alert_inviati.sql) — meccanismo distinto da dedup_key su events e da UPDATE...WHERE stato=atteso"
     contratti:
       - id: CD04
         enunciato: "alert_una_volta non manda mai due volte lo stesso alert"
-        garantito_da: "worker/loop.py:755-764 (INSERT INTO alert_inviati ON CONFLICT DO NOTHING RETURNING chiave, chiave PRIMARY KEY — notifica() chiamata solo se la INSERT ha inserito una riga nuova)"
+        garantito_da: "worker/loop.py:767-776 (INSERT INTO alert_inviati ON CONFLICT DO NOTHING RETURNING chiave, chiave PRIMARY KEY — notifica() chiamata solo se la INSERT ha inserito una riga nuova)"
 
 infrastruttura:
   env:

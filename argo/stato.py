@@ -35,6 +35,8 @@ PREFISSI_ALERT = {
     "scaduta_auto": "approvazione chiusa automaticamente per scadenza",
     "scaduta": "invio bloccato, la finestra di risposta era già chiusa",
     "imap_ko": "casella IMAP non raggiungibile",
+    "avvisa_appr": "approvazione già segnalata dall'avviso serale di Argo",
+    "avvisa_job": "job fallito già segnalato dall'avviso serale di Argo",
 }
 
 NON_VISIBILI_DA_ALERT_INVIATI = [
@@ -227,6 +229,45 @@ def osservazioni_nuove():
         )
 
     return {"copertura": "completa", "motivo": motivo, "righe": righe}
+
+
+def job_falliti_recenti(ore=24):
+    """Da `jobs`: falliti nelle ultime `ore`, aggregati per (tipo,
+    ultimo_errore) come job_falliti(), ma con finestra temporale — quella
+    funzione è volutamente all-time per il contesto di orienta/instrada, e
+    infatti mostra anche i 109 fallimenti storici di digest_serale del
+    27-29/08 (bug thread_id::int, già risolto). Per il modo "avvisa" serve
+    "cosa è successo di recente", non lo storico intero — stessa finestra di
+    24h già usata da worker/loop.py:digest_serale. Esclude
+    'test_approvazione' come fa quel digest (handler di collaudo manuale,
+    non traffico reale)."""
+    sql = f"""
+        SELECT tipo, ultimo_errore, count(*) AS quante, max(created_at) AS piu_recente
+        FROM jobs
+        WHERE stato = 'failed' AND tipo != 'test_approvazione'
+          AND created_at >= now() - interval '{ore} hours'
+        GROUP BY tipo, ultimo_errore
+        ORDER BY piu_recente DESC
+    """
+    try:
+        righe = _query_db(sql)
+    except ErroreQueryDB as e:
+        return {"copertura": "assente", "motivo": str(e), "righe": []}
+    return {"copertura": "completa", "motivo": None, "righe": righe}
+
+
+def chiavi_alert_con_prefisso(prefisso):
+    """Da `alert_inviati`: chiavi che iniziano con `prefisso:`, nessuna
+    finestra temporale — usata dal modo "avvisa" per sapere cosa ha già
+    segnalato in passato (l'anti-ripetizione è per sempre, non nelle 24h
+    come escalation_aperte())."""
+    prefisso_sql = prefisso.replace("'", "''")
+    sql = f"SELECT chiave FROM alert_inviati WHERE chiave LIKE '{prefisso_sql}:%'"
+    try:
+        righe = _query_db(sql)
+    except ErroreQueryDB as e:
+        return {"copertura": "assente", "motivo": str(e), "chiavi": set()}
+    return {"copertura": "completa", "motivo": None, "chiavi": {r["chiave"] for r in righe}}
 
 
 def _estrai_sezione(testo, titolo):
