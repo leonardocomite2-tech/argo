@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — STATO.md leggibile + due correzioni (questa sessione) |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 4: modo "orienta" collaudato su Telegram, in attesa del giudizio di Leonardo sul carattere |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -1688,3 +1688,112 @@ sezione), `argo/stato.py` (`_estrai_cantieri`, `cantieri_aperti()`),
 `tests/test_panoptes_lib.py`, `worker/loop.py` (tre `garantisci_*`),
 `knowledge/mappa_sistema.yaml`, `CLAUDE.md`, `knowledge/registro_attriti.md`.
 Nessun commit, nessun push (lo fa Leonardo).
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 4: modo "orienta"
+
+Primo comportamento reale del cantiere e prima chiamata LLM: `argo/voce.py`
+(`genera_risposta()`) raccoglie le sei fonti di `argo/stato.py`, costruisce
+il system prompt da `knowledge/argo/{SOUL,IDENTITY,USER}.md` (letti dai
+file, non duplicati) + istruzioni comportamentali esplicite (poche righe,
+mai un elenco totale, tu, conclusione prima, una sola prossima cosa con
+motivo, dichiara le fonti a copertura parziale/assente, silenzio è un esito
+normale, niente incoraggiamenti/riassunti/percentuali) + stato serializzato
+in JSON, chiama `connectors/llm.py:chiama()` (Haiku, temperatura 0 — già il
+default). `scripts/argo/orienta.py` lancia tutto a mano da host e manda il
+testo sul bot Telegram nuovo (`ARGO_VOCE_BOT_TOKEN`). Nessuna scrittura sul
+DB, nessun polling/webhook/scheduler, come richiesto — il bot meccanico
+esistente non è stato toccato in alcun modo.
+
+**Connettore Telegram esteso, non duplicato**: `connectors/telegram.py:notifica()`
+ha ora un parametro opzionale `token=None` (`token or
+os.environ.get("TELEGRAM_TOKEN")`) — stesso pattern già in uso in
+`connectors/mailer.py` per mittente/password parametrici. Tutte le chiamate
+esistenti (`notifica(testo)`, worker/loop.py, backend/main.py,
+connectors/llm.py, backup/invia_backup.py, scripts/risolvi.py) restano
+identiche; solo `orienta.py` passa `token=ARGO_VOCE_BOT_TOKEN`, stesso
+`TELEGRAM_CHAT_ID` del bot meccanico.
+
+**Chiarimento di scope su un invariante, prima di scrivere codice**: il
+sub-agent `guardrail-review` ha segnalato un punto reale — l'invariante
+CLAUDE.md "nessun invio automatico di messaggi redatti da un LLM: tutto
+passa da approvals" non aveva un'eccezione esplicita per il traffico
+interno, a differenza dell'invariante gemello su `messages` (che eccettua
+le email operative verso l'operatore). Il messaggio "orienta" è generato da
+un LLM e va a Leonardo senza passare da `approvals`. Chiesto a Leonardo
+invece di assumere: confermato che l'invariante approvals è scoped ai
+messaggi verso host/prospect (un'approvazione di Leonardo su un messaggio
+diretto a Leonardo sarebbe circolare — lui è già il destinatario). CLAUDE.md
+corretto per renderlo esplicito ("verso host o prospect" + una riga di
+eccezione dedicata ai messaggi di Argo a Leonardo), stessa logica già usata
+per l'eccezione su `messages`.
+
+**Costo reale, misurato non solo stimato**: il piano stimava 5.500-6.000
+token di system prompt (dominati da `DECISIONI APERTE — bloccano`, non dai
+file identità). Il lancio vero ha loggato **11.485 token in ingresso**, quasi
+il doppio. Causa più probabile: `json.dumps(..., indent=2)` raddoppia/
+triplica il peso in caratteri di testo libero (virgolette, `\n` escapati,
+indentazione) rispetto al conteggio a occhio sul testo grezzo di STATO.md —
+non misurato riga per riga in questa sessione, solo osservato sul totale.
+342 token in uscita (tetto `max_tokens=400`). Costo assoluto comunque
+trascurabile su Haiku per un comando lanciato a mano; se "orienta" diventa
+un canale sempre acceso, primo candidato da tagliare è la serializzazione
+JSON indentata dello stato, non i file identità.
+
+**Testo generato dal collaudo reale (11/9/2026, ~11:05)**, incollato senza
+modifiche:
+
+> Sei in tre cantieri contemporaneamente, uno dei quali blocca gli altri due.
+>
+> **Il blocco:** Cantiere Designer, Fase C. Hai rimosso il fix superfluo ieri
+> (11/9, commit `01e4b5959`), ma non hai ancora reincollato i blocchi
+> corretti sulla pagina di prova GHL. Finché non lo fai, non puoi misurare
+> l'anti-finestra-morta sull'anteprima reale — e quella misura è il gate per
+> chiudere il cantiere.
+>
+> **Prossima cosa:** Accedi a GHL, incolla i tre blocchi corretti
+> (`blocco_01.html`, `blocco_hero_mobile_v3.html`, e il footer se decidi di
+> toccarlo) sulla pagina di prova, poi ripeti il test di pavimento +
+> finestra-morta a 375/767/768/861/1024px sull'anteprima reale. Se passa, il
+> cantiere chiude.
+>
+> Dietro quel gate stanno aspettando:
+> - Cantiere Panoptes-Mappa (chiusura prevista 17/9, oggi è il 12).
+> - Cantiere Argo (due correzioni minori a STATO.md, poi pronto).
+>
+> I job falliti (digest_serale, 109 volte) sono rumore — errore SQL noto,
+> non blocca nulla.
+
+**Due errori fattuali osservati nel testo, non corretti nel codice** (segnalo
+invece di far finta di non vederli — proprietà di un output LLM, non un bug
+di `argo/voce.py`): la data è sbagliata ("oggi è il 12", oggi è l'11/9/2026)
+e l'hash di commit ha una cifra di troppo (`01e4b5959` invece di `01e4b59`,
+quello vero in `git log`). Nessuno dei due è nello stato passato al modello
+(entrambi corretti nel JSON): sono invenzioni del modello sopra dati esatti,
+non un difetto della raccolta stato. Segnalo qui perché rientra proprio nel
+giudizio "il carattere è giusto o va corretto" che questa sessione doveva
+raccogliere — un candidato concreto per instruire esplicitamente il prompt a
+non calcolare/riscrivere date o hash, riportarli solo se già presenti
+letteralmente nello stato.
+
+**Nessun ascolto proposto**: come da richiesta, nessun polling/webhook/
+scheduler aggiunto — resta un comando a mano finché Leonardo non decide se
+"orienta" merita un canale sempre acceso.
+
+**Verifiche finali**: `tests/test_argo_voce.py` 16/16 (nuovo — guardrail
+statico nessuna scrittura SQL + verifica che il system prompt contenga
+davvero i tre file identità/istruzioni/stato), `tests/test_argo_stato.py`
+19/19 (nessuna regressione), `test_fetch.py`/`test_filtri_email.py`/
+`test_normalizza.py`/`test_panoptes_lib.py` verdi; `verifica_mappa.py` exit
+0 (14 schede, 0 divergenze); sub-agent `guardrail-review` sul diff completo
+prima del collaudo — nessuna violazione netta, un solo punto ambiguo
+(approvals, risolto sopra).
+
+File toccati: `argo/voce.py` (nuovo), `scripts/argo/orienta.py` (nuovo),
+`tests/test_argo_voce.py` (nuovo), `connectors/telegram.py` (`notifica()`
+parametrica su `token`), `knowledge/mappa_sistema.yaml` (scheda `argo_voce`:
+stato, nota_stato, attivazione, produce, codice, env, condivisi, esterni,
+contratto AV03; scheda condivisa `telegram_notifica`: `usato_da` +
+evidenza), `CLAUDE.md` (scope dell'invariante approvals), `STATO.md`
+(blocco CANTIERI, questa sezione). Nessun commit, nessun push (lo fa
+Leonardo). Aspetta: Leonardo legge il testo sopra e giudica se il carattere
+è giusto o va corretto in `knowledge/argo/{SOUL,IDENTITY,USER}.md`.

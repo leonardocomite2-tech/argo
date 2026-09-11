@@ -309,18 +309,30 @@ pipeline:
       - "DA_VERIFICARE: soglie di business (DOMINIO_MAX_STRUTTURE_CONDIVISE, punteggio export, blocklist placeholder) non riverificate riga per riga in questa sessione oltre a LG01-LG03 sopra — fonte primaria STATO.md"
 
   - nome: argo_voce
-    stato: lettori
+    stato: orienta
     nota_stato: >
-      Fondamenta chiuse 10/9/2026 (schema + identità). Questa sessione
-      (10/9/2026) ha aggiunto i primi lettori: sei funzioni di sola lettura
-      in argo/stato.py più un harness CLI (scripts/argo/stato_cli.py) per
-      vederne l'output. Ancora nessun bot, nessun LLM, nessuno scheduler —
-      l'harness si lancia a mano da host. tabelle.scrive resta vuoto: solo
-      SELECT, mai una scrittura.
+      Fondamenta chiuse 10/9/2026 (schema + identità), lettori chiusi
+      10/9/2026 (sei funzioni sola-lettura + harness CLI). Questa sessione
+      (11/9/2026, passo 4) aggiunge il primo comportamento reale e la prima
+      chiamata LLM del cantiere: un solo modo, "orienta"
+      (argo/voce.py:genera_risposta — raccoglie le sei fonti di
+      argo/stato.py, costruisce il system prompt da SOUL/IDENTITY/USER.md +
+      istruzioni comportamentali esplicite + stato serializzato, chiama
+      connectors/llm.py:chiama() con Haiku temperatura 0). Attivato a mano
+      da host con scripts/argo/orienta.py, che manda il testo generato sul
+      bot Telegram nuovo (ARGO_VOCE_BOT_TOKEN, stesso TELEGRAM_CHAT_ID del
+      bot meccanico) — vedi condiviso telegram_notifica sotto per come
+      connectors/telegram.py:notifica() è stato reso parametrico sul token
+      senza toccare il bot esistente. Ancora nessun webhook/polling/
+      scheduler: uno script lanciato a mano, per decidere se il canale
+      merita di restare sempre acceso solo dopo aver letto l'output vero.
+      tabelle.scrive resta vuoto: solo SELECT, mai una scrittura — argo/voce.py
+      usa esclusivamente le funzioni di lettura di argo/stato.py.
     sede: vps
-    attivazione: "nessuna automatica — harness CLI lanciato a mano da host (scripts/argo/stato_cli.py), nessun webhook/bot/scheduler"
+    attivazione: "nessuna automatica — script lanciato a mano da host: scripts/argo/stato_cli.py (harness di lettura) o scripts/argo/orienta.py (modo orienta, manda su Telegram), nessun webhook/bot/scheduler"
     produce:
       - "output strutturato a terminale (o JSON con --json) di sei fonti: approvazioni in attesa, job falliti/fermi/in coda, alert recenti (proxy di escalation), osservazioni nuove, sezioni di STATO.md, attività git"
+      - "modo orienta: messaggio breve su Telegram (bot ARGO_VOCE_BOT_TOKEN) — poche righe, una sola prossima cosa con motivo, dichiarazione esplicita se una fonte ha copertura parziale/assente, mai un elenco di tutto lo stato"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "knowledge/argo/SOUL.md"
@@ -328,6 +340,9 @@ pipeline:
       - "knowledge/argo/USER.md"
       - "argo/stato.py"
       - "scripts/argo/stato_cli.py"
+      - "argo/voce.py"
+      - "scripts/argo/orienta.py"
+      - "connectors/llm.py"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
       scrive: []
@@ -369,9 +384,12 @@ pipeline:
           motivo: >
             stesso motivo di 'approvals' sopra — osservazioni_nuove() legge
             osservazioni WHERE stato='nuova'.
-    condivisi: []
-    env: []
-    esterni: []
+    condivisi: [telegram_notifica]
+    env:
+      - ANTHROPIC_API_KEY
+      - LLM_TETTO_GIORNALIERO
+      - ARGO_VOCE_BOT_TOKEN
+    esterni: ["Anthropic API (Haiku, via connectors/llm.py)", Telegram]
     contratti:
       - id: AV01
         enunciato: "Nessun mandato entra in mandati senza un messaggio di Leonardo che lo origina"
@@ -379,6 +397,9 @@ pipeline:
       - id: AV02
         enunciato: "Panoptes deposita in osservazioni; solo Argo aggiorna osservazioni.stato"
         garantito_da: nessuno
+      - id: AV03
+        enunciato: "In modo orienta, la risposta non elenca tutto lo stato: sceglie una sola prossima cosa e dichiara esplicitamente le fonti a copertura parziale/assente invece di riempire il buco"
+        garantito_da: eval
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -389,6 +410,9 @@ pipeline:
       - "jobs non ha updated_at/started_at, solo created_at: job_falliti() (argo/stato.py) lo dichiara come limite (copertura parziale) invece di far finta di sapere da quando un job 'running' è davvero bloccato."
       - "collaudo dal vivo (10/9/2026): 111 job failed reali nel DB (109 digest_serale con lo stesso errore storico thread_id::int, già noto), un'approvazione ferma da giorni (id=10), zero osservazioni/mandati (nessun writer ancora) — output completo in STATO.md, sessione del giorno."
       - "PASSO 3 (11/9/2026): cantieri_aperti() ora legge anche un blocco strutturato '## CANTIERI' in testa a STATO.md (_estrai_cantieri, nuovo in argo/stato.py) — copertura 'completa' quando il blocco è presente e ben formato (intestazioni + vocabolario fisso di Stato/Aspetta), 'parziale' con motivo altrimenti. Le due sezioni alla lettera ('In corso', 'DECISIONI APERTE — bloccano') restano sempre esposte, non solo come fallback. Nessuna nuova tabella letta, nessun writer aggiunto — resta un lettore puro."
+      - "PASSO 4 (11/9/2026): argo/voce.py:genera_risposta chiama connectors/llm.py:chiama() direttamente (Haiku, temperatura 0), senza passare da brain/classifier.py o brain/drafter.py — nessun enum di categorie, nessuna base di conoscenza, solo testo libero per Leonardo a partire da SOUL/IDENTITY/USER.md + le sei fonti di argo/stato.py serializzate. connectors/llm.py è quindi bare nel codice di tre schede (classificatore, drafter, argo_voce): stesso file, tre punti di ingresso indipendenti, già tollerato da verifica_mappa.py per classificatore/drafter."
+      - "AV03 garantito_da: eval, stesso trattamento di CD01/CD02 (drafter): proprietà di un testo generato da un LLM, nessuna guardia deterministica può verificarla a runtime. Validata solo a mano in questa sessione (un lancio reale di scripts/argo/orienta.py, testo incollato in STATO.md) — nessuna suite di eval automatica ancora, come per CD01/CD02."
+      - "ARGO_VOCE_BOT_TOKEN (nuovo in .env) è un secondo bot Telegram, letto direttamente in scripts/argo/orienta.py e passato al parametro opzionale `token` di connectors/telegram.py:notifica() — il bot meccanico (TELEGRAM_TOKEN, approvazioni/alert esistenti) resta invariato, notifica(testo) senza token usa ancora TELEGRAM_TOKEN come prima. Stesso TELEGRAM_CHAT_ID per entrambi i bot."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -481,14 +505,15 @@ condivisi:
       - "env distinti per i due usi: SMTP_* per poster_host (via invia_email), REPLY_SMTP_*/MAIL_FROM_NAME per il resto (connectors/mailer.py:12,19,21,30,34,36,53,64) — tutti letti direttamente qui, non nelle pipeline"
 
   - nome: telegram_notifica
-    codice: ["connectors/telegram.py:12-17"]
-    usato_da: [poster_host, risposte_email, dm_instagram_facebook, manutenzione_sistema, lead_gen_host]
+    codice: ["connectors/telegram.py:12-21"]
+    usato_da: [poster_host, risposte_email, dm_instagram_facebook, manutenzione_sistema, lead_gen_host, argo_voce]
     env:
       - TELEGRAM_TOKEN
       - TELEGRAM_CHAT_ID
     evidenza:
       - "chiamata da praticamente ogni handler del worker e da backend/main.py per alert operativi — grep conferma import in worker/loop.py, backend/main.py, connectors/llm.py, backup/invia_backup.py, scripts/risolvi.py"
       - "env letti direttamente qui (righe 13-14), con log di warning e nessun invio se mancanti — non solleva mai eccezione"
+      - "PASSO 4 argo_voce (11/9/2026): notifica() ha ora un parametro opzionale `token` (connectors/telegram.py:12) — `token = token or os.environ.get('TELEGRAM_TOKEN')`, stesso pattern parametrico già usato da connectors/mailer.py per mittente/password. Tutte le chiamate esistenti restano `notifica(testo)` senza token, comportamento identico a prima. argo_voce (scripts/argo/orienta.py) è l'unico chiamante che passa `token=ARGO_VOCE_BOT_TOKEN` (env propria della scheda, non di questo condiviso — vedi env di argo_voce): usa quindi TELEGRAM_CHAT_ID condiviso ma un token diverso, un secondo bot."
 
   - nome: alert_una_volta
     codice: ["worker/loop.py:749-764"]

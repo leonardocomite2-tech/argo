@@ -9,8 +9,12 @@ logger = logging.getLogger("argo.telegram")
 API_BASE = "https://api.telegram.org"
 
 
-def notifica(testo):
-    token = os.environ.get("TELEGRAM_TOKEN")
+def notifica(testo, token=None):
+    """Manda `testo` come messaggio semplice. `token` opzionale: se assente,
+    usa TELEGRAM_TOKEN (bot meccanico) come sempre — passarlo esplicitamente
+    permette di riusare questa funzione anche per un bot diverso (stesso
+    TELEGRAM_CHAT_ID), senza duplicare la logica di invio."""
+    token = token or os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         logger.warning("notifica: TELEGRAM_TOKEN o TELEGRAM_CHAT_ID mancanti, notifica non inviata")
