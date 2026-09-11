@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 6: modo "instrada" (/instrada <minuti> telefono\|computer), riusa webhook/job/cron di orienta, nessun secret nuovo; resta a Leonardo il collaudo end-to-end dal telefono con due finestre diverse |
+| Argo — la voce | aperto | 10/09/2026 | Leonardo | Sessione 2026-09-11 — passo 7: rifinitura post-collaudo (niente domande di rilancio, niente markdown, contesto a un solo riferimento temporale) su orienta+instrada; collaudo reale da host fatto in sessione, tre testi generati incollati a Leonardo; resta a Leonardo la conferma end-to-end da Telegram vero e la decisione su modo "avvisa" (non ancora costruito) |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2131,3 +2131,86 @@ File toccati: `argo/voce.py`, `connectors/telegram.py`, `backend/main.py`,
 `tests/test_argo_voce.py`, `tests/test_webhook_argo.py`,
 `knowledge/mappa_sistema.yaml`, `STATO.md`. Nessuna migrazione, nessun nuovo
 secret, nessuna modifica a Dockerfile/docker-compose/schema DB/bot meccanico.
+
+## Sessione 2026-09-11 — Cantiere Argo — la voce, passo 7: rifinitura post-collaudo
+
+Obiettivo: il collaudo reale di `/instrada` (passo 6) ha mostrato tre difetti
+da correggere prima di chiudere il sotto-scope orienta+instrada — domanda di
+rilancio finale ("Vuoi il brief?"), markdown grezzo su Telegram
+(`**...**`), contesto troppo lungo (tre date, un orario, due numeri di
+sessione). Tutti e tre nel prompt, non nel codice di invio/raccolta stato.
+
+**Decisione: niente `parse_mode` Telegram, si vieta il markdown nel
+prompt.** `connectors/telegram.py:notifica()` è condiviso col bot
+meccanico — introdurre un default `parse_mode` lo avrebbe toccato per
+tutti i chiamanti, e un testo LLM può contenere caratteri che rompono il
+parsing Markdown di Telegram (invio fallito con 400, zero messaggio a
+Leonardo). Vietare il markdown via istruzioni non ha questo modo di
+fallire: nel peggiore dei casi resta qualche carattere di formattazione,
+mai un invio mancato. `connectors/telegram.py` **non toccato**.
+
+**Modifiche**:
+- `knowledge/argo/SOUL.md`, sotto "Come si comporta": nuovo bullet **Non
+  rilancia** — la risposta finisce con la proposta, mai con una domanda.
+- `argo/voce.py`, `ISTRUZIONI_ORIENTA` e `ISTRUZIONI_INSTRADA`: tre bullet
+  nuovi in entrambe — niente rilancio (stessa regola di SOUL, rinforzo
+  operativo), contesto limitato a UN riferimento temporale, niente
+  markdown in nessuna forma. `ISTRUZIONI_INSTRADA` in più: nuovo bullet
+  "due o tre righe" — mancava un vincolo di lunghezza esplicito rispetto a
+  `ISTRUZIONI_ORIENTA` ("Poche righe"), causa reale di un troncamento a
+  metà frase osservato nel collaudo (vedi sotto).
+- `MAX_TOKENS_RISPOSTA` lasciato a 200: i log mostravano output già fino a
+  188/200 prima di questa sessione, abbassarlo avrebbe aumentato il
+  rischio di troncamento silenzioso a metà frase — la stretta va nel
+  prompt, non nel tetto.
+- `tests/test_argo_voce.py`: nuovi casi di copertura frammenti per
+  entrambe le `ISTRUZIONI_*` (regola anti-rilancio, riferimento temporale
+  unico, niente markdown/backtick, "due o tre righe" solo per instrada) +
+  un caso per il bullet nuovo di SOUL.md, stile identico ai casi
+  esistenti sulla regola anti-invenzione.
+
+**Trovato durante il collaudo (non nel brief iniziale, corretto in
+sessione)**: la prima stesura del divieto markdown elencava solo
+"asterischi, intestazioni, elenchi puntati" — il primo collaudo reale di
+`/instrada 120 computer` ha comunque prodotto backtick attorno ai nomi di
+file (`` `voce.py` ``). Corretto aggiungendo "niente backtick" esplicito +
+un esempio concreto ("voce.py, non `voce.py`") a entrambe le
+`ISTRUZIONI_*`: il secondo collaudo, ripetuto con le tre chiamate reali,
+non ha più prodotto backtick. Nello stesso primo giro, `/instrada 120
+computer` si è anche troncato a metà frase (200/200 token) perché
+`ISTRUZIONI_INSTRADA` non aveva un vincolo di lunghezza esplicito come
+`ISTRUZIONI_ORIENTA` — risolto con il bullet "due o tre righe" sopra,
+verificato non più truncato nel secondo giro.
+
+**Collaudo reale da host (in sessione, senza aspettare il cron)**: tre
+chiamate vere a `argo.voce.genera_risposta()` e
+`genera_risposta_instrada()` (20/telefono, 120/computer), testo mandato
+davvero su Telegram con `connectors.telegram.notifica(...,
+token=ARGO_VOCE_BOT_TOKEN)`. Tutti e tre i testi: nessun asterisco, nessun
+backtick, nessuna domanda finale, contesto entro un solo riferimento
+temporale, 2-4 righe. Dati citati (id approvazione 10, oggetto "ogetto",
+193 ore ≈ 8 giorni, riga 1295/1252 di STATO.md, hash e data del commit
+913b210) verificati veri via `argo/stato.py` e `git log` — nessuna
+invenzione residua.
+
+**Verifiche**: `tests/test_argo_voce.py` 53/53, nessuna regressione sul
+resto della suite (`test_argo_stato` 19/19, `test_webhook_argo` 27/27,
+`test_filtri_email` 25/25, `test_normalizza` 132/132, `test_fetch` 12/12,
+`test_panoptes_lib` 35/35). `scripts/panoptes/impatti.py --diff`: solo
+pipeline `argo_voce`, nessun contratto condiviso. `verifica_mappa.py`: 0
+divergenze. Sub-agent `guardrail-review` sul diff: nessuna violazione di
+invarianti, nessun tocco fuori dal perimetro dichiarato.
+
+**Resta a Leonardo**: confermare il collaudo end-to-end vero da Telegram
+(i tre messaggi di questa sessione sono già arrivati sul bot Argo, ma da
+host, non da telefono con `/orienta`/`/instrada` scritti a mano); decidere
+se questo chiude il sotto-scope orienta+instrada o se restano altri
+aggiustamenti di tono; il modo "avvisa" (terzo modo di
+`knowledge/argo/IDENTITY.md`) non è ancora stato costruito — il cantiere
+"Argo — la voce" resta aperto per quello, indipendentemente dall'esito di
+questa rifinitura.
+
+File toccati: `knowledge/argo/SOUL.md`, `argo/voce.py`,
+`tests/test_argo_voce.py`, `knowledge/mappa_sistema.yaml`, `STATO.md`.
+Nessuna tabella, nessun env, nessun confine di pipeline toccato — solo
+testo di prompt/istruzioni e i test corrispondenti.

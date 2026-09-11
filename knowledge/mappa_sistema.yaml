@@ -404,6 +404,34 @@ pipeline:
       LLM_TETTO_GIORNALIERO già configurati al passo 5. Collaudo end-to-end
       reale (due finestre diverse dal telefono) lasciato a Leonardo, come al
       passo 5.
+      PASSO 7 (11/9/2026) — rifinitura post-collaudo, solo prompt: il primo
+      collaudo reale di /instrada ha mostrato tre difetti, tutti nelle
+      istruzioni comportamentali, zero codice di invio/raccolta stato
+      toccato. (1) La risposta si chiudeva con una domanda di rilancio
+      ("Vuoi il brief?") che promette un ponte non ancora esistente — nuovo
+      bullet "Non rilancia" in knowledge/argo/SOUL.md + regola gemella in
+      entrambe ISTRUZIONI_ORIENTA/ISTRUZIONI_INSTRADA: la risposta finisce
+      con la proposta, mai con una domanda. (2) Markdown grezzo su Telegram
+      (**...**) — decisione: niente parse_mode su connectors/telegram.py
+      (condiviso col bot meccanico, e un testo LLM può rompere il parsing
+      Markdown facendo fallire l'invio con 400), si vieta la formattazione
+      nel prompt. Primo giro del divieto (solo asterischi/intestazioni/
+      elenchi) insufficiente: il collaudo ha comunque prodotto backtick
+      attorno ai nomi di file — corretto aggiungendo "niente backtick"
+      esplicito + esempio concreto in entrambe le ISTRUZIONI_*, verificato
+      pulito al secondo giro. (3) Contesto troppo lungo (tre date, un
+      orario, due numeri di sessione) — nuovo bullet "un solo riferimento
+      temporale" in entrambe; ISTRUZIONI_INSTRADA riceve anche "due o tre
+      righe" (mancava, a differenza di ISTRUZIONI_ORIENTA che aveva già
+      "Poche righe") — causa reale di un troncamento a metà frase osservato
+      nel primo giro di collaudo (MAX_TOKENS_RISPOSTA 200 raggiunto).
+      MAX_TOKENS_RISPOSTA lasciato invariato: i log mostravano già output
+      fino a 188/200, abbassarlo avrebbe aumentato il rischio di
+      troncamento silenzioso. Collaudo reale da host (tre chiamate vere,
+      testo mandato su Telegram con ARGO_VOCE_BOT_TOKEN): nessun asterisco,
+      nessun backtick, nessuna domanda finale, un solo riferimento
+      temporale, 2-4 righe — dati citati verificati veri via argo/stato.py
+      e git log. Nessuna tabella/env/confine di pipeline toccato.
     sede: vps
     attivazione: >
       scripts/argo/stato_cli.py (harness di lettura) resta lanciato a mano

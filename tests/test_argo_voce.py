@@ -69,6 +69,10 @@ for frammento in (
     "riportali SOLO se compaiono alla lettera",
     "copertura",
     "silenzio è un esito normale",
+    "mai con una domanda",
+    "al massimo UN riferimento temporale",
+    "senza markdown",
+    "niente backtick",
     "Niente incoraggiamenti",
 ):
     caso(
@@ -81,6 +85,7 @@ for frammento in (
 # finestra dichiarata, contesto fisico, una sola proposta, "niente si adatta") ---
 _istruzioni_instrada_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_INSTRADA)
 for frammento in (
+    "Due o tre righe",
     "Una SOLA proposta",
     "DENTRO la finestra dichiarata",
     "contesto fisico dichiarato",
@@ -91,6 +96,10 @@ for frammento in (
     "niente si adatta alla finestra",
     "riportali SOLO se compaiono alla lettera",
     "copertura",
+    "mai con una domanda",
+    "al massimo UN riferimento temporale",
+    "senza markdown",
+    "niente backtick",
 ):
     caso(
         f"ISTRUZIONI_INSTRADA copre: {frammento!r}",
@@ -130,6 +139,13 @@ caso(
     "SOUL.md dichiara la regola anti-invenzione",
     True,
     "mai ricostruirlo a memoria" in re.sub(r"\s+", " ", soul),
+)
+
+# --- niente rilancio anche in SOUL.md (non solo nel prompt operativo) ---
+caso(
+    "SOUL.md dichiara la regola anti-rilancio",
+    True,
+    "finisce con la proposta, mai con una domanda" in re.sub(r"\s+", " ", soul),
 )
 
 # --- _data_oggi(): formato ISO, pura, zero DB ---
