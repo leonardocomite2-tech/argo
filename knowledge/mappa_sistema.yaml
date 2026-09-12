@@ -113,7 +113,7 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-404,469-485 — range spezzato dal passo 5 di argo_voce, che si è inserito in mezzo). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
+        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-386,580-596 — range spostato più volte dall'inserimento di comandi argo_voce in mezzo, aggiornato al passo 3 del ponte). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
@@ -550,7 +550,7 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:414-572"
+      - "backend/main.py:414-577"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
       - "worker/loop.py:83-88"
@@ -630,6 +630,12 @@ pipeline:
             `docker exec argo-db-1 psql`, stessa deviazione già dichiarata
             sopra per alert_inviati/osservazioni: verifica_mappa.py non la
             vede, riportata qui a mano.
+            PASSO 3 (12/9/2026): quarto scrittore, anch'esso invisibile a
+            verifica_mappa.py. scripts/argo/orienta_webhook.py:_registra_mandato_brief
+            fa un INSERT INTO mandati (non una UPDATE, a differenza di
+            _scrivi_esito_mandato: qui il mandato non esiste già, viene creato
+            solo se una consultazione di impatti.py dentro /brief è avvenuta
+            davvero) via `docker exec argo-db-1 psql`, stessa deviazione.
     condivisi: [telegram_notifica]
     env:
       - ANTHROPIC_API_KEY
@@ -657,6 +663,9 @@ pipeline:
       - id: AV06
         enunciato: "/brief con un nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, mai un cantiere indovinato a caso"
         garantito_da: "argo/voce.py:_risolvi_cantiere + genera_brief (match per sottostringa sulla riga di STATO.md, zero o più di un risultato ritorna l'elenco fisso senza mai chiamare connectors/llm.py:chiama())"
+      - id: AV07
+        enunciato: "Un file citato nel contesto di un brief che tocca un componente condiviso o un contratto genera sempre un avvertimento nei Vincoli del brief, composto in Python — mai lasciato all'LLM"
+        garantito_da: "argo/voce.py:_verifica_impatti_brief (interroga impatti.py sui file citati, deterministico) + _componi_brief (accoda l'avvertimento a VINCOLI_STANDARD_BRIEF nella sezione ## Vincoli prima di restituire il testo, il modello non vede mai questo blocco)"
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -676,7 +685,8 @@ pipeline:
       - "PASSO 6: backend/main.py:414-504 (ex 407-466) e connectors/telegram.py:35-209 (ex 35-154) sono i nuovi confini dopo l'inserimento di COMANDO_INSTRADA/_accoda_job_argo/interpreta_instrada — approvazione_telegram (condiviso) aggiornato di conseguenza sui propri range in backend/main.py, spostati dalla stessa causa (righe inserite più in alto nel file)."
       - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): AV05 garantito_da: eval, stesso trattamento di AV03/CD01/CD02 — proprietà di un testo generato da un LLM (Contesto/Obiettivo/Criterio di chiusura del brief), nessuna guardia deterministica può verificarla a runtime. Validata a mano in questo passo su un cantiere reale (vedi STATO.md per il testo generato); nessuna suite di eval automatica ancora, come per AV03/CD01/CD02."
       - "PASSO 1 (ponte): backend/main.py:414-524 (ex 414-504) dopo l'inserimento di COMANDO_BRIEF/RISPOSTA_BRIEF_SENZA_NOME e del ramo /brief in _gestisci_messaggio_argo — approvazione_telegram (condiviso) non tocca queste righe, nessun aggiornamento al suo range necessario. worker/loop.py:claim_job (60-70/83-85/1635-1668, invariati) ha guadagnato 'genera_brief' nella stessa esclusione NOT IN, stessa riga, nessuno spostamento di riga nel file."
-      - "PASSO 2 (ponte, 12/9/2026) — comando /impatto: backend/main.py:414-572 (ex 414-524) dopo COMANDO_IMPATTO/RISPOSTA_IMPATTO_SENZA_ARGOMENTO/_registra_mandato/il ramo /impatto — approvazione_telegram (condiviso) sposta webhook_telegram da 527-543 a 575-591, stesso tipo di aggiustamento dei passi precedenti. worker/loop.py:claim_job (60-70 invariato, 83-85→83-88, 1635-1668→1636-1669: +1 riga uniforme da qui in poi) ha guadagnato 'genera_impatto' nella stessa esclusione NOT IN. DECISIONE presa nel piano, non nel codice: impatti.py non ha un flag --json (l'obiettivo del brief lo assumeva, il vincolo 'non modificarlo' vince) — genera_impatto lo invoca nella sua unica modalità reale (testo su stdout/stderr) e fa tradurre l'LLM sotto anti-invenzione rinforzata; sull'errore vero (returncode != 0, percorso/componente inesistente) zero chiamata LLM, il messaggio di impatti.py è rilanciato com'è. Il secondo uso del brief (impatti.py lanciato sui file citati da /brief, con avvertimento inline) è RINVIATO a un passo separato — non implementato in questa sessione."
+      - "PASSO 2 (ponte, 12/9/2026) — comando /impatto: backend/main.py:414-572 (ex 414-524) dopo COMANDO_IMPATTO/RISPOSTA_IMPATTO_SENZA_ARGOMENTO/_registra_mandato/il ramo /impatto — approvazione_telegram (condiviso) sposta webhook_telegram da 527-543 a 575-591, stesso tipo di aggiustamento dei passi precedenti. worker/loop.py:claim_job (60-70 invariato, 83-85→83-88, 1635-1668→1636-1669: +1 riga uniforme da qui in poi) ha guadagnato 'genera_impatto' nella stessa esclusione NOT IN. DECISIONE presa nel piano, non nel codice: impatti.py non ha un flag --json (l'obiettivo del brief lo assumeva, il vincolo 'non modificarlo' vince) — genera_impatto lo invoca nella sua unica modalità reale (testo su stdout/stderr) e fa tradurre l'LLM sotto anti-invenzione rinforzata; sull'errore vero (returncode != 0, percorso/componente inesistente) zero chiamata LLM, il messaggio di impatti.py è rilanciato com'è. Il secondo uso del brief, rinviato in questo passo, è implementato al PASSO 3 sotto."
+      - "PASSO 3 (ponte, 12/9/2026) — fix troncamento /impatto + /brief consapevole degli impatti. (1) MAX_TOKENS_RISPOSTA (200) troncava a metà frase una consultazione con molti contratti (collaudo reale, /impatto mailer: 8 contratti, ~3085 caratteri di output grezzo) — nuova MAX_TOKENS_IMPATTO=700 dedicata al solo modo impatto, e connectors/llm.py:chiama() guadagna un parametro opt-in marcatore_se_troncato (default None, nessun altro chiamante toccato) che accoda un marcatore esplicito se stop_reason=='max_tokens' — mai un taglio silenzioso, stessa logica di _tronca() per il testo in ingresso. (2) genera_brief interroga ora impatti.py --file sui percorsi citati nel proprio campo 'contesto' che esistono davvero sul filesystem (stesso controllo deterministico di _risolvi_flag_impatti — un nome nudo indovinato male dal modello, es. pavimento.mjs, semplicemente non passa il controllo: nessun avviso, nessun errore), fino a LIMITE_FILE_IMPATTI_BRIEF=8 per contenere il costo. L'output di impatti.py (formato fisso, mai modificato) è analizzato a riga da _analizza_output_impatti_file/_contratti_in_gioco: un file che tocca un componente condiviso o almeno un contratto produce un avvertimento accodato ai Vincoli standard da _componi_brief (mai passato al modello, vedi AV07); nessun file con impatti -> nessun avvertimento, zero righe vuote, come per avvisa. Un solo mandato di consultazione per invocazione di /brief (non uno per file, per non far crescere la tabella quando un brief ne cita molti), registrato da scripts/argo/orienta_webhook.py:_registra_mandato_brief SOLO se almeno un file citato esisteva davvero (altrimenti nessuna consultazione, nessun mandato). backend/main.py guadagna origine_msg anche sul ramo /brief (stesso stile di /impatto), passato nel payload del job perché il mandato nasce solo dopo l'esecuzione, non alla ricezione del comando. Collaudato a mano su tre file reali: connectors/mailer.py (condiviso mailer + contratto RE04, genera avvertimento), argo/voce.py (mappato ma zero condivisi/contratti, nessun avvertimento), tests/test_argo_voce.py (non mappato, nessun avvertimento) — tests/test_argo_voce.py copre tutti e tre i casi con invocazioni reali di impatti.py, zero LLM. Range backend/main.py aggiornati: argo_voce 414-572→414-577 (+5, dal docstring esteso di _gestisci_messaggio_argo e dalla riga origine_msg nel ramo /brief), approvazione_telegram 575-591→580-596 (stesso +5, nessuna riga toccata dentro quella funzione)."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -735,7 +745,7 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:575-591"
+      - "backend/main.py:580-596"
       - "backend/main.py:283-386"
       - "backend/main.py:387-411"
       - "connectors/telegram.py:35-254"

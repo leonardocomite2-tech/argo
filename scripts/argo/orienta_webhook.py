@@ -42,7 +42,12 @@ PRIMA dell'invio — il mandato è già stato registrato da backend/main.py alla
 ricezione del comando, qui si scrive solo l'esito. Se il job fallisce in modo
 imprevisto (eccezione non gestita da argo/voce.py:genera_impatto), l'esito
 viene comunque scritto come 'fallito: errore interno': il mandato non deve
-mai restare con esito NULL per un job che ha già finito di girare. argo/voce.py
+mai restare con esito NULL per un job che ha già finito di girare. Per
+genera_brief (passo 3 del ponte), il mandato invece NON esiste già: viene
+creato qui (_registra_mandato_brief), PRIMA dell'invio, solo se
+argo/voce.py:genera_brief segnala che una consultazione di impatti.py è
+avvenuta davvero (log non None) — un brief che non cita nessun file reale
+non produce nessun mandato, il silenzio è l'esito normale. argo/voce.py
 resta sola lettura (vedi il suo guardrail statico), la scrittura vera vive
 qui, che già scrive su `jobs` per lo stesso motivo (gira da host).
 """
@@ -126,6 +131,28 @@ def _scrivi_esito_mandato(mandato_id, esito):
     _psql(f"UPDATE mandati SET esito='{esito_sql}' WHERE id={int(mandato_id)}")
 
 
+def _registra_mandato_brief(origine_msg, oggetto, esito):
+    """Passo 3 del ponte: un mandato di consultazione per l'eventuale
+    interrogazione di impatti.py dentro /brief. A differenza di
+    _scrivi_esito_mandato (usato da genera_impatto, dove backend/main.py ha
+    già creato il mandato alla ricezione del comando), qui il mandato non
+    esiste finché non sappiamo che la consultazione è avvenuta davvero — un
+    brief può citare zero file reali, vedi argo/voce.py:_verifica_impatti_brief
+    — quindi lo creiamo solo ora, con esito già valorizzato. Un solo mandato
+    per invocazione di /brief (non uno per file citato), per non far
+    crescere la tabella a ogni file quando un brief ne cita molti. Scritto
+    PRIMA dell'invio Telegram, via docker exec psql come il resto di questo
+    file (mai visibile a verifica_mappa.py, stessa deviazione già dichiarata
+    per alert_inviati/osservazioni/l'esito di /impatto)."""
+    origine_sql = origine_msg.replace("'", "''")
+    oggetto_sql = oggetto.replace("'", "''")
+    esito_sql = esito.replace("'", "''")
+    _psql(
+        "INSERT INTO mandati (origine_msg, tipo, oggetto, esito) VALUES "
+        f"('{origine_sql}', 'consultazione', '{oggetto_sql}', '{esito_sql}')"
+    )
+
+
 def _marca_avviso_inviato(marcatori):
     """Scrive PRIMA dell'invio, mai dopo — chiamata da main() prima di
     notifica(): stesso ordine "scritto prima dell'invio" usato ovunque nel
@@ -159,13 +186,15 @@ def main():
     from connectors.telegram import invia_lungo
 
     esito_mandato = None
+    log_impatti_brief = None
     try:
         if tipo == "genera_orienta":
             testo, marcatori = genera_risposta(), None
         elif tipo == "genera_instrada":
             testo, marcatori = genera_risposta_instrada(payload["minuti"], payload["contesto"]), None
         elif tipo == "genera_brief":
-            testo, marcatori = genera_brief(payload["nome"]), None
+            testo, log_impatti_brief = genera_brief(payload["nome"])
+            marcatori = None
         elif tipo == "genera_impatto":
             testo, esito_mandato = genera_impatto(payload["componente"])
             marcatori = None
@@ -193,6 +222,10 @@ def main():
         _marca_avviso_inviato(marcatori)
     if tipo == "genera_impatto":
         _scrivi_esito_mandato(payload["mandato_id"], esito_mandato)
+    if tipo == "genera_brief" and log_impatti_brief:
+        _registra_mandato_brief(
+            payload["origine_msg"], f"brief: {payload['nome']}", log_impatti_brief
+        )
 
     invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)

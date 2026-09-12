@@ -472,9 +472,13 @@ def _gestisci_messaggio_argo(message):
     genera_orienta; /instrada <minuti> telefono|computer accoda genera_instrada
     se i due parametri sono validi, altrimenti risponde in una riga cosa manca
     (zero LLM, mai indovina — connectors.telegram.interpreta_instrada); /brief
-    <nome cantiere> accoda genera_brief col nome grezzo digitato — la
-    risoluzione contro '## CANTIERI' (STATO.md, solo host) vive in
-    argo/voce.py:genera_brief, non qui; /impatto <componente o file> registra
+    <nome cantiere> accoda genera_brief col nome grezzo digitato, insieme a
+    un origine_msg (stesso stile di /impatto sotto) — la risoluzione contro
+    '## CANTIERI' (STATO.md, solo host) e l'eventuale consultazione di
+    impatti.py sui file citati nel brief (passo 3 del ponte, mandato di
+    consultazione registrato da scripts/argo/orienta_webhook.py solo se
+    avvenuta) vivono in argo/voce.py:genera_brief, non qui; /impatto
+    <componente o file> registra
     un mandato di consultazione (_registra_mandato, origine_msg = testo e
     message_id di questo messaggio — l'unico modo in cui un mandato è
     riconducibile alla sua origine, guardrail AV01) e accoda genera_impatto
@@ -516,9 +520,10 @@ def _gestisci_messaggio_argo(message):
         if not nome_cantiere:
             notifica(RISPOSTA_BRIEF_SENZA_NOME, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
             return
+        origine_msg = f"Telegram message_id={message.get('message_id')}: {testo}"
         accodato = _accoda_job_argo(
             "genera_brief",
-            {"nome": nome_cantiere},
+            {"nome": nome_cantiere, "origine_msg": origine_msg},
             "genera_brief_enqueue",
         )
         if not accodato:

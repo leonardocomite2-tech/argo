@@ -19,19 +19,28 @@ a Leonardo con lo stato del sistema: invoca scripts/panoptes/impatti.py
 componente o file, e fa tradurre all'LLM il suo output testuale in poche
 righe leggibili dal telefono. Sull'errore vero di impatti.py (percorso o
 componente inesistente) non chiama l'LLM: rilancia il messaggio di errore
-com'è, stesso principio "non indovina" di _risolvi_cantiere.
+com'è, stesso principio "non indovina" di _risolvi_cantiere. Dal passo 3 del
+ponte, genera_brief interroga anche lui impatti.py — non su un componente
+scelto da Leonardo, ma sui file citati nel proprio campo "contesto" (fino a
+LIMITE_FILE_IMPATTI_BRIEF): l'avvertimento risultante è composto in Python
+(_verifica_impatti_brief, mai passato al modello) e finisce nei Vincoli del
+brief solo se almeno un file tocca un componente condiviso o un contratto —
+il silenzio è l'esito normale, come per avvisa.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
 ritorna anche `marcatori` — cosa andrebbe scritto DOPO un invio riuscito —
-e genera_impatto() ritorna `esito`, stesso principio: chi chiama
-(scripts/argo/orienta_webhook.py, che gira da host e può scrivere) scrive
-su `alert_inviati`/`osservazioni`/`mandati`, questo modulo non scrive mai.
+genera_impatto() ritorna `esito` e genera_brief() ritorna
+`log_consultazione_impatti` (None se nessuna consultazione è avvenuta),
+stesso principio: chi chiama (scripts/argo/orienta_webhook.py, che gira da
+host e può scrivere) scrive su `alert_inviati`/`osservazioni`/`mandati`,
+questo modulo non scrive mai.
 """
 
 import copy
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -83,6 +92,26 @@ LIMITE_DOCUMENTO_CANTIERE_CARATTERI = 3000
 IMPATTI_SCRIPT = REPO_ROOT / "scripts" / "panoptes" / "impatti.py"
 LIMITE_OUTPUT_IMPATTI_CARATTERI = 3000
 LIMITE_ERRORE_IMPATTI_CARATTERI = 300
+
+# MAX_TOKENS_RISPOSTA (200) non basta per il modo impatto: una consultazione
+# può dover elencare più contratti di una singola proposta. Misurato sul
+# collaudo reale che ha troncato a metà frase (12/9/2026, /impatto mailer):
+# 8 contratti in gioco, ~3085 caratteri di output grezzo di impatti.py. 700
+# token è un margine ampio sopra quel caso (arrotondando ~4 caratteri/token
+# come per MAX_TOKENS_BRIEF), a un costo comunque trascurabile su Haiku.
+MAX_TOKENS_IMPATTO = 700
+MARCATORE_TRONCAMENTO_IMPATTO = (
+    "[RISPOSTA TRONCATA — max_tokens raggiunto, l'elenco completo resta in "
+    "scripts/panoptes/impatti.py]"
+)
+
+# Modo "brief" (cantiere Argo — il ponte, passo 3): impatti.py lanciato sui
+# file citati nel campo "contesto" del brief. Tetto sul numero di
+# interrogazioni per brief — un brief cita spesso molti file, meglio coprire
+# i primi N che far durare un brief un minuto (impatti.py è locale e veloce,
+# ma niente vieta un caso patologico).
+LIMITE_FILE_IMPATTI_BRIEF = 8
+_FILE_CON_ESTENSIONE_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9_]+")
 
 # Documento di knowledge per cantiere: dizionario esplicito (parola chiave
 # nel nome normalizzato del cantiere -> path), non ricerca per somiglianza
@@ -560,12 +589,15 @@ def _testo_campo_brief(valore):
     return valore
 
 
-def _componi_brief(cantiere, grezzo):
+def _componi_brief(cantiere, grezzo, avvertimento_impatti=None):
     """Pura (nessuna chiamata LLM/DB): valida il JSON forzato del modello e
     compone il testo finale, skeleton fisso incluso. Separata da
     genera_brief per restare testabile senza rete — stesso principio delle
     altre funzioni pure di questo file (_filtra_candidati_avviso,
-    _domanda_instrada, ...)."""
+    _domanda_instrada, ...). `avvertimento_impatti` (passo 3 del ponte), se
+    valorizzato, va in coda ai Vincoli standard — composto in Python da
+    _verifica_impatti_brief, mai affidato al modello che potrebbe
+    parafrasarlo o ometterlo."""
     try:
         risultato = json.loads(estrai_json(grezzo))
     except Exception:
@@ -577,14 +609,145 @@ def _componi_brief(cantiere, grezzo):
     if not contesto or not obiettivo or not criterio:
         raise BriefErrore("chiavi mancanti o vuote nel JSON del brief")
 
+    vincoli = VINCOLI_STANDARD_BRIEF
+    if avvertimento_impatti:
+        vincoli = f"{vincoli}\n\n{avvertimento_impatti}"
+
     return (
         f"{cantiere['nome']}\n\n"
         f"Plan mode obbligatorio.\n\n"
         f"## Contesto\n\n{contesto}\n\n{RIGA_REPO_HA_RAGIONE}\n\n"
         f"## Obiettivo\n\n{obiettivo}\n\n"
-        f"## Vincoli\n\n{VINCOLI_STANDARD_BRIEF}\n\n"
+        f"## Vincoli\n\n{vincoli}\n\n"
         f"## Criterio di chiusura\n\n{criterio}"
     )
+
+
+def _estrai_contesto_brief(grezzo):
+    """Estrae solo il campo 'contesto' dalla risposta grezza del modello,
+    per la verifica impatti (passo 3) — stessa tolleranza di _componi_brief
+    su fence markdown/lista invece di stringa. Ritorna None se il JSON non è
+    valido: non solleva mai BriefErrore, quella responsabilità resta di
+    _componi_brief, chiamata comunque subito dopo nel flusso di
+    genera_brief."""
+    try:
+        risultato = json.loads(estrai_json(grezzo))
+    except Exception:
+        return None
+    return _testo_campo_brief(risultato.get("contesto"))
+
+
+def _file_citati_in_contesto(contesto):
+    """Candidati file dal testo 'contesto' del brief: solo token con
+    un'estensione puntata che esistono davvero sul filesystem del repo —
+    stesso controllo deterministico di _risolvi_flag_impatti, non
+    un'euristica sul nome. Un percorso indovinato male dal modello (es.
+    'pavimento.mjs' nudo mentre il file vero sta in una cartella) non passa
+    il controllo: nessun avviso, nessun errore, limite noto non rincorso
+    (vedi il brief della sessione). Cap a LIMITE_FILE_IMPATTI_BRIEF, ordine
+    di comparsa, senza duplicati."""
+    trovati = []
+    for m in _FILE_CON_ESTENSIONE_RE.finditer(contesto or ""):
+        candidato = m.group(0).strip(".,;:()[]")
+        if candidato in trovati:
+            continue
+        if (REPO_ROOT / candidato).is_file():
+            trovati.append(candidato)
+        if len(trovati) >= LIMITE_FILE_IMPATTI_BRIEF:
+            break
+    return trovati
+
+
+def _contratti_in_gioco(righe):
+    """ID dei contratti elencati sotto 'CONTRATTI IN GIOCO' nell'output di
+    impatti.py (formato fisso: '  {id}  {enunciato}', poi una riga
+    '        garantito_da: ...' con indentazione maggiore che questa regex
+    non cattura). Ferma alla prima riga vuota o a 'nessuno'. `righe` è
+    l'output già splittato per riga (stdout.splitlines())."""
+    try:
+        i = righe.index("CONTRATTI IN GIOCO")
+    except ValueError:
+        return []
+    ids = []
+    for riga in righe[i + 1:]:
+        if not riga.strip() or riga.strip() == "nessuno":
+            break
+        m = re.match(r"^  (\S+)  ", riga)
+        if m:
+            ids.append(m.group(1))
+    return ids
+
+
+def _analizza_output_impatti_file(stdout):
+    """Deterministico, no LLM: legge l'output di 'impatti.py --file' (formato
+    fisso, mai modificato) e ritorna (condivisi, contratti) — condivisi sono
+    i nomi sulle righe '  → nome' che menzionano la parola 'condiviso' (sia
+    la scheda condivisa stessa sia una pipeline raggiunta 'via componente
+    condiviso'; una pipeline dedicata senza condivisi non la contiene mai).
+    Il caso 'non è mappato da nessuna scheda' va gestito PRIMA di chiamare
+    questa funzione (nessuna riga '→' da leggere in quel caso)."""
+    righe = stdout.splitlines()
+    condivisi = []
+    for riga in righe:
+        m = re.match(r"^\s*→\s+(\S+)", riga)
+        if m and "condiviso" in riga:
+            condivisi.append(m.group(1))
+    return condivisi, _contratti_in_gioco(righe)
+
+
+def _verifica_impatti_brief(contesto):
+    """Modo brief, passo 3: interroga impatti.py sui file citati in
+    `contesto` (fino a LIMITE_FILE_IMPATTI_BRIEF). Deterministico, mai
+    affidato all'LLM: il parsing dell'output di impatti.py è su un formato
+    fisso, non un giudizio. Ritorna (avvertimento, log):
+    - avvertimento: blocco testo per i Vincoli del brief, None se nessun
+      file citato tocca componenti condivisi o contratti — il silenzio è
+      l'esito normale, zero righe vuote (come per il modo avvisa).
+    - log: traccia della consultazione per il mandato, None solo se nessun
+      file citato esiste davvero nel repo (nessuna consultazione avvenuta).
+    Un fallimento di impatti.py su un singolo file (returncode!=0, timeout,
+    eccezione) non blocca mai il brief: quel file viene solo annotato nel
+    log e ignorato ai fini dell'avvertimento."""
+    file_validi = _file_citati_in_contesto(contesto)
+    if not file_validi:
+        return None, None
+
+    righe_avviso = []
+    righe_log = []
+    for f in file_validi:
+        try:
+            returncode, stdout, _stderr = _esegui_impatti("--file", f)
+        except Exception as e:
+            righe_log.append(f"{f}: consultazione fallita ({type(e).__name__})")
+            continue
+        if returncode != 0:
+            righe_log.append(f"{f}: impatti.py fallito (returncode {returncode}), ignorato")
+            continue
+        if "non è mappato da nessuna scheda" in stdout:
+            righe_log.append(f"{f}: non mappato dalla mappa")
+            continue
+
+        condivisi, contratti = _analizza_output_impatti_file(stdout)
+        if condivisi or contratti:
+            parti = []
+            if condivisi:
+                parti.append("condivisi/pipeline: " + ", ".join(sorted(set(condivisi))))
+            if contratti:
+                parti.append("contratti: " + ", ".join(contratti))
+            dettaglio = "; ".join(parti)
+            righe_avviso.append(f"- {f}: {dettaglio}")
+            righe_log.append(f"{f}: {dettaglio}")
+        else:
+            righe_log.append(f"{f}: nessun componente condiviso o contratto")
+
+    avvertimento = None
+    if righe_avviso:
+        avvertimento = (
+            "Avvertimento impatti — questi file toccano componenti condivisi o contratti:\n"
+            + "\n".join(righe_avviso)
+            + "\nLancia scripts/panoptes/impatti.py sui file sopra prima di modificarli."
+        )
+    return avvertimento, "; ".join(righe_log)
 
 
 def genera_brief(nome_utente):
@@ -595,7 +758,12 @@ def genera_brief(nome_utente):
     cantiere risolto (riga CANTIERI, ultime N_SESSIONI_BRIEF sessioni,
     documento di knowledge se mappato) e fa scrivere all'LLM
     Contesto/Obiettivo/Criterio di chiusura in JSON forzato (vedi
-    _componi_brief per la validazione e la composizione finale)."""
+    _componi_brief per la validazione e la composizione finale). Ritorna
+    (testo, log_consultazione_impatti): il secondo elemento (passo 3 del
+    ponte) è None ogni volta che non è avvenuta nessuna consultazione di
+    impatti.py — compreso ogni ramo che ritorna prima di chiamare l'LLM —
+    e va scritto su un mandato da chi chiama (questo modulo resta sola
+    lettura, vedi guardrail statico nei test)."""
     stato_cantieri = stato.cantieri_aperti()
     if stato_cantieri["copertura"] != "completa":
         raise RuntimeError(
@@ -606,13 +774,13 @@ def genera_brief(nome_utente):
     trovati = _risolvi_cantiere(nome_utente, cantieri)
     nomi_validi = "\n".join(f"- {c['nome']}" for c in cantieri)
     if not trovati:
-        return f'Nessun cantiere corrisponde a "{nome_utente}". Cantieri validi:\n{nomi_validi}'
+        return f'Nessun cantiere corrisponde a "{nome_utente}". Cantieri validi:\n{nomi_validi}', None
     if len(trovati) > 1:
         nomi_ambigui = ", ".join(c["nome"] for c in trovati)
         return (
             f'"{nome_utente}" è ambiguo, corrisponde a più di un cantiere '
             f"({nomi_ambigui}). Cantieri validi:\n{nomi_validi}"
-        )
+        ), None
 
     cantiere = trovati[0]
     sessioni = stato.sessioni_cantiere(cantiere["nome"], n=N_SESSIONI_BRIEF)
@@ -639,7 +807,13 @@ def genera_brief(nome_utente):
     except LLMErrore as e:
         raise BriefErrore("chiamata LLM fallita") from e
 
-    return _componi_brief(cantiere, grezzo)
+    avvertimento, log_consultazione = None, None
+    contesto = _estrai_contesto_brief(grezzo)
+    if contesto:
+        avvertimento, log_consultazione = _verifica_impatti_brief(contesto)
+
+    testo = _componi_brief(cantiere, grezzo, avvertimento_impatti=avvertimento)
+    return testo, log_consultazione
 
 
 class ImpattoErrore(Exception):
@@ -705,7 +879,10 @@ def genera_impatto(componente_o_file):
     }
     system = costruisci_system_prompt(dati, ISTRUZIONI_IMPATTO)
     try:
-        testo = chiama(system, DOMANDA_IMPATTO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+        testo = chiama(
+            system, DOMANDA_IMPATTO, max_tokens=MAX_TOKENS_IMPATTO, temperature=0.0,
+            marcatore_se_troncato=MARCATORE_TRONCAMENTO_IMPATTO,
+        )
     except TettoLLMRaggiunto:
         raise
     except LLMErrore as e:

@@ -103,13 +103,27 @@ def _corpo_richiesta(system, prompt, max_tokens, temperature):
     }
 
 
-def chiama(system, prompt, max_tokens=500, temperature=0.0):
+def _applica_marcatore_troncamento(testo, stop_reason, marcatore):
+    """Pura: se `marcatore` è valorizzato e la risposta si è fermata per
+    max_tokens, lo accoda al testo — mai un taglio silenzioso, stesso
+    principio già usato per decisioni_aperte_bloccano (argo/voce.py:_tronca).
+    Con marcatore=None (default di chiama()) il comportamento è invariato:
+    nessun chiamante esistente (orienta/instrada/avvisa/brief/classificatore/
+    drafter) viene toccato da questa aggiunta."""
+    if marcatore and stop_reason == "max_tokens":
+        return f"{testo}\n{marcatore}"
+    return testo
+
+
+def chiama(system, prompt, max_tokens=500, temperature=0.0, marcatore_se_troncato=None):
     """POST a /v1/messages. Ritenta (fino a MAX_TENTATIVI) SOLO su 5xx o
     errori di rete/timeout — mai su 429 o altri 4xx (richiesta esplicita:
     diverso da connectors/places.py). Logga sempre token in ingresso, in
     uscita e latenza ad ogni chiamata riuscita. Solleva TettoLLMRaggiunto se
     il tetto giornaliero è superato, LLMErrore per ogni altro fallimento
-    non recuperabile."""
+    non recuperabile. `marcatore_se_troncato` è opt-in (vedi
+    _applica_marcatore_troncamento): solo chi lo passa esplicitamente vede
+    un marcatore accodato quando stop_reason=='max_tokens'."""
     _verifica_tetto()
 
     api_key = os.environ["ANTHROPIC_API_KEY"]
@@ -162,7 +176,7 @@ def chiama(system, prompt, max_tokens=500, temperature=0.0):
                 blocco.get("text", "") for blocco in risposta.get("content", [])
                 if blocco.get("type") == "text"
             )
-            return testo
+            return _applica_marcatore_troncamento(testo, risposta.get("stop_reason"), marcatore_se_troncato)
 
         if tentativo < MAX_TENTATIVI:
             time.sleep(ATTESA_BASE_SEC * (2 ** (tentativo - 1)))

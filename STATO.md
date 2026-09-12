@@ -16,7 +16,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 2: comando /impatto, primo scrittore di `mandati` (tipo consultazione, origine_msg da Telegram); impatti.py invocato senza --json (non esiste, vincolo non toccarlo) e tradotto dall'LLM sotto anti-invenzione, collaudo reale da host riuscito; secondo uso del brief (check impatti.py dentro /brief) rinviato; resta a Leonardo il deploy e il collaudo da Telegram |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 3: fix troncamento /impatto (MAX_TOKENS_IMPATTO=700 + marcatore esplicito su chiama()) e /brief consapevole degli impatti (impatti.py sui file citati nel contesto, avvertimento composto in Python nei Vincoli, un mandato di consultazione per brief); collaudato a mano su tre file reali, mai da Telegram; resta a Leonardo il deploy e il collaudo reale di entrambi i comandi |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2608,4 +2608,94 @@ nuovo secret.
   criterio di chiusura del brief: risposta comprensibile su Telegram + riga
   in `mandati` con `origine_msg` valorizzato ed `esito` scritto; decisione
   su quando riprendere il secondo uso rinviato.
+
+## Sessione 2026-09-12 — Cantiere Argo — il ponte, passo 3: fix troncamento e `/brief` consapevole degli impatti
+
+Chiude i due pezzi rinviati dal passo 2: il troncamento reale osservato su
+`/impatto mailer` e il secondo uso del brief (`impatti.py` sui file citati,
+con avvertimento inline).
+
+**1. Fix troncamento `/impatto`.** `MAX_TOKENS_RISPOSTA=200` (ereditato da
+orienta/instrada) è insufficiente per una consultazione con molti contratti:
+misurato su `impatti.py --componente mailer` (8 contratti, ~3085 caratteri
+di output grezzo), spiega il taglio a metà frase del collaudo reale. Nuova
+`MAX_TOKENS_IMPATTO=700` (solo per il modo impatto, gli altri modi restano
+invariati) più un parametro opt-in `marcatore_se_troncato` su
+`connectors/llm.py:chiama()` — default `None`, nessun chiamante esistente
+toccato (orienta/instrada/avvisa/brief/classificatore/drafter) — che accoda
+un marcatore esplicito al testo se `stop_reason=='max_tokens'`: mai un
+taglio silenzioso, stesso principio già usato per `decisioni_aperte_bloccano`
+in `_tronca()`. Logica isolata in `_applica_marcatore_troncamento`, pura,
+testata senza rete in `tests/test_llm.py` (nuovo).
+
+**2. `/brief` consapevole degli impatti.** `genera_brief` estrae dal proprio
+campo "contesto" (già generato dall'LLM) i token con estensione puntata che
+esistono davvero sul filesystem del repo — stesso controllo deterministico
+di `_risolvi_flag_impatti`, non un'euristica sul nome: un percorso indovinato
+male dal modello (es. `pavimento.mjs` nudo) semplicemente non passa il
+controllo, nessun avviso, nessun errore, limite noto già descritto nel
+brief della sessione. Fino a `LIMITE_FILE_IMPATTI_BRIEF=8` per contenere il
+costo. Per ognuno lancia `impatti.py --file` (già usato da `genera_impatto`,
+riusato qui) e analizza l'output — formato fisso, mai modificato — a riga
+(`_analizza_output_impatti_file`/`_contratti_in_gioco`): un file che tocca
+un componente condiviso (anche via una pipeline raggiunta "via componente
+condiviso") o almeno un contratto produce un avvertimento; nessun impatto
+condiviso su nessun file citato → nessun avvertimento, zero righe vuote,
+stesso principio del silenzio già usato per avvisa. L'avvertimento è
+accodato in Python da `_componi_brief` dentro `## Vincoli`, subito dopo
+`VINCOLI_STANDARD_BRIEF` — mai passato al modello, che potrebbe parafrasarlo
+o ometterlo (nuovo contratto AV07 nella mappa).
+
+- **Registrazione**: un solo mandato di consultazione per invocazione di
+  `/brief` (non uno per file citato — un brief cita spesso molti file,
+  un mandato per ciascuno avrebbe fatto crescere la tabella senza motivo),
+  con `oggetto` che riporta il nome digitato e `esito` il log per-file
+  (impatto trovato / nessun impatto / non mappato dalla mappa / consultazione
+  fallita). Scritto da `scripts/argo/orienta_webhook.py:_registra_mandato_brief`
+  (nuovo `INSERT`, non una `UPDATE` come `_scrivi_esito_mandato`: qui il
+  mandato non esiste finché non sappiamo che la consultazione è avvenuta
+  davvero) SOLO se almeno un file citato esisteva sul filesystem — un brief
+  che non cita nessun file reale non produce nessun mandato, il silenzio è
+  l'esito normale. `backend/main.py` costruisce ora `origine_msg` anche sul
+  ramo `/brief` (stesso stile one-liner di `/impatto`) e lo passa nel
+  payload del job, perché qui il mandato nasce dopo l'esecuzione, non alla
+  ricezione del comando come per `/impatto`.
+- **Un fallimento di `impatti.py` su un singolo file non blocca mai il
+  brief**: `_verifica_impatti_brief` avvolge ogni chiamata in un
+  `try/except` e tratta anche un `returncode != 0` come "ignora questo
+  file" — annotato nel log, mai un'eccezione che risale fino a
+  `genera_brief`.
+- **Mappa Panoptes**: nuovo contratto AV07; range di `backend/main.py`
+  aggiornati dopo l'inserimento (`argo_voce` 414-572→414-577,
+  `approvazione_telegram` 575-591→580-596, stesso tipo di aggiustamento dei
+  passi precedenti — corretto anche un riferimento di riga ormai stantio
+  dentro il testo di RE01, coincidenza numerica scoperta da
+  `impatti.py --diff` che segnalava un falso "tocca la guardia stessa").
+  `verifica_mappa.py`: 0 divergenze su 14 schede. `impatti.py --diff`: 4
+  pipeline trasversali (`connectors/llm.py` è condiviso "a nudo" da
+  classificatore/drafter/argo_voce, invariato dal passo 4 di Argo — la voce),
+  zero contratti in gioco dopo la correzione di mappa.
+- **Collaudo reale da host** (senza LLM, come al passo 2 per le parti
+  deterministiche): `_verifica_impatti_brief` su un contesto che cita
+  `connectors/mailer.py` (condiviso `mailer`, contratto RE04 in gioco),
+  `argo/voce.py` (mappato, zero condivisi/contratti) e
+  `tests/test_argo_voce.py` (non mappato) più un nome inventato
+  (`pavimento.mjs`) produce l'avvertimento atteso solo sul primo file e un
+  log che traccia tutti e tre i file reali — collaudo integrato anche nella
+  suite (`tests/test_argo_voce.py`, invocazioni reali di `impatti.py`, zero
+  rete). Nessun collaudo end-to-end con l'LLM vero in questa sessione (per
+  costruzione la parte impatti non lo richiede; il testo Contesto/Obiettivo/
+  Criterio di chiusura resta generato dall'LLM come al passo 1, non
+  ri-collaudato qui).
+- **Verifiche**: suite completa verde (`test_argo_voce` 170/170,
+  `test_llm` 3/3 nuovo, `test_webhook_argo` 34/34, `test_argo_stato`,
+  `test_telegram`, `test_fetch`, `test_filtri_email`, `test_normalizza`,
+  `test_panoptes_lib` invariati e verdi). `python3 -m ast.parse` su tutti i
+  file toccati. `verifica_mappa.py` exit 0.
+- **Resta a Leonardo**: `docker compose up -d --build`; nessuna nuova riga
+  di crontab, nessuna nuova env; collaudo reale da Telegram di `/brief
+  <cantiere>` (verificare l'avvertimento su un cantiere che tocca file
+  condivisi, es. designer) e di `/impatto` su un componente con molti
+  contratti (verificare che non si tronchi più) — criterio di chiusura del
+  brief: incollare qui il brief generato e le righe nuove di `mandati`.
 

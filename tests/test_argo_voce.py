@@ -466,6 +466,122 @@ try:
 except voce.BriefErrore:
     caso("_componi_brief: chiave vuota solleva BriefErrore", "BriefErrore", "BriefErrore")
 
+# --- _componi_brief: avvertimento_impatti (passo 3 del ponte) va nei Vincoli,
+# mai altrove; senza il parametro il comportamento resta quello di sempre ---
+_AVVERTIMENTO_FINTO = "Avvertimento impatti — questi file toccano componenti condivisi o contratti:\n- x.py: contratti: RE01"
+_testo_con_avvertimento = voce._componi_brief(CANTIERE_FINTO, _json_valido, avvertimento_impatti=_AVVERTIMENTO_FINTO)
+caso(
+    "_componi_brief: avvertimento_impatti finisce dentro la sezione Vincoli",
+    True,
+    _AVVERTIMENTO_FINTO in _testo_con_avvertimento.split("## Vincoli", 1)[1],
+)
+caso(
+    "_componi_brief: senza avvertimento_impatti nessuna riga 'Avvertimento impatti'",
+    False,
+    "Avvertimento impatti" in voce._componi_brief(CANTIERE_FINTO, _json_valido),
+)
+
+# --- _estrai_contesto_brief: stessa tolleranza di _componi_brief su
+# fence/lista, None se il JSON non è valido (non solleva mai) ---
+caso("_estrai_contesto_brief: JSON valido -> testo del campo contesto", "- leggi x.py", voce._estrai_contesto_brief(_json_valido))
+caso("_estrai_contesto_brief: JSON in fence markdown -> stesso risultato", "- leggi x.py", voce._estrai_contesto_brief(_json_con_fence))
+caso(
+    "_estrai_contesto_brief: contesto come lista JSON -> stringa multi-riga",
+    "- leggi x.py\n- leggi y.py",
+    voce._estrai_contesto_brief(_json_con_lista),
+)
+caso("_estrai_contesto_brief: JSON non valido -> None, non solleva", None, voce._estrai_contesto_brief("questo non è JSON"))
+
+# ============================================================
+# Modo "brief", passo 3 (cantiere Argo — il ponte) — impatti.py sui file
+# citati nel contesto. Zero LLM, invocazioni reali di impatti.py (subprocess
+# locale e deterministico, stesso principio delle CASI del modo impatto
+# sopra — mai rete).
+# ============================================================
+
+# --- _file_citati_in_contesto: solo token con estensione che esistono
+# davvero nel repo; un nome nudo inventato (limite noto del modello) non
+# passa il controllo — nessun errore, semplicemente escluso ---
+_contesto_misto = (
+    "- leggi argo/voce.py per capire genera_brief\n"
+    "- occhio a pavimento.mjs (non esiste in questa cartella)\n"
+    "- vedi anche STATO.md\n"
+)
+caso(
+    "_file_citati_in_contesto: solo i file reali, in ordine di comparsa",
+    ["argo/voce.py", "STATO.md"],
+    voce._file_citati_in_contesto(_contesto_misto),
+)
+caso("_file_citati_in_contesto: contesto vuoto -> lista vuota", [], voce._file_citati_in_contesto(""))
+caso("_file_citati_in_contesto: contesto None -> lista vuota", [], voce._file_citati_in_contesto(None))
+
+_vecchio_limite = voce.LIMITE_FILE_IMPATTI_BRIEF
+try:
+    voce.LIMITE_FILE_IMPATTI_BRIEF = 2
+    caso(
+        "_file_citati_in_contesto: rispetta il cap LIMITE_FILE_IMPATTI_BRIEF",
+        ["argo/voce.py", "STATO.md"],
+        voce._file_citati_in_contesto(_contesto_misto + "- STATO.md di nuovo\n- backend/main.py\n"),
+    )
+finally:
+    voce.LIMITE_FILE_IMPATTI_BRIEF = _vecchio_limite
+
+# --- _analizza_output_impatti_file / _contratti_in_gioco: parsing a riga
+# sull'output reale di impatti.py --file (tre casi veri, verificati a mano) ---
+_rc_mailer, _out_mailer, _ = voce._esegui_impatti("--file", "connectors/mailer.py")
+caso("collaudo: impatti.py --file connectors/mailer.py esce 0", 0, _rc_mailer)
+_condivisi_mailer, _contratti_mailer = voce._analizza_output_impatti_file(_out_mailer)
+caso("_analizza_output_impatti_file: mailer.py -> condiviso 'mailer' rilevato", True, "mailer" in _condivisi_mailer)
+caso("_analizza_output_impatti_file: mailer.py -> contratto RE04 rilevato", True, "RE04" in _contratti_mailer)
+
+_rc_voce, _out_voce, _ = voce._esegui_impatti("--file", "argo/voce.py")
+caso("collaudo: impatti.py --file argo/voce.py esce 0", 0, _rc_voce)
+_condivisi_voce, _contratti_voce = voce._analizza_output_impatti_file(_out_voce)
+caso("_analizza_output_impatti_file: argo/voce.py -> nessun condiviso (pipeline dedicata)", [], _condivisi_voce)
+caso("_analizza_output_impatti_file: argo/voce.py -> nessun contratto ('nessuno' nell'output)", [], _contratti_voce)
+
+_rc_test, _out_test, _ = voce._esegui_impatti("--file", "tests/test_argo_voce.py")
+caso("collaudo: impatti.py --file tests/test_argo_voce.py esce 0", 0, _rc_test)
+caso(
+    "collaudo: tests/test_argo_voce.py non è mappato da nessuna scheda",
+    True,
+    "non è mappato da nessuna scheda" in _out_test,
+)
+
+# --- _verifica_impatti_brief: contesto realistico misto, tre file veri +
+# un nome inventato — avvertimento cita solo il file con impatto, il log
+# traccia tutti e tre i file reali (la consultazione è avvenuta comunque) ---
+_contesto_brief_reale = (
+    "- connectors/mailer.py\n"
+    "- argo/voce.py\n"
+    "- tests/test_argo_voce.py\n"
+    "- pavimento.mjs (percorso indovinato male, non esiste qui)\n"
+)
+_avvertimento, _log = voce._verifica_impatti_brief(_contesto_brief_reale)
+caso("_verifica_impatti_brief: avvertimento cita il file con impatto", True, "connectors/mailer.py" in _avvertimento)
+caso("_verifica_impatti_brief: avvertimento cita il contratto RE04", True, "RE04" in _avvertimento)
+caso(
+    "_verifica_impatti_brief: avvertimento NON cita argo/voce.py (nessun impatto condiviso)",
+    False,
+    "- argo/voce.py:" in _avvertimento,
+)
+caso(
+    "_verifica_impatti_brief: istruzione a lanciare impatti.py presente",
+    True,
+    "scripts/panoptes/impatti.py" in _avvertimento,
+)
+caso("_verifica_impatti_brief: log traccia connectors/mailer.py", True, "connectors/mailer.py" in _log)
+caso("_verifica_impatti_brief: log traccia argo/voce.py", True, "argo/voce.py" in _log)
+caso("_verifica_impatti_brief: log traccia tests/test_argo_voce.py (non mappato)", True, "non mappato" in _log)
+
+# --- _verifica_impatti_brief: nessun file citato esiste davvero -> (None, None),
+# nessuna consultazione avvenuta ---
+caso(
+    "_verifica_impatti_brief: nessun file reale citato -> nessuna consultazione",
+    (None, None),
+    voce._verifica_impatti_brief("- pavimento.mjs\n- altro/file/inventato.py\n"),
+)
+
 # --- genera_brief: risoluzione del nome, su un STATO.md finto (percorso
 # ambiguo/non-trovato è deterministico, zero chiamate LLM — testabile senza mock) ---
 import argo.stato as _stato_per_test  # noqa: E402
@@ -489,20 +605,23 @@ _stato_voce_path.write_text(CANTIERI_MD_FINTO, encoding="utf-8")
 try:
     _stato_per_test.STATO_MD_PATH = _stato_voce_path
 
-    _esito_non_trovato = voce.genera_brief("regista sonora")
+    _esito_non_trovato, _log_non_trovato = voce.genera_brief("regista sonora")
     caso("genera_brief: nome non trovato non chiama l'LLM, elenca i nomi validi", True, "Nessun cantiere" in _esito_non_trovato)
     caso("genera_brief: elenco nomi validi include 'Argo — il ponte'", True, "Argo — il ponte" in _esito_non_trovato)
+    caso("genera_brief: nome non trovato non registra nessuna consultazione impatti", None, _log_non_trovato)
 
-    _esito_ambiguo = voce.genera_brief("argo")
+    _esito_ambiguo, _log_ambiguo = voce.genera_brief("argo")
     caso("genera_brief: nome ambiguo non chiama l'LLM, lo dichiara", True, "ambiguo" in _esito_ambiguo)
     caso(
         "genera_brief: nome ambiguo elenca entrambi i cantieri coinvolti",
         True,
         "Argo — la voce" in _esito_ambiguo and "Argo — il ponte" in _esito_ambiguo,
     )
+    caso("genera_brief: nome ambiguo non registra nessuna consultazione impatti", None, _log_ambiguo)
 
-    _esito_vuoto = voce.genera_brief("")
+    _esito_vuoto, _log_vuoto = voce.genera_brief("")
     caso("genera_brief: nome vuoto è trattato come non trovato, non come 'tutti'", True, "Nessun cantiere" in _esito_vuoto)
+    caso("genera_brief: nome vuoto non registra nessuna consultazione impatti", None, _log_vuoto)
 finally:
     _stato_per_test.STATO_MD_PATH = _percorso_originale_voce
     _stato_voce_path.unlink()
