@@ -550,14 +550,14 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:414-524"
+      - "backend/main.py:414-572"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
-      - "worker/loop.py:83-85"
-      - "worker/loop.py:1635-1668"
+      - "worker/loop.py:83-88"
+      - "worker/loop.py:1636-1669"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
-      scrive: [jobs, alert_inviati, osservazioni]
+      scrive: [jobs, alert_inviati, osservazioni, mandati]
     verifica:
       indecidibile:
         - campo: tabelle.legge
@@ -614,6 +614,22 @@ pipeline:
             fa UPDATE osservazioni SET stato='riferita' WHERE id=... AND
             stato='nuova', via docker exec psql. Implementa AV02 sotto
             ("solo Argo aggiorna osservazioni.stato").
+        - campo: tabelle.scrive
+          valore: mandati
+          motivo: >
+            PASSO 2 (12/9/2026, cantiere Argo — il ponte): tre scrittori, due
+            visibili a verifica_mappa.py e uno no. L'INSERT INTO mandati
+            (backend/main.py:_registra_mandato, ramo /impatto) e la UPDATE
+            mandati SET esito=... per il caso "richiesta già in corso" (stesso
+            ramo, poche righe più sotto, via psycopg — non docker exec) usano
+            entrambe cur.execute() reale: verifica_mappa.py le rileva da sola,
+            non sono indecidibili (trovato in review, 12/9/2026: la nota
+            precedente ne contava solo due). La UPDATE mandati SET esito=...
+            per l'esito reale dopo l'esecuzione (scripts/argo/
+            orienta_webhook.py:_scrivi_esito_mandato) passa invece da
+            `docker exec argo-db-1 psql`, stessa deviazione già dichiarata
+            sopra per alert_inviati/osservazioni: verifica_mappa.py non la
+            vede, riportata qui a mano.
     condivisi: [telegram_notifica]
     env:
       - ANTHROPIC_API_KEY
@@ -625,7 +641,7 @@ pipeline:
     contratti:
       - id: AV01
         enunciato: "Nessun mandato entra in mandati senza un messaggio di Leonardo che lo origina"
-        garantito_da: "db/migrations/006_osservazioni_mandati.sql:18 (origine_msg TEXT NOT NULL — vincolo di schema, un INSERT senza origine_msg fallisce sempre; nessun codice applicativo lo popola ancora)"
+        garantito_da: "db/migrations/006_osservazioni_mandati.sql:18 (origine_msg TEXT NOT NULL — vincolo di schema, un INSERT senza origine_msg fallisce sempre) + PASSO 2 (12/9/2026): backend/main.py:_registra_mandato, chiamata solo dal ramo /impatto di _gestisci_messaggio_argo con origine_msg = f\"Telegram message_id={{message_id}}: {{testo}}\" — primo codice applicativo reale che scrive qui, sempre con testo e id del messaggio Telegram che ha originato il mandato."
       - id: AV02
         enunciato: "Panoptes deposita in osservazioni; solo Argo aggiorna osservazioni.stato"
         garantito_da: "PASSO 8 (11/9/2026): scripts/argo/orienta_webhook.py:_marca_avviso_inviato (UPDATE osservazioni SET stato='riferita' WHERE id=... AND stato='nuova', via docker exec psql — nessun altro punto del codice scrive osservazioni.stato) copre solo la metà 'solo Argo aggiorna osservazioni.stato'. La metà 'Panoptes deposita in osservazioni' resta senza scrittore: nessuna pipeline Panoptes esiste ancora (osservazioni_nuove() vede tuttora zero righe, vedi evidenza sotto)."
@@ -660,6 +676,7 @@ pipeline:
       - "PASSO 6: backend/main.py:414-504 (ex 407-466) e connectors/telegram.py:35-209 (ex 35-154) sono i nuovi confini dopo l'inserimento di COMANDO_INSTRADA/_accoda_job_argo/interpreta_instrada — approvazione_telegram (condiviso) aggiornato di conseguenza sui propri range in backend/main.py, spostati dalla stessa causa (righe inserite più in alto nel file)."
       - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): AV05 garantito_da: eval, stesso trattamento di AV03/CD01/CD02 — proprietà di un testo generato da un LLM (Contesto/Obiettivo/Criterio di chiusura del brief), nessuna guardia deterministica può verificarla a runtime. Validata a mano in questo passo su un cantiere reale (vedi STATO.md per il testo generato); nessuna suite di eval automatica ancora, come per AV03/CD01/CD02."
       - "PASSO 1 (ponte): backend/main.py:414-524 (ex 414-504) dopo l'inserimento di COMANDO_BRIEF/RISPOSTA_BRIEF_SENZA_NOME e del ramo /brief in _gestisci_messaggio_argo — approvazione_telegram (condiviso) non tocca queste righe, nessun aggiornamento al suo range necessario. worker/loop.py:claim_job (60-70/83-85/1635-1668, invariati) ha guadagnato 'genera_brief' nella stessa esclusione NOT IN, stessa riga, nessuno spostamento di riga nel file."
+      - "PASSO 2 (ponte, 12/9/2026) — comando /impatto: backend/main.py:414-572 (ex 414-524) dopo COMANDO_IMPATTO/RISPOSTA_IMPATTO_SENZA_ARGOMENTO/_registra_mandato/il ramo /impatto — approvazione_telegram (condiviso) sposta webhook_telegram da 527-543 a 575-591, stesso tipo di aggiustamento dei passi precedenti. worker/loop.py:claim_job (60-70 invariato, 83-85→83-88, 1635-1668→1636-1669: +1 riga uniforme da qui in poi) ha guadagnato 'genera_impatto' nella stessa esclusione NOT IN. DECISIONE presa nel piano, non nel codice: impatti.py non ha un flag --json (l'obiettivo del brief lo assumeva, il vincolo 'non modificarlo' vince) — genera_impatto lo invoca nella sua unica modalità reale (testo su stdout/stderr) e fa tradurre l'LLM sotto anti-invenzione rinforzata; sull'errore vero (returncode != 0, percorso/componente inesistente) zero chiamata LLM, il messaggio di impatti.py è rilanciato com'è. Il secondo uso del brief (impatti.py lanciato sui file citati da /brief, con avvertimento inline) è RINVIATO a un passo separato — non implementato in questa sessione."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -718,7 +735,7 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:527-543"
+      - "backend/main.py:575-591"
       - "backend/main.py:283-386"
       - "backend/main.py:387-411"
       - "connectors/telegram.py:35-254"
@@ -733,6 +750,7 @@ condivisi:
       - "usata sia dalle approvals create da _valuta_e_rispondi per email sia per DM — main.py non distingue il canale, agisce solo sulla tabella approvals"
       - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:529, webhook_telegram — non da confondere con la stessa header per ARGO_VOCE_WEBHOOK_SECRET su webhook_argo, main.py:512)"
       - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): webhook_argo (argo_voce) è cresciuto di 20 righe per il ramo /brief, spostando webhook_telegram da 507-523 a 527-543 — range aggiornato di conseguenza, stesso tipo di aggiustamento già fatto ai passi 6/8. connectors/telegram.py:35-209 → 35-254: _spezza_testo()/invia_lungo() (nuove, condiviso telegram_notifica) inserite in mezzo al file (114-156) hanno spostato chiedi_approvazione/chiedi_testo_corretto/rispondi_callback di 44 righe."
+      - "CANTIERE ARGO — IL PONTE, PASSO 2 (12/9/2026): webhook_argo (argo_voce) è cresciuto di altre 48 righe per il ramo /impatto (COMANDO_IMPATTO, _registra_mandato, il ramo stesso), spostando webhook_telegram da 527-543 a 575-591 — stesso tipo di aggiustamento dei passi precedenti, connectors/telegram.py non toccato in questo passo."
 
   - nome: mailer
     codice: ["connectors/mailer.py"]

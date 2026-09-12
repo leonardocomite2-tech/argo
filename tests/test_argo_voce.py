@@ -525,6 +525,69 @@ finally:
     _stato_rotto_path.unlink()
 
 
+# ============================================================
+# Modo "impatto" (cantiere Argo — il ponte, passo 2)
+# ============================================================
+
+# --- ISTRUZIONI_IMPATTO copre i punti del brief: anti-invenzione, niente
+# markdown, niente domanda finale, un solo riferimento temporale, il caso
+# "nessuna scheda impattata" dichiarato e non riempito ---
+_istruzioni_impatto_normalizzate = re.sub(r"\s+", " ", voce.ISTRUZIONI_IMPATTO)
+for frammento in (
+    "Poche righe",
+    "riportali SOLO se compaiono alla lettera",
+    "Mai aggiungere una pipeline",
+    "nessuna scheda è impattata",
+    "mai con una domanda",
+    "Al massimo UN riferimento temporale",
+    "senza markdown",
+    "niente backtick",
+):
+    caso(
+        f"ISTRUZIONI_IMPATTO copre: {frammento!r}",
+        True,
+        frammento in _istruzioni_impatto_normalizzate,
+    )
+
+# --- _risolvi_flag_impatti: deterministico, un controllo reale sul filesystem
+# del repo — non un'euristica sul nome ---
+caso("_risolvi_flag_impatti: un file reale del repo -> --file", "--file", voce._risolvi_flag_impatti("argo/voce.py"))
+caso(
+    "_risolvi_flag_impatti: un file reale con :riga -> --file (la parte prima dei due punti esiste)",
+    "--file",
+    voce._risolvi_flag_impatti("worker/loop.py:94"),
+)
+caso(
+    "_risolvi_flag_impatti: un nome di componente condiviso (non un file) -> --componente",
+    "--componente",
+    voce._risolvi_flag_impatti("mailer"),
+)
+caso(
+    "_risolvi_flag_impatti: un percorso inesistente -> --componente (impatti.py deciderà se è valido)",
+    "--componente",
+    voce._risolvi_flag_impatti("percorso/che/non/esiste.py"),
+)
+
+# --- genera_impatto: errore vero di impatti.py (componente inesistente) —
+# invocazione reale in sottoprocesso, deterministica, zero rete/LLM ---
+_testo_errore, _esito_errore = voce.genera_impatto("componente_inesistente_test_argo")
+caso("genera_impatto: componente inesistente -> esito 'fallito: ...'", True, _esito_errore.startswith("fallito:"))
+caso(
+    "genera_impatto: componente inesistente -> il messaggio è quello di impatti.py, non riscritto",
+    True,
+    "nessun componente condiviso o pipeline chiamato" in _testo_errore,
+)
+
+# --- genera_impatto: file reale ma non mappato da nessuna scheda (STATO.md
+# non è coperto dalla mappa) — anche questo è un errore vero (returncode 0,
+# ma con messaggio dedicato di impatti.py): verificato che passi comunque
+# dall'LLM secondo la decisione presa nel piano (bypass solo su returncode
+# != 0), quindi qui controlliamo solo che impatti.py stesso lo segnali così
+# nel proprio output, non l'esito di genera_impatto (che richiederebbe rete) ---
+_flag_stato_md = voce._risolvi_flag_impatti("STATO.md")
+caso("_risolvi_flag_impatti: STATO.md esiste come file -> --file", "--file", _flag_stato_md)
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:

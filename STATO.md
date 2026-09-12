@@ -16,7 +16,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 1: comando /brief, stesso schema di orienta/instrada/avvisa; collaudato su cantieri reali, un limite noto di invenzione su un percorso file non risolto (vedi dettaglio sotto); resta a Leonardo il deploy e il giudizio sul testo generato |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 2: comando /impatto, primo scrittore di `mandati` (tipo consultazione, origine_msg da Telegram); impatti.py invocato senza --json (non esiste, vincolo non toccarlo) e tradotto dall'LLM sotto anti-invenzione, collaudo reale da host riuscito; secondo uso del brief (check impatti.py dentro /brief) rinviato; resta a Leonardo il deploy e il collaudo da Telegram |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2509,3 +2509,103 @@ nuova tabella, nessun nuovo secret: riusa `ARGO_VOCE_BOT_TOKEN`/
   (criterio di chiusura) e decisione su come trattare il limite noto sopra
   (accettarlo con la rete di sicurezza esistente, o investire altro tempo
   di prompt engineering).
+
+## Sessione 2026-09-12 — Cantiere Argo — il ponte, passo 2: comando /impatto
+
+Primo scrittore reale di `mandati` (tabella esistente dal primo giorno,
+`origine_msg NOT NULL`, mai scritta finora — guardrail AV01 del cantiere:
+solo `tipo='consultazione'`, mai `esecuzione`, che resta il passo 3).
+
+**Comando `/impatto <componente o file>` — quinto modo, stesso schema di
+orienta/instrada/brief.** Riuso totale: stesso webhook `/webhook/argo`,
+stesso job+lock-per-tipo (`_accoda_job_argo`/`genera_impatto_enqueue`),
+stessa esclusione in `worker/loop.py:claim_job`, stesso consumer host
+`scripts/argo/orienta_webhook.py` (`TIPI_JOB` esteso a cinque). Nessun
+nuovo secret.
+
+- **Decisione presa nel piano, non richiesta di conferma:
+  `scripts/panoptes/impatti.py` non ha (e non guadagna) un flag `--json`.**
+  Verificato nel codice: oggi ha solo `--file`/`--componente`/`--tabella`/
+  `--diff`. Il vincolo esplicito della sessione ("impatti.py è già sola
+  lettura: non modificarlo, invocalo") vince sulla frase dell'obiettivo che
+  assumeva `--json`. `argo/voce.py:genera_impatto` lo invoca quindi nella
+  sua unica modalità reale (testo su stdout/stderr) e fa tradurre l'output
+  all'LLM sotto anti-invenzione rinforzata (`ISTRUZIONI_IMPATTO`): solo
+  pipeline/contratti/ID presenti alla lettera nell'output, mai un rischio
+  inventato per riempire la risposta, dichiarazione esplicita se l'output
+  dice che nulla è impattato.
+- **Euristica file/componente, deterministica**: `_risolvi_flag_impatti`
+  controlla se la parte prima di un eventuale `:riga` esiste davvero sul
+  filesystem del repo — se sì `--file`, altrimenti `--componente`. Zero
+  indovinare sul nome, stesso spirito di `_risolvi_cantiere`/
+  `interpreta_instrada`; la validità reale del nome resta decisa da
+  `impatti.py` stesso.
+- **Bypass dell'LLM solo sull'errore vero (`returncode != 0`), non su
+  "nessuna scheda impattata".** Percorso o componente inesistente →
+  `impatti.py` fallisce con un messaggio deterministico, rilanciato com'è
+  (zero chiamata LLM, stesso principio "non indovina" di `_risolvi_cantiere`
+  sul nome cantiere ambiguo). Distinguere "impatti.py non trova nulla" da
+  "ha trovato dati" analizzando l'output a stringhe fisse sarebbe fragile e,
+  di fatto, una reimplementazione dall'esterno della logica di uno script
+  che questo passo non può toccare — quindi sul successo (anche quando il
+  risultato è vuoto) l'LLM traduce sempre, sotto le stesse regole
+  anti-invenzione.
+- **Mandato scritto in tre momenti possibili, simmetrico al pattern già in
+  uso per `alert_inviati`/`osservazioni`**: `backend/main.py:_registra_mandato`
+  scrive `origine_msg`/`tipo`/`oggetto` alla ricezione del comando
+  (`origine_msg` = testo del messaggio Telegram + il suo `message_id`,
+  tracciabilità richiesta dal guardrail AV01); se un `/impatto` precedente è
+  ancora in coda, lo stesso `backend/main.py` scrive subito
+  `esito='non eseguito: richiesta già in corso'` (via psycopg, non
+  `docker exec` — trovato in review: la prima stesura della mappa contava
+  solo due scrittori, corretto); altrimenti `scripts/argo/
+  orienta_webhook.py:_scrivi_esito_mandato` scrive l'esito reale dopo
+  l'esecuzione, PRIMA dell'invio Telegram (stesso ordine "scritto prima
+  dell'invio" del resto del repo) — via `docker exec psql`, stessa
+  deviazione già dichiarata per `alert_inviati`/`osservazioni`. Se il job
+  fallisce in modo imprevisto, l'esito viene scritto comunque
+  (`'fallito: errore interno'`): un mandato non deve restare con
+  `esito IS NULL` per un job che ha già finito di girare.
+- **Mappa Panoptes**: estesa la scheda `argo_voce` esistente. `mandati`
+  aggiunta a `tabelle.scrive` (l'INSERT in `backend/main.py` è rilevata da
+  sola da `verifica_mappa.py`, cur.execute() reale; la UPDATE dell'esito via
+  `docker exec psql` in `orienta_webhook.py` è dichiarata a mano, stessa
+  deviazione di `alert_inviati`/`osservazioni`). `AV01.garantito_da`
+  aggiornato: non più solo il vincolo di schema, ora cita il vero punto di
+  scrittura applicativo. Range di `backend/main.py` per `argo_voce` e per
+  `approvazione_telegram` (spostamento di `webhook_telegram`) aggiornati
+  dopo l'inserimento — stesso tipo di correzione già fatta ai passi
+  precedenti. `verifica_mappa.py`: 0 divergenze su 14 schede.
+  `impatti.py --diff`: trasversale su 2 pipeline (`argo_voce`,
+  `manutenzione_sistema` per l'esclusione in `claim_job`), nessun contratto
+  in gioco.
+- **Rinviato**: il secondo uso descritto dal brief — `impatti.py` lanciato
+  automaticamente sui file citati da `/brief`, con avvertimento inline nel
+  brief stesso, anch'esso un mandato di consultazione. Leonardo aveva
+  esplicitamente invitato a valutare se allargava troppo la sessione: sì,
+  perché aggiungerebbe un secondo scrittore di mandati e un secondo parsing
+  dell'output di `impatti.py` dentro un flusso già complesso (JSON forzato
+  del modo brief). Proposto come passo separato.
+- **Collaudo reale da host** (parziale — chiama `genera_impatto()`
+  direttamente, non passa dal webhook/Telegram, stesso tipo di collaudo
+  preliminare già fatto per `genera_brief` al passo 1): `genera_impatto('mailer')`
+  ha prodotto una traduzione corretta e fedele (segnala correttamente
+  `poster_host`/`risposte_email` come pipeline toccate, mette in evidenza
+  la catena a due anelli di RE01 già presente nell'output grezzo, dichiara
+  "RE02 non ha garanzia mappata" senza inventare un rischio);
+  `genera_impatto('worker/loop.py:95')` (la riga toccata in questo stesso
+  passo) ha risposto correttamente "solo manutenzione_sistema, nessun
+  contratto impattato". Nessun caso di errore vero collaudato con l'LLM
+  (per costruzione non lo chiama), ma verificato via test reale
+  (`tests/test_argo_voce.py`, componente inesistente, returncode 2).
+- **Verifiche**: suite completa verde (`test_argo_stato` 37/37,
+  `test_argo_voce` 141/141, `test_webhook_argo` 34/34, `test_telegram`
+  16/16, `test_fetch`/`test_filtri_email`/`test_normalizza`/
+  `test_panoptes_lib` invariati e verdi). `python3 -m ast.parse` (sintassi)
+  su tutti i file toccati. `verifica_mappa.py` exit 0.
+- **Resta a Leonardo**: `docker compose up -d --build`; nessuna nuova riga
+  di crontab; collaudo reale `/impatto <componente o file>` dal telefono —
+  criterio di chiusura del brief: risposta comprensibile su Telegram + riga
+  in `mandati` con `origine_msg` valorizzato ed `esito` scritto; decisione
+  su quando riprendere il secondo uso rinviato.
+

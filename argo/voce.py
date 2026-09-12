@@ -1,5 +1,5 @@
-"""Argo — la voce: i tre modi (orienta, instrada, avvisa) più il modo
-"brief" del cantiere Argo — il ponte.
+"""Argo — la voce: i tre modi (orienta, instrada, avvisa) più i modi
+"brief" e "impatto" del cantiere Argo — il ponte.
 
 Orienta e instrada rispondono a Leonardo: raccolgono lo stato con le sei
 funzioni di sola lettura di `argo/stato.py`, lo passano a un LLM insieme ai
@@ -13,18 +13,26 @@ il nome del cantiere in modo deterministico (mai indovina), e affida
 all'LLM solo le parti che vanno sintetizzate dal contesto raccolto; lo
 scheletro fisso del brief (titolo, "Plan mode obbligatorio", Vincoli
 standard, la riga su chi ha ragione in caso di conflitto) è composto qui
-in Python, mai chiesto al modello.
+in Python, mai chiesto al modello. Impatto (passo 2 del ponte) non risponde
+a Leonardo con lo stato del sistema: invoca scripts/panoptes/impatti.py
+(mai modificato, solo lanciato in sottoprocesso — vedi genera_impatto) su un
+componente o file, e fa tradurre all'LLM il suo output testuale in poche
+righe leggibili dal telefono. Sull'errore vero di impatti.py (percorso o
+componente inesistente) non chiama l'LLM: rilancia il messaggio di errore
+com'è, stesso principio "non indovina" di _risolvi_cantiere.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
 ritorna anche `marcatori` — cosa andrebbe scritto DOPO un invio riuscito —
-ma non lo scrive: tocca a chi chiama (scripts/argo/orienta_webhook.py, che
-gira da host e può scrivere). Zero mandati: passo futuro del cantiere.
+e genera_impatto() ritorna `esito`, stesso principio: chi chiama
+(scripts/argo/orienta_webhook.py, che gira da host e può scrivere) scrive
+su `alert_inviati`/`osservazioni`/`mandati`, questo modulo non scrive mai.
 """
 
 import copy
 import hashlib
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -67,6 +75,14 @@ MAX_TOKENS_BRIEF = 1500
 N_SESSIONI_BRIEF = 3
 LIMITE_SESSIONI_CANTIERE_CARATTERI = 3000
 LIMITE_DOCUMENTO_CANTIERE_CARATTERI = 3000
+
+# Modo "impatto" (cantiere Argo — il ponte, passo 2). L'output di impatti.py
+# è già un riepilogo (poche righe per componente/file), non un documento
+# come quelli di brief: stesso limite di orienta/instrada, non quello largo
+# del brief.
+IMPATTI_SCRIPT = REPO_ROOT / "scripts" / "panoptes" / "impatti.py"
+LIMITE_OUTPUT_IMPATTI_CARATTERI = 3000
+LIMITE_ERRORE_IMPATTI_CARATTERI = 300
 
 # Documento di knowledge per cantiere: dizionario esplicito (parola chiave
 # nel nome normalizzato del cantiere -> path), non ricerca per somiglianza
@@ -246,6 +262,42 @@ Rispondi seguendo queste regole, senza eccezioni:
 """.strip()
 
 DOMANDA_BRIEF = "Scrivi il brief per il cantiere descritto nei dati qui sotto."
+
+ISTRUZIONI_IMPATTO = """
+## Modo "impatto" — istruzioni per questa risposta
+
+Leonardo ha chiesto cosa rischia toccando un componente o un file. Qui sotto
+trovi l'output grezzo di scripts/panoptes/impatti.py su quella richiesta —
+è la mappa del sistema, la fonte, non un testo tuo da correggere. Rispondi
+seguendo queste regole, senza eccezioni:
+
+- Poche righe, leggibili dal telefono: quali pipeline e quali contratti sono
+  in gioco, e quindi cosa si rischia toccando quella cosa.
+- Nomi di pipeline, ID di contratti, nomi di file: riportali SOLO se
+  compaiono alla lettera nell'output qui sotto, copiati senza modifiche. Mai
+  aggiungere una pipeline, un contratto o un rischio che l'output non nomina
+  — anche se ti sembra plausibile.
+- Se l'output dice che nessuna scheda è impattata, o che il file non è
+  mappato, dillo chiaramente e fermati lì: non è un errore da correggere né
+  un vuoto da riempire con un rischio inventato.
+- Se un contratto ha una nota "la modifica tocca la guardia stessa" (o
+  equivalente presente nell'output), è il segnale più importante: mettilo in
+  evidenza, non in coda.
+- Conclusione prima, motivo dopo. Poi FERMATI: niente sezioni aggiuntive,
+  niente elenco di "cos'altro potrebbe c'entrare".
+- La risposta finisce con la conclusione, mai con una domanda: niente "vuoi
+  che...", niente offerte di passi successivi.
+- Al massimo UN riferimento temporale (es. una data presente nell'output),
+  mai due o tre.
+- Testo semplice, senza markdown in nessuna forma: niente asterischi,
+  niente backtick, niente cancelletti per le intestazioni, niente elenchi
+  puntati con simboli — Telegram lo mostra letterale, non lo renderizza.
+  Nomi di file e comandi si scrivono senza backtick, come testo normale.
+- Niente incoraggiamenti, niente riassunti di ciò che è stato fatto, niente
+  percentuali di completamento.
+""".strip()
+
+DOMANDA_IMPATTO = "Traduci in poche righe l'output di impatti.py qui sotto."
 
 VINCOLI_STANDARD_BRIEF = """
 - Se serve un sub-agent per una parte del lavoro, lancialo e passa comunque dal guardrail (subagent guardrail-review) sul diff prima di committare.
@@ -588,3 +640,75 @@ def genera_brief(nome_utente):
         raise BriefErrore("chiamata LLM fallita") from e
 
     return _componi_brief(cantiere, grezzo)
+
+
+class ImpattoErrore(Exception):
+    """Errore rumoroso: la chiamata LLM del modo impatto è fallita (stesso
+    stile di BriefErrore/ClassificazioneErrore). Non usata per l'errore vero
+    di impatti.py (percorso o componente inesistente): quel caso non chiama
+    mai l'LLM, vedi genera_impatto."""
+
+
+def _risolvi_flag_impatti(componente_o_file):
+    """--file se la parte prima di un eventuale ':riga'/':start-end' esiste
+    davvero sul filesystem del repo, altrimenti --componente. Deterministico
+    (un controllo su disco, non un'euristica sul nome): un percorso di file
+    reale vince sempre su un nome che assomigli a un componente, e viceversa
+    — mai indovinato, coerente con _risolvi_cantiere/interpreta_instrada."""
+    parte_percorso = componente_o_file.split(":", 1)[0]
+    if (REPO_ROOT / parte_percorso).exists():
+        return "--file"
+    return "--componente"
+
+
+def _esegui_impatti(flag, valore):
+    """Lancia scripts/panoptes/impatti.py in sottoprocesso, mai modificato
+    (vincolo del passo 2 del ponte): invocato com'è, nella sua unica
+    modalità reale (testo su stdout/stderr, niente --json — non esiste).
+    Ritorna (returncode, stdout, stderr)."""
+    risultato = subprocess.run(
+        ["python3", str(IMPATTI_SCRIPT), flag, valore],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        timeout=30,
+    )
+    return risultato.returncode, risultato.stdout, risultato.stderr
+
+
+def genera_impatto(componente_o_file):
+    """Modo "impatto": scripts/panoptes/impatti.py sul componente o file
+    indicato, poi (solo se lo script è riuscito) la traduzione dell'LLM in
+    poche righe. Ritorna (testo, esito): esito va scritto sul mandato da chi
+    chiama (scripts/argo/orienta_webhook.py, che scrive — questo modulo resta
+    sola lettura). Sull'errore vero di impatti.py (returncode != 0: percorso
+    o componente/tabella inesistente, mappa non parsabile) NESSUNA chiamata
+    LLM: il messaggio di impatti.py è già deterministico e va rilanciato
+    com'è, non interpretato — stesso principio "non indovina" di
+    _risolvi_cantiere. Non distingue invece "nessuna scheda impattata" (uno
+    dei possibili esiti a returncode 0) da "impatto trovato": entrambi
+    passano dall'LLM sotto anti-invenzione stretta, per non dover
+    reimplementare dall'esterno, a suon di string-matching sul testo, la
+    logica di uno script che questo passo non può modificare."""
+    flag = _risolvi_flag_impatti(componente_o_file)
+    returncode, stdout, stderr = _esegui_impatti(flag, componente_o_file)
+
+    if returncode != 0:
+        messaggio = (stderr or stdout).strip() or "impatti.py non ha prodotto nessun messaggio di errore"
+        esito = "fallito: " + _tronca(messaggio, LIMITE_ERRORE_IMPATTI_CARATTERI, fonte="impatti.py").splitlines()[0]
+        return messaggio, esito
+
+    dati = {
+        "oggi": _data_oggi(),
+        "richiesta": componente_o_file,
+        "output_impatti": _tronca(stdout.strip(), LIMITE_OUTPUT_IMPATTI_CARATTERI, fonte="impatti.py"),
+    }
+    system = costruisci_system_prompt(dati, ISTRUZIONI_IMPATTO)
+    try:
+        testo = chiama(system, DOMANDA_IMPATTO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+    except TettoLLMRaggiunto:
+        raise
+    except LLMErrore as e:
+        raise ImpattoErrore("chiamata LLM fallita") from e
+
+    return testo, "riuscito"

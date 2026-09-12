@@ -2,17 +2,17 @@
 """python3 scripts/argo/orienta_webhook.py
 
 Consumer host-side dei job 'genera_orienta', 'genera_instrada', (passo 8)
-'genera_avviso' e (cantiere Argo — il ponte, passo 1) 'genera_brief' — nome
-file invariato apposta: il crontab di Leonardo lancia già questo script
-ogni minuto, rinominarlo lo romperebbe in silenzio. I primi due e il quarto
-sono accodati da backend/main.py (POST /webhook/argo) quando Leonardo
-scrive /orienta, /instrada o /brief al bot Argo da Telegram; il terzo è
-accodato una volta al giorno da worker/loop.py:garantisci_genera_avviso()
-(nessuna riga di crontab nuova). Lanciato da cron, non da Docker: argo/voce.py
-passa da argo/stato.py, che deve girare da host (docker exec + STATO.md +
-git sul filesystem del repo — vedi il docstring di argo/stato.py).
-worker/loop.py esclude esplicitamente i quattro tipi dal proprio claim_job()
-per questo motivo.
+'genera_avviso', (cantiere Argo — il ponte, passo 1) 'genera_brief' e (passo
+2) 'genera_impatto' — nome file invariato apposta: il crontab di Leonardo
+lancia già questo script ogni minuto, rinominarlo lo romperebbe in silenzio.
+Tutti tranne 'genera_avviso' sono accodati da backend/main.py (POST
+/webhook/argo) quando Leonardo scrive /orienta, /instrada, /brief o /impatto
+al bot Argo da Telegram; 'genera_avviso' è accodato una volta al giorno da
+worker/loop.py:garantisci_genera_avviso() (nessuna riga di crontab nuova).
+Lanciato da cron, non da Docker: argo/voce.py passa da argo/stato.py, che
+deve girare da host (docker exec + STATO.md + git sul filesystem del repo —
+vedi il docstring di argo/stato.py). worker/loop.py esclude esplicitamente
+i cinque tipi dal proprio claim_job() per questo motivo.
 
 Ad ogni lancio reclama al più un job pending (il più vecchio dei quattro
 tipi, FIFO), stesso idiom atomico di worker/loop.py:claim_job (UPDATE ...
@@ -36,7 +36,13 @@ comportamento non cambia).
 Unico punto che scrive, oltre a `jobs`: per genera_avviso, PRIMA dell'invio
 (mai dopo — stesso ordine "scritto prima dell'invio" del resto del repo),
 marca in `alert_inviati`/`osservazioni.stato` le voci segnalate
-(_marca_avviso_inviato) — così l'avviso non si ripete la sera dopo. argo/voce.py
+(_marca_avviso_inviato) — così l'avviso non si ripete la sera dopo. Per
+genera_impatto, stesso ordine: scrive l'esito sul mandato (_scrivi_esito_mandato)
+PRIMA dell'invio — il mandato è già stato registrato da backend/main.py alla
+ricezione del comando, qui si scrive solo l'esito. Se il job fallisce in modo
+imprevisto (eccezione non gestita da argo/voce.py:genera_impatto), l'esito
+viene comunque scritto come 'fallito: errore interno': il mandato non deve
+mai restare con esito NULL per un job che ha già finito di girare. argo/voce.py
 resta sola lettura (vedi il suo guardrail statico), la scrittura vera vive
 qui, che già scrive su `jobs` per lo stesso motivo (gira da host).
 """
@@ -59,7 +65,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("argo.orienta_webhook")
 
 CONTAINER_DB = "argo-db-1"
-TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso", "genera_brief")
+TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso", "genera_brief", "genera_impatto")
 
 
 def _psql(sql, timeout=15):
@@ -110,6 +116,16 @@ def _segna_failed(job_id, errore):
     _psql(f"UPDATE jobs SET stato='failed', ultimo_errore='{errore_sql}' WHERE id={job_id}")
 
 
+def _scrivi_esito_mandato(mandato_id, esito):
+    """Scrive PRIMA dell'invio, mai dopo — stesso ordine di
+    _marca_avviso_inviato sotto. mandato_id arriva dal payload del job,
+    scritto da backend/main.py all'INSERT del mandato (guardrail AV01, mai
+    un mandato senza origine_msg — qui si scrive solo l'esito, non
+    l'origine)."""
+    esito_sql = esito.replace("'", "''")
+    _psql(f"UPDATE mandati SET esito='{esito_sql}' WHERE id={int(mandato_id)}")
+
+
 def _marca_avviso_inviato(marcatori):
     """Scrive PRIMA dell'invio, mai dopo — chiamata da main() prima di
     notifica(): stesso ordine "scritto prima dell'invio" usato ovunque nel
@@ -129,6 +145,7 @@ ERRORE_RIPETI = {
     "genera_instrada": "riprova con /instrada",
     "genera_avviso": "controllo al prossimo giro",
     "genera_brief": "riprova con /brief <nome cantiere>",
+    "genera_impatto": "riprova con /impatto <componente o file>",
 }
 
 
@@ -138,9 +155,10 @@ def main():
         return
     job_id, tipo, payload = reclamato
 
-    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief
+    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief, genera_impatto
     from connectors.telegram import invia_lungo
 
+    esito_mandato = None
     try:
         if tipo == "genera_orienta":
             testo, marcatori = genera_risposta(), None
@@ -148,11 +166,16 @@ def main():
             testo, marcatori = genera_risposta_instrada(payload["minuti"], payload["contesto"]), None
         elif tipo == "genera_brief":
             testo, marcatori = genera_brief(payload["nome"]), None
+        elif tipo == "genera_impatto":
+            testo, esito_mandato = genera_impatto(payload["componente"])
+            marcatori = None
         else:
             testo, marcatori = genera_avviso()
     except Exception as e:
         logger.exception("orienta_webhook: job %s (%s) fallito", job_id, tipo)
         _segna_failed(job_id, f"{type(e).__name__}: {e}")
+        if tipo == "genera_impatto":
+            _scrivi_esito_mandato(payload["mandato_id"], "fallito: errore interno")
         invia_lungo(
             f"Errore nel generare la risposta — {ERRORE_RIPETI[tipo]}.",
             token=os.environ["ARGO_VOCE_BOT_TOKEN"],
@@ -168,6 +191,8 @@ def main():
 
     if marcatori:
         _marca_avviso_inviato(marcatori)
+    if tipo == "genera_impatto":
+        _scrivi_esito_mandato(payload["mandato_id"], esito_mandato)
 
     invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)

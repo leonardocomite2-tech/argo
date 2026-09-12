@@ -80,18 +80,19 @@ def db_connect():
 def claim_job():
     """Reclama un job pending: SELECT ... FOR UPDATE SKIP LOCKED + transizione a running,
     nella stessa transazione (commit implicito all'uscita del `with conn`).
-    Esclude 'genera_orienta'/'genera_instrada'/'genera_avviso'/'genera_brief': quei
-    tipi li consuma scripts/argo/orienta_webhook.py da host (argo/stato.py deve
-    girare fuori da Docker, vedi il suo docstring) — senza l'esclusione questo loop
-    li reclamerebbe prima, trovando un handler inesistente e marcandoli failed con
-    un ALERT falso a ogni /orienta, /instrada, /brief o avviso serale."""
+    Esclude 'genera_orienta'/'genera_instrada'/'genera_avviso'/'genera_brief'/
+    'genera_impatto': quei tipi li consuma scripts/argo/orienta_webhook.py da
+    host (argo/stato.py deve girare fuori da Docker, vedi il suo docstring) —
+    senza l'esclusione questo loop li reclamerebbe prima, trovando un handler
+    inesistente e marcandoli failed con un ALERT falso a ogni /orienta,
+    /instrada, /brief, /impatto o avviso serale."""
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, tipo, payload FROM jobs
                 WHERE stato = 'pending' AND run_after <= now()
-                  AND tipo NOT IN ('genera_orienta', 'genera_instrada', 'genera_avviso', 'genera_brief')
+                  AND tipo NOT IN ('genera_orienta', 'genera_instrada', 'genera_avviso', 'genera_brief', 'genera_impatto')
                 ORDER BY id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1

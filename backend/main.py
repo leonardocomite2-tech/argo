@@ -414,13 +414,17 @@ def _gestisci_modifica_telegram(message):
 COMANDO_ORIENTA = "/orienta"
 COMANDO_INSTRADA = "/instrada"
 COMANDO_BRIEF = "/brief"
+COMANDO_IMPATTO = "/impatto"
 RISPOSTA_COMANDO_SCONOSCIUTO = (
     f"Comando non riconosciuto. Usa {COMANDO_ORIENTA}, "
-    f"{COMANDO_INSTRADA} <minuti> telefono|computer oppure "
-    f"{COMANDO_BRIEF} <nome cantiere>."
+    f"{COMANDO_INSTRADA} <minuti> telefono|computer, "
+    f"{COMANDO_BRIEF} <nome cantiere> oppure "
+    f"{COMANDO_IMPATTO} <componente o file>."
 )
 RISPOSTA_GIA_IN_CORSO = "Richiesta già in corso, arriva a breve."
 RISPOSTA_BRIEF_SENZA_NOME = "Quale cantiere?"
+RISPOSTA_IMPATTO_SENZA_ARGOMENTO = "Quale componente o file?"
+ESITO_MANDATO_GIA_IN_CORSO = "non eseguito: richiesta già in corso"
 
 
 def _accoda_job_argo(tipo_job, payload, chiave_lock):
@@ -449,15 +453,35 @@ def _accoda_job_argo(tipo_job, payload, chiave_lock):
     return accodato
 
 
+def _registra_mandato(cur, origine_msg, tipo, oggetto):
+    """INSERT INTO mandati, RETURNING id. Unico punto (con l'UPDATE esito di
+    scripts/argo/orienta_webhook.py) che scrive su questa tabella: guardrail
+    AV01 della mappa Panoptes, mai un mandato senza origine_msg (colonna
+    NOT NULL — un INSERT senza fallisce sempre, ma qui lo passiamo sempre
+    valorizzato per costruzione, mai un default silenzioso)."""
+    cur.execute(
+        "INSERT INTO mandati (origine_msg, tipo, oggetto) VALUES (%s, %s, %s) RETURNING id",
+        (origine_msg, tipo, oggetto),
+    )
+    return cur.fetchone()[0]
+
+
 def _gestisci_messaggio_argo(message):
-    """Tre comportamenti, tutti via job + consumer cron host (argo/voce.py non
-    può girare dentro Docker, vedi argo/stato.py): /orienta accoda genera_orienta;
-    /instrada <minuti> telefono|computer accoda genera_instrada se i due parametri
-    sono validi, altrimenti risponde in una riga cosa manca (zero LLM, mai indovina
-    — connectors.telegram.interpreta_instrada); /brief <nome cantiere> accoda
-    genera_brief col nome grezzo digitato — la risoluzione contro '## CANTIERI'
-    (STATO.md, solo host) vive in argo/voce.py:genera_brief, non qui. Qualunque
-    altro testo, o un chat_id diverso da TELEGRAM_CHAT_ID (ignorato in silenzio),
+    """Quattro comportamenti, tutti via job + consumer cron host (argo/voce.py
+    non può girare dentro Docker, vedi argo/stato.py): /orienta accoda
+    genera_orienta; /instrada <minuti> telefono|computer accoda genera_instrada
+    se i due parametri sono validi, altrimenti risponde in una riga cosa manca
+    (zero LLM, mai indovina — connectors.telegram.interpreta_instrada); /brief
+    <nome cantiere> accoda genera_brief col nome grezzo digitato — la
+    risoluzione contro '## CANTIERI' (STATO.md, solo host) vive in
+    argo/voce.py:genera_brief, non qui; /impatto <componente o file> registra
+    un mandato di consultazione (_registra_mandato, origine_msg = testo e
+    message_id di questo messaggio — l'unico modo in cui un mandato è
+    riconducibile alla sua origine, guardrail AV01) e accoda genera_impatto
+    con l'id del mandato nel payload — l'esecuzione di impatti.py e la
+    traduzione dell'LLM vivono in argo/voce.py:genera_impatto, l'esito lo
+    scrive scripts/argo/orienta_webhook.py dopo l'esecuzione. Qualunque altro
+    testo, o un chat_id diverso da TELEGRAM_CHAT_ID (ignorato in silenzio),
     non tocca l'LLM."""
     chat_id = str((message.get("chat") or {}).get("id") or "")
     if chat_id != os.environ.get("TELEGRAM_CHAT_ID"):
@@ -498,6 +522,30 @@ def _gestisci_messaggio_argo(message):
             "genera_brief_enqueue",
         )
         if not accodato:
+            notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+        return
+
+    if comando == COMANDO_IMPATTO:
+        argomento = " ".join(argomenti_comando(testo)).strip()
+        if not argomento:
+            notifica(RISPOSTA_IMPATTO_SENZA_ARGOMENTO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+            return
+        origine_msg = f"Telegram message_id={message.get('message_id')}: {testo}"
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                mandato_id = _registra_mandato(cur, origine_msg, "consultazione", f"impatto: {argomento}")
+        accodato = _accoda_job_argo(
+            "genera_impatto",
+            {"mandato_id": mandato_id, "componente": argomento},
+            "genera_impatto_enqueue",
+        )
+        if not accodato:
+            with db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE mandati SET esito = %s WHERE id = %s",
+                        (ESITO_MANDATO_GIA_IN_CORSO, mandato_id),
+                    )
             notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
         return
 
