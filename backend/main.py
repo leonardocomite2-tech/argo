@@ -12,7 +12,7 @@ from connectors.telegram import (
     rispondi_callback,
     chiedi_testo_corretto,
     normalizza_comando,
-    argomenti_comando,
+    argomenti_comando, e_messaggio_libero,
     interpreta_instrada,
 )
 
@@ -425,6 +425,9 @@ RISPOSTA_GIA_IN_CORSO = "Richiesta già in corso, arriva a breve."
 RISPOSTA_BRIEF_SENZA_NOME = "Quale cantiere?"
 RISPOSTA_IMPATTO_SENZA_ARGOMENTO = "Quale componente o file?"
 ESITO_MANDATO_GIA_IN_CORSO = "non eseguito: richiesta già in corso"
+RISPOSTA_CONVERSAZIONE_IN_CORSO = (
+    "Sto ancora rispondendo al messaggio precedente: riscrivi questo tra un minuto."
+)
 
 
 def _accoda_job_argo(tipo_job, payload, chiave_lock):
@@ -466,6 +469,44 @@ def _registra_mandato(cur, origine_msg, tipo, oggetto):
     return cur.fetchone()[0]
 
 
+def _accoda_conversazione(tg_message_id, testo, origine_msg):
+    """Ramo conversazionale (cantiere Argo — il ponte, passo 4): registra il
+    messaggio libero di Leonardo in conversazione_argo e accoda
+    genera_conversazione, nella stessa transazione e sotto lo stesso lock
+    di _accoda_job_argo. Due guardie: tg_message_id già presente -> redelivery
+    Telegram dello stesso messaggio, niente (claim atomico sulla riga, non
+    una dedup_key: è un messaggio dell'operatore, non un evento di dominio);
+    un genera_conversazione già in volo -> il messaggio NON viene registrato
+    (resterebbe senza risposta nella finestra) e Leonardo è avvisato di
+    riscriverlo. Ritorna "accodato" | "duplicato" | "in_corso"."""
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("genera_conversazione_enqueue",))
+            cur.execute("SELECT 1 FROM conversazione_argo WHERE tg_message_id = %s", (tg_message_id,))
+            if cur.fetchone() is not None:
+                return "duplicato"
+            cur.execute(
+                "SELECT 1 FROM jobs WHERE tipo = 'genera_conversazione' AND stato IN ('pending', 'running')"
+            )
+            if cur.fetchone() is not None:
+                return "in_corso"
+            cur.execute(
+                "INSERT INTO conversazione_argo (ruolo, testo, tg_message_id) "
+                "VALUES ('leonardo', %s, %s) RETURNING id",
+                (testo, tg_message_id),
+            )
+            conversazione_id = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO jobs (tipo, payload) VALUES ('genera_conversazione', %s)",
+                (json.dumps({
+                    "conversazione_id": conversazione_id,
+                    "testo": testo,
+                    "origine_msg": origine_msg,
+                }),),
+            )
+    return "accodato"
+
+
 def _gestisci_messaggio_argo(message):
     """Quattro comportamenti, tutti via job + consumer cron host (argo/voce.py
     non può girare dentro Docker, vedi argo/stato.py): /orienta accoda
@@ -484,9 +525,11 @@ def _gestisci_messaggio_argo(message):
     riconducibile alla sua origine, guardrail AV01) e accoda genera_impatto
     con l'id del mandato nel payload — l'esecuzione di impatti.py e la
     traduzione dell'LLM vivono in argo/voce.py:genera_impatto, l'esito lo
-    scrive scripts/argo/orienta_webhook.py dopo l'esecuzione. Qualunque altro
-    testo, o un chat_id diverso da TELEGRAM_CHAT_ID (ignorato in silenzio),
-    non tocca l'LLM."""
+    scrive scripts/argo/orienta_webhook.py dopo l'esecuzione. Un messaggio
+    libero (non un comando, passo 4 del ponte) va in _accoda_conversazione:
+    la risposta la genera argo/voce.py:genera_conversazione. Un '/qualcosa'
+    sconosciuto riceve l'elenco dei comandi senza LLM; un chat_id diverso da
+    TELEGRAM_CHAT_ID è ignorato in silenzio."""
     chat_id = str((message.get("chat") or {}).get("id") or "")
     if chat_id != os.environ.get("TELEGRAM_CHAT_ID"):
         logger.warning("webhook_argo: messaggio da chat_id non autorizzato, ignorato in silenzio")
@@ -552,6 +595,13 @@ def _gestisci_messaggio_argo(message):
                         (ESITO_MANDATO_GIA_IN_CORSO, mandato_id),
                     )
             notifica(RISPOSTA_GIA_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+        return
+
+    if e_messaggio_libero(testo):
+        origine_msg = f"Telegram message_id={message.get('message_id')}: {testo}"
+        esito = _accoda_conversazione(message.get("message_id"), testo.strip(), origine_msg)
+        if esito == "in_corso":
+            notifica(RISPOSTA_CONVERSAZIONE_IN_CORSO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
         return
 
     notifica(RISPOSTA_COMANDO_SCONOSCIUTO, token=os.environ["ARGO_VOCE_BOT_TOKEN"])

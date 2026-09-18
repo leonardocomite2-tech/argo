@@ -25,12 +25,17 @@ scelto da Leonardo, ma sui file citati nel proprio campo "contesto" (fino a
 LIMITE_FILE_IMPATTI_BRIEF): l'avvertimento risultante è composto in Python
 (_verifica_impatti_brief, mai passato al modello) e finisce nei Vincoli del
 brief solo se almeno un file tocca un componente condiviso o un contratto —
-il silenzio è l'esito normale, come per avvisa.
+il silenzio è l'esito normale, come per avvisa. Dal passo 4 del ponte c'è
+anche il ramo conversazionale (genera_conversazione): un messaggio libero,
+non un comando, riceve una risposta dallo stato reale; l'LLM può chiedere
+UNA consultazione da un insieme chiuso (CONSULTAZIONI_PERMESSE), eseguita
+qui in modo deterministico e in sola lettura, poi risponde col risultato.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
 ritorna anche `marcatori` — cosa andrebbe scritto DOPO un invio riuscito —
-genera_impatto() ritorna `esito` e genera_brief() ritorna
+genera_impatto() ritorna `esito`, genera_conversazione() la consultazione
+eseguita (None se nessuna) e genera_brief() ritorna
 `log_consultazione_impatti` (None se nessuna consultazione è avvenuta),
 stesso principio: chi chiama (scripts/argo/orienta_webhook.py, che gira da
 host e può scrivere) scrive su `alert_inviati`/`osservazioni`/`mandati`,
@@ -835,13 +840,14 @@ def _risolvi_flag_impatti(componente_o_file):
     return "--componente"
 
 
-def _esegui_impatti(flag, valore):
+def _esegui_impatti(*argomenti):
     """Lancia scripts/panoptes/impatti.py in sottoprocesso, mai modificato
     (vincolo del passo 2 del ponte): invocato com'è, nella sua unica
     modalità reale (testo su stdout/stderr, niente --json — non esiste).
-    Ritorna (returncode, stdout, stderr)."""
+    Argomenti passati così come arrivano (il ramo conversazionale usa la
+    forma unica '--flag=valore'). Ritorna (returncode, stdout, stderr)."""
     risultato = subprocess.run(
-        ["python3", str(IMPATTI_SCRIPT), flag, valore],
+        ["python3", str(IMPATTI_SCRIPT), *argomenti],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
@@ -889,3 +895,444 @@ def genera_impatto(componente_o_file):
         raise ImpattoErrore("chiamata LLM fallita") from e
 
     return testo, "riuscito"
+
+
+# --- Ramo conversazionale (cantiere Argo — il ponte, passo 4) ---
+#
+# Un messaggio libero (non un comando) riceve una risposta informata dallo
+# stato reale. Due chiamate LLM al massimo: la prima può chiedere UNA
+# consultazione, scelta da CONSULTAZIONI_PERMESSE (insieme chiuso); il
+# codice la esegue in modo deterministico e richiama l'LLM una seconda volta
+# col risultato. La seconda risposta è testo semplice, mai riletta come
+# richiesta di consultazione: un solo giro per costruzione, non per
+# istruzione. Nessuna consultazione esegue niente: tutte leggono (mappa,
+# STATO.md, DB). Da qui non nasce mai un mandato di esecuzione — chi chiama
+# (scripts/argo/orienta_webhook.py) registra solo mandati di consultazione.
+
+MAX_TOKENS_CONVERSA_PRIMA = 600
+MAX_TOKENS_CONVERSA_SECONDA = 600
+N_SCAMBI_CONVERSAZIONE = 10
+N_OSSERVAZIONI_CONSULTAZIONE = 10
+N_SESSIONI_CONSULTAZIONE = 2
+LIMITE_RISULTATO_CONSULTAZIONE_CARATTERI = 6000
+LIMITE_SCAMBIO_CARATTERI = 1500
+GIORNI_JOB_FALLITI_CONVERSAZIONE = 7
+MAPPA_PATH = REPO_ROOT / "knowledge" / "mappa_sistema.yaml"
+SCHEMA_SQL_PATH = REPO_ROOT / "db" / "schema.sql"
+
+CONSULTAZIONI_PERMESSE = {
+    "impatti_file": "impatti.py --file su un percorso del repo (anche percorso:riga): cosa dipende da quel file",
+    "impatti_componente": "impatti.py --componente su un componente condiviso o una pipeline della mappa: pipeline e contratti in gioco",
+    "impatti_tabella": "impatti.py --tabella su una tabella del DB: chi la scrive, chi la legge, contratti in gioco",
+    "contratti_pipeline": "i contratti di una pipeline della mappa (impatti.py --componente sul nome della pipeline)",
+    "stato_cantiere": "riga del cantiere in STATO.md più le sue ultime sessioni",
+    "osservazioni_recenti": "le ultime osservazioni depositate in osservazioni, in qualunque stato (argomento vuoto)",
+}
+
+TESTO_TETTO_CONVERSAZIONE = (
+    "Ho raggiunto il tetto giornaliero di chiamate LLM: fino a domani non "
+    "posso rispondere ai messaggi liberi."
+)
+TESTO_NON_SO = "Non lo so: nei dati che vedo non c'è niente che risponda a questo."
+MARCATORE_TRONCAMENTO_CONVERSAZIONE = "[RISPOSTA TRONCATA — max_tokens raggiunto]"
+
+ISTRUZIONI_CONVERSA_BASE = """
+## Modo "conversazione" — regole per ogni risposta
+
+Leonardo ti ha scritto un messaggio libero, non un comando. Rispondi seguendo
+queste regole, senza eccezioni:
+
+- Rispondi SOLO con fatti presenti nei dati qui sotto (stato del sistema,
+  risultato della consultazione se c'è). Se la risposta non è nei dati,
+  dillo in una frase ("non lo so", "non lo vedo nei dati che ho") e fermati:
+  mai una ricostruzione plausibile, mai conoscenza generale spacciata per
+  stato del sistema.
+- SOUL, IDENTITY e USER qui sopra descrivono chi sei e come parli, NON lo
+  stato del sistema: non usarli mai come fonte per rispondere su codice,
+  componenti, rischi, cantieri o dati. La fonte sono solo i dati JSON qui
+  sotto.
+- Gli scambi precedenti servono SOLO a capire a cosa si riferisce il
+  messaggio. Non sono una fonte di fatti: le tue risposte passate possono
+  essere vecchie o sbagliate, i fatti si prendono dallo stato qui sotto.
+- Conclusione prima, dettagli dopo: la prima riga è la risposta in una
+  frase, poi al massimo tre righe brevi di dettaglio, una per fatto, ognuna
+  su una riga separata. Mai un elenco di tutto
+  lo stato: se la domanda è generale ("come stiamo?"), la conclusione è il
+  quadro in una frase e i dettagli sono solo le cose che aspettano Leonardo
+  adesso.
+- Dai del tu.
+- Niente domande di rilancio: la risposta finisce con l'ultimo fatto utile,
+  mai con una domanda, niente "vuoi che...", niente offerte di passi
+  successivi.
+- Date, hash, numeri, nomi di file, ID, nomi di pipeline e contratti:
+  riportali SOLO se compaiono alla lettera nei dati, copiati senza
+  modifiche. Mai calcolare durate o date relative ("ieri", "da 15 giorni",
+  "3 settimane fa"), nemmeno partendo dal campo "oggi" o da campi numerici
+  come ore_ferma o ultimo_commit_giorni_fa: se una data serve, copia il
+  giorno com'è nel campo del fatto stesso (es. piu_recente 2026-08-29 si
+  scrive "ultimo il 2026-08-29"). Se un dettaglio non c'è, ometti la frase.
+- Non attribuire a un record un tipo, una categoria, un canale o una causa
+  che non è scritta nei suoi campi (es. un'approvazione è "un'approvazione
+  in attesa" con il suo oggetto e mittente, non "un'approvazione su poster"
+  se nessun campo lo dice). Per un cantiere, di' su cosa aspetta usando le
+  parole della sua riga, non una tua sintesi.
+- Se rispondi "non lo so", fermati lì: non elencare cosa vedi o quali
+  tabelle leggi.
+- Se una fonte ha copertura "parziale" o "assente", dichiaralo invece di
+  riempire il buco.
+- Non esegui niente e non prometti di farlo: da una conversazione puoi solo
+  leggere e consultare. Se Leonardo ti chiede di fare, modificare o lanciare
+  qualcosa, rispondi che da qui non esegui nulla.
+- Se Leonardo ti chiede cosa fare invece di deciderlo, puoi dire cosa
+  mostrano i dati, ma segnala che la decisione è sua.
+- Testo semplice, senza markdown in nessuna forma: niente asterischi,
+  niente backtick, niente cancelletti, niente elenchi puntati con simboli —
+  Telegram lo mostra letterale. Nomi di file e comandi senza backtick.
+- Niente incoraggiamenti, niente riassunti di ciò che è stato fatto,
+  niente percentuali di completamento.
+""".strip()
+
+ISTRUZIONI_CONVERSA_PRIMA = ISTRUZIONI_CONVERSA_BASE + """
+
+## Formato della risposta (obbligatorio)
+
+Rispondi SOLO con un oggetto JSON, senza testo attorno. Decidi PRIMA se ti
+serve una consultazione:
+{"consultazione": null, "risposta": "..."}
+oppure, se ti serve:
+{"consultazione": {"tipo": "...", "argomento": "..."}, "risposta": ""}
+
+Puoi chiedere AL MASSIMO UNA consultazione. Dopo la consultazione
+risponderai con quello che hai: non ce ne sarà una seconda.
+Consultazione OBBLIGATORIA quando il messaggio chiede cosa si rischia, cosa
+si rompe, cosa dipende o cosa è collegato toccando un file, un componente,
+una pipeline o una tabella, o quali contratti valgono: i dati qui sotto NON
+contengono la mappa del sistema, quindi senza consultazione non hai i fatti
+per rispondere. Idem per i dettagli di un cantiere oltre la sua riga in
+cantieri_aperti (stato_cantiere) e per le osservazioni già riferite o
+archiviate (osservazioni_recenti). Negli altri casi non consultare: se
+nessuna consultazione permessa può contenere la risposta (es. metriche,
+dati esterni, fatti che non stanno né nella mappa né in STATO.md né nelle
+osservazioni), rispondi direttamente che non lo sai.
+"tipo" deve essere esattamente uno di questi (nessun altro è permesso):
+{elenco_consultazioni}
+"argomento": per impatti_componente/contratti_pipeline un nome dal campo
+"vocabolario_mappa" qui sotto (componenti condivisi o pipeline, copiato alla
+lettera); per impatti_tabella un nome da "vocabolario_mappa.tabelle"; per
+impatti_file un percorso del repo; per stato_cantiere il nome (o parte del
+nome) di un cantiere da cantieri_aperti; per osservazioni_recenti "".
+Se il messaggio parla di un componente con parole sue (es. "il gate di
+approvazione Telegram"), scegli il nome del vocabolario che gli corrisponde
+chiaramente; se nessuno corrisponde chiaramente, non consultare e di' che
+non lo trovi nella mappa.
+""".rstrip()
+
+ISTRUZIONI_CONVERSA_SECONDA = ISTRUZIONI_CONVERSA_BASE + """
+
+## Consultazione già eseguita
+
+Nei dati trovi SOLO la consultazione che hai chiesto e il suo risultato
+grezzo, prodotto dal codice (non da te): è l'unica fonte per questa
+risposta. Se il risultato è un errore o è vuoto,
+dillo — non riempire il vuoto. Non ci sono altre consultazioni possibili:
+rispondi ora, in testo semplice (non JSON).
+
+Se la consultazione è di impatti (impatti_file, impatti_componente,
+impatti_tabella, contratti_pipeline): la prima riga dice quali pipeline sono
+in gioco, poi gli ID dei contratti in gioco con una frase ciascuno presa dal
+loro enunciato nel risultato — il rischio è che quei contratti smettano di
+valere. Se un contratto dice che la modifica tocca la guardia stessa, o
+descrive una catena in cui questo componente è un anello, mettilo per primo.
+Mai uno scenario di guasto, un contratto o un collegamento che il risultato
+non scrive, nemmeno se sembra plausibile. Niente raccomandazioni ("prima di
+toccare serve...") e niente valutazioni tue su quanto il rischio è concreto
+o su cosa è stato controllato: le note storiche del risultato (range
+spostati, date di aggiornamento della mappa) non sono rischi, non citarle. Un contratto con "garantito_da:
+nessuno" va detto così, senza commentarlo.
+""".rstrip()
+
+
+class ConversazioneErrore(Exception):
+    """Errore rumoroso del ramo conversazionale: JSON non valido dalla prima
+    chiamata o chiamata LLM fallita. Motivo sempre categorico, mai il testo
+    grezzo del modello (stesso stile di BriefErrore)."""
+
+
+def _vocabolario_mappa():
+    """Nomi validi per le consultazioni, letti dalla mappa e da db/schema.sql
+    — mai hardcoded, così un componente nuovo nella mappa è consultabile
+    senza toccare questo file. Copertura dichiarata se la lettura fallisce."""
+    try:
+        import yaml
+        mappa = yaml.safe_load(MAPPA_PATH.read_text(encoding="utf-8")) or {}
+        tabelle = sorted(set(
+            m.group(1).lower() for m in re.finditer(
+                r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+(\w+)",
+                SCHEMA_SQL_PATH.read_text(encoding="utf-8"), re.IGNORECASE,
+            )
+        ))
+    except Exception as e:
+        return {"copertura": "assente", "motivo": f"mappa o schema non leggibili ({type(e).__name__})",
+                "pipeline": [], "condivisi": [], "tabelle": []}
+    return {
+        "copertura": "completa",
+        "motivo": None,
+        "pipeline": [p["nome"] for p in mappa.get("pipeline") or []],
+        "condivisi": [c["nome"] for c in mappa.get("condivisi") or []],
+        "tabelle": tabelle,
+    }
+
+
+def _interpreta_prima_risposta(grezzo):
+    """Pura: valida il JSON della prima chiamata. Ritorna (risposta,
+    consultazione) — consultazione è None oppure {"tipo", "argomento"} con
+    tipo DENTRO CONSULTAZIONI_PERMESSE. Un tipo fuori dall'insieme chiuso
+    non viene mai eseguito: è trattato come nessuna consultazione (il
+    chiamante risponde allora con TESTO_NON_SO se la risposta è vuota).
+    Solleva ConversazioneErrore se il JSON non è valido."""
+    try:
+        risultato = json.loads(estrai_json(grezzo))
+    except Exception:
+        raise ConversazioneErrore("JSON non valido nella prima risposta") from None
+    if not isinstance(risultato, dict):
+        raise ConversazioneErrore("JSON della prima risposta non è un oggetto")
+
+    risposta = risultato.get("risposta")
+    risposta = risposta.strip() if isinstance(risposta, str) else ""
+
+    richiesta = risultato.get("consultazione")
+    if not isinstance(richiesta, dict):
+        return risposta, None
+    tipo = richiesta.get("tipo")
+    argomento = richiesta.get("argomento")
+    if tipo not in CONSULTAZIONI_PERMESSE:
+        return risposta, None
+    argomento = argomento.strip() if isinstance(argomento, str) else ""
+    return risposta, {"tipo": tipo, "argomento": argomento}
+
+
+def _argomento_sicuro(argomento):
+    """Un argomento per impatti.py non può uscire dal repo né sembrare un
+    flag: niente percorsi assoluti, niente '..', niente '-' iniziale. Il
+    flag viene comunque passato come '--flag=valore' (argparse non lo
+    rilegge come opzione), questa è una seconda cintura."""
+    return bool(argomento) and not argomento.startswith(("/", "-")) and ".." not in argomento
+
+
+def _consulta_impatti(flag, argomento):
+    """Ritorna (risultato_testo, esito). Errore vero di impatti.py
+    (returncode != 0) rilanciato com'è, come in genera_impatto."""
+    if not _argomento_sicuro(argomento):
+        return "argomento non valido per impatti.py (vuoto, assoluto, con '..' o che inizia con '-')", "non eseguita: argomento non valido"
+    returncode, stdout, stderr = _esegui_impatti(f"{flag}={argomento}")
+    if returncode != 0:
+        messaggio = (stderr or stdout).strip() or "impatti.py non ha prodotto nessun messaggio"
+        return (
+            _tronca(messaggio, LIMITE_RISULTATO_CONSULTAZIONE_CARATTERI, fonte="impatti.py"),
+            "fallito: " + _tronca(messaggio, LIMITE_ERRORE_IMPATTI_CARATTERI, fonte="impatti.py").splitlines()[0],
+        )
+    return _tronca(stdout.strip(), LIMITE_RISULTATO_CONSULTAZIONE_CARATTERI, fonte="impatti.py"), "riuscito"
+
+
+def _consulta_stato_cantiere(argomento):
+    stato_cantieri = stato.cantieri_aperti()
+    if stato_cantieri["copertura"] != "completa":
+        return f"blocco CANTIERI di STATO.md non affidabile: {stato_cantieri['motivo']}", "fallito: CANTIERI non affidabile"
+    cantieri = stato_cantieri["cantieri"]
+    trovati = _risolvi_cantiere(argomento, cantieri)
+    nomi_validi = ", ".join(c["nome"] for c in cantieri)
+    if not trovati:
+        return f'nessun cantiere corrisponde a "{argomento}". Cantieri validi: {nomi_validi}', "fallito: cantiere non trovato"
+    if len(trovati) > 1:
+        ambigui = ", ".join(c["nome"] for c in trovati)
+        return f'"{argomento}" è ambiguo ({ambigui}). Cantieri validi: {nomi_validi}', "fallito: cantiere ambiguo"
+    cantiere = trovati[0]
+    sessioni = stato.sessioni_cantiere(cantiere["nome"], n=N_SESSIONI_CONSULTAZIONE)
+    dati = {
+        "cantiere": cantiere,
+        "sessioni_recenti": [
+            {"titolo": s["titolo"], "testo": _tronca(s["testo"], LIMITE_SESSIONI_CANTIERE_CARATTERI)}
+            for s in sessioni["sezioni"]
+        ],
+    }
+    return json.dumps(dati, default=str, ensure_ascii=False), "riuscito"
+
+
+def _consulta_osservazioni():
+    risultato = stato.osservazioni_recenti(N_OSSERVAZIONI_CONSULTAZIONE)
+    if risultato["copertura"] == "assente":
+        return f"lettura di osservazioni fallita: {risultato['motivo']}", "fallito: lettura DB"
+    return _tronca(
+        json.dumps(risultato, default=str, ensure_ascii=False),
+        LIMITE_RISULTATO_CONSULTAZIONE_CARATTERI, fonte="osservazioni",
+    ), "riuscito"
+
+
+def _esegui_consultazione(tipo, argomento, vocabolario):
+    """Deterministico, zero LLM, sola lettura. `tipo` è già garantito dentro
+    CONSULTAZIONI_PERMESSE da _interpreta_prima_risposta; il ramo finale
+    solleva comunque, per non eseguire mai un tipo sconosciuto se qualcuno
+    chiamasse questa funzione direttamente. Ritorna (risultato_testo, esito)."""
+    if tipo == "impatti_file":
+        return _consulta_impatti("--file", argomento)
+    if tipo == "impatti_componente":
+        return _consulta_impatti("--componente", argomento)
+    if tipo == "impatti_tabella":
+        return _consulta_impatti("--tabella", argomento)
+    if tipo == "contratti_pipeline":
+        if argomento not in vocabolario.get("pipeline", []):
+            validi = ", ".join(vocabolario.get("pipeline", []))
+            return f'"{argomento}" non è una pipeline della mappa. Pipeline valide: {validi}', "fallito: pipeline inesistente"
+        return _consulta_impatti("--componente", argomento)
+    if tipo == "stato_cantiere":
+        return _consulta_stato_cantiere(argomento)
+    if tipo == "osservazioni_recenti":
+        return _consulta_osservazioni()
+    raise ValueError(f"consultazione non permessa: {tipo}")
+
+
+def _senza_campi_derivati(stato_dict):
+    """Copia dello stato senza i campi numerici derivati (ore_ferma delle
+    approvazioni, ultimo_commit_giorni_fa di git): nel collaudo del 18/9 il
+    modello li trasformava in durate ("da 15 giorni", "5 giorni fa") invece
+    di copiare le date, contro la regola anti-invenzione. Le date vere
+    (updated_at, data del commit) restano. Lavora su una copia, come
+    _stato_per_prompt: raccogli_stato() resta fedele e completo."""
+    copia = copy.deepcopy(stato_dict)
+    for riga in (copia.get("approvazioni_in_attesa") or {}).get("righe") or []:
+        riga.pop("ore_ferma", None)
+    (copia.get("attivita_git") or {}).pop("ultimo_commit_giorni_fa", None)
+
+    # job_falliti è lo storico di sempre: nel collaudo il modello presentava
+    # i 109 fallimenti di digest_serale del 28-29/08 (bug già risolto) come
+    # "in corso da ieri". Qui restano solo i tipi con un fallimento negli
+    # ultimi GIORNI_JOB_FALLITI_CONVERSAZIONE giorni; gli altri sono contati
+    # e dichiarati, non nascosti.
+    job = copia.get("job_falliti") or {}
+    oggi = copia.get("oggi")
+    if job.get("falliti") and oggi:
+        soglia = datetime.fromisoformat(oggi).toordinal() - GIORNI_JOB_FALLITI_CONVERSAZIONE
+        recenti, omessi = [], 0
+        for riga in job["falliti"]:
+            giorno = str(riga.get("piu_recente") or "")[:10]
+            try:
+                recente = datetime.fromisoformat(giorno).toordinal() >= soglia
+            except ValueError:
+                recente = True  # data illeggibile: meglio mostrarlo che nasconderlo
+            if recente:
+                recenti.append(riga)
+            else:
+                omessi += 1
+        job["falliti"] = recenti
+        if omessi:
+            job["falliti_piu_vecchi_omessi"] = (
+                f"{omessi} gruppi di job falliti con ultimo fallimento più vecchio di "
+                f"{GIORNI_JOB_FALLITI_CONVERSAZIONE} giorni, omessi da questa vista: "
+                "sono storico, non problemi in corso"
+            )
+
+    # Cantieri non chiusi raggruppati per la colonna "Aspetta" della tabella
+    # CANTIERI: nel collaudo il modello metteva tra "in attesa di te" cantieri
+    # che aspettano il calendario. Il raggruppamento è deterministico, le
+    # righe complete restano in cantieri_aperti.cantieri.
+    cantieri = (copia.get("cantieri_aperti") or {}).get("cantieri")
+    if cantieri:
+        per_attesa = {}
+        for c in cantieri:
+            if c["stato"].lower() == "chiuso":
+                continue
+            per_attesa.setdefault(c["aspetta"], []).append(c["nome"])
+        copia["cantieri_aperti"]["cantieri_non_chiusi_per_chi_aspettano"] = per_attesa
+    return copia
+
+
+def _togli_rilancio(testo):
+    """Deterministico: toglie le righe finali che finiscono con '?'. La
+    regola "niente domande di rilancio" è anche nel prompt, ma nel collaudo
+    del 18/9 il modello ha chiuso comunque con "Cosa specifico vuoi
+    toccare?" — qui è garantita dal codice. Se il testo fosse fatto solo di
+    domande, resta com'è (meglio una domanda che un messaggio vuoto)."""
+    righe = testo.rstrip().splitlines()
+    while righe and righe[-1].strip().endswith("?") and len(righe) > 1:
+        righe.pop()
+        while righe and not righe[-1].strip():
+            righe.pop()
+    return "\n".join(righe).strip() if righe else testo
+
+
+def _prompt_conversazione(storico, messaggio):
+    """Pura: il messaggio utente per le due chiamate — gli ultimi scambi
+    (dal più vecchio, con data) più il messaggio attuale di Leonardo."""
+    righe = []
+    for r in storico:
+        chi = "Leonardo" if r.get("ruolo") == "leonardo" else "Argo"
+        righe.append(f"[{r.get('created_at')}] {chi}: {_tronca(r.get('testo') or '', LIMITE_SCAMBIO_CARATTERI, fonte='conversazione_argo')}")
+    blocco = "\n".join(righe) if righe else "(nessuno)"
+    return (
+        f"Scambi precedenti (solo per capire il riferimento, non come fonte di fatti):\n{blocco}\n\n"
+        f"Messaggio attuale di Leonardo:\n{messaggio}"
+    )
+
+
+def genera_conversazione(conversazione_id, messaggio):
+    """Ramo conversazionale. Ritorna (testo, consultazione): consultazione è
+    None se nessuna consultazione è stata eseguita, altrimenti
+    {"oggetto", "esito"} da registrare come mandato di CONSULTAZIONE da chi
+    chiama (questo modulo resta sola lettura). Il tetto giornaliero del
+    gateway (connectors/llm.py) non viene mai taciuto: se scatta, alla prima
+    o alla seconda chiamata, il testo ritornato lo dice
+    (TESTO_TETTO_CONVERSAZIONE) — e una consultazione già eseguita resta
+    registrata."""
+    storico = stato.conversazione_recente(conversazione_id, N_SCAMBI_CONVERSAZIONE)
+    vocabolario = _vocabolario_mappa()
+    stato_dict = _senza_campi_derivati(raccogli_stato())
+    stato_dict["vocabolario_mappa"] = vocabolario
+    if storico["copertura"] == "assente":
+        stato_dict["conversazione_precedente"] = {"copertura": "assente", "motivo": storico["motivo"]}
+    prompt = _prompt_conversazione(storico["righe"], messaggio)
+
+    elenco = "\n".join(f'- "{k}": {v}' for k, v in CONSULTAZIONI_PERMESSE.items())
+    system = costruisci_system_prompt(
+        stato_dict, ISTRUZIONI_CONVERSA_PRIMA.replace("{elenco_consultazioni}", elenco)
+    )
+    try:
+        grezzo = chiama(system, prompt, max_tokens=MAX_TOKENS_CONVERSA_PRIMA, temperature=0.0)
+    except TettoLLMRaggiunto:
+        return TESTO_TETTO_CONVERSAZIONE, None
+    except LLMErrore as e:
+        raise ConversazioneErrore("chiamata LLM fallita") from e
+
+    risposta, richiesta = _interpreta_prima_risposta(grezzo)
+    if richiesta is None:
+        return (_togli_rilancio(risposta) if risposta else TESTO_NON_SO), None
+
+    risultato, esito = _esegui_consultazione(richiesta["tipo"], richiesta["argomento"], vocabolario)
+    consultazione = {
+        "oggetto": f"conversazione: {richiesta['tipo']} {richiesta['argomento']}".strip(),
+        "esito": esito,
+    }
+
+    # Contesto stretto: solo la consultazione, non tutto lo stato. Con lo
+    # stato intero (~10k token) il modello mescolava fatti della mappa e
+    # del resto del sistema in ricostruzioni plausibili (collaudo 18/9);
+    # stesso schema di genera_impatto, già collaudato come fedele.
+    dati_consultazione = {
+        "oggi": stato_dict.get("oggi"),
+        "consultazione": {
+            "tipo": richiesta["tipo"],
+            "argomento": richiesta["argomento"],
+            "esito": esito,
+            "risultato": risultato,
+        },
+    }
+    system2 = costruisci_system_prompt(dati_consultazione, ISTRUZIONI_CONVERSA_SECONDA)
+    try:
+        testo = chiama(
+            system2, prompt, max_tokens=MAX_TOKENS_CONVERSA_SECONDA, temperature=0.0,
+            marcatore_se_troncato=MARCATORE_TRONCAMENTO_CONVERSAZIONE,
+        )
+    except TettoLLMRaggiunto:
+        return TESTO_TETTO_CONVERSAZIONE, consultazione
+    except LLMErrore as e:
+        raise ConversazioneErrore("chiamata LLM fallita") from e
+    return (_togli_rilancio(testo) or TESTO_NON_SO), consultazione

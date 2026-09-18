@@ -16,7 +16,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-12 — passo 3: fix troncamento /impatto (MAX_TOKENS_IMPATTO=700 + marcatore esplicito su chiama()) e /brief consapevole degli impatti (impatti.py sui file citati nel contesto, avvertimento composto in Python nei Vincoli, un mandato di consultazione per brief); collaudato a mano su tre file reali, mai da Telegram; resta a Leonardo il deploy e il collaudo reale di entrambi i comandi |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4: ramo conversazionale (messaggio libero → risposta dallo stato reale, una consultazione da un insieme chiuso di sei, solo mandati di consultazione); collaudato da host con LLM vero sulle tre prove del done-when, mai da Telegram; resta a Leonardo il deploy, il collaudo reale e due decisioni aperte (tetto LLM inerte sul consumer host, avviso che gira ogni minuto) |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -687,6 +687,29 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   sopra e dettagli nella sessione sotto. **Resta da fare**: Leonardo
   reincolla i blocchi corretti sulla pagina di prova, poi si ripete
   pavimento + anti-finestra-morta sull'anteprima reale (non solo locale).
+
+- **Tetto LLM inerte sul consumer host di Argo (trovato il 18/9/2026, passo 4
+  del ponte).** `connectors/llm.py:_contatore` è in memoria nel processo, e
+  `scripts/argo/orienta_webhook.py` è un processo nuovo a ogni minuto
+  (cron): il contatore riparte da 0 a ogni job, quindi per orienta/
+  instrada/brief/impatto/conversazione `LLM_TETTO_GIORNALIERO` non scatta
+  mai in pratica. Il ramo conversazionale passa comunque dal gateway e, se
+  il tetto scatta, lo dice (testato con chiama finta); ma è il primo ramo in
+  cui Leonardo può generare chiamate scrivendo testo libero (fino a 2 per
+  messaggio, un messaggio in volo alla volta). Non risolto: servirebbe un
+  contatore persistente (tabella o file), fuori dal perimetro dichiarato del
+  passo 4 ("nessuna modifica di schema oltre la finestra di conversazione").
+  Decisione di Leonardo.
+- **`orienta_webhook.py:_reclama_job` ignora `run_after` (trovato il 18/9/2026,
+  preesistente dal passo 8 di Argo — la voce).** Il `genera_avviso`
+  programmato per le 22:15 viene reclamato subito dopo la creazione: ~1.400
+  esecuzioni al giorno dall'11/9 (contate in `jobs`), ognuna con cinque
+  letture via docker exec; quasi sempre silenzio (anti-ripetizione), ma un
+  candidato nuovo verrebbe avvisato entro un minuto invece che alle 22:15, e
+  il job pending con `run_after` futuro sta sempre in testa alla FIFO
+  (fino a un minuto di ritardo in più sui comandi). Fix probabile di una
+  riga (`AND run_after <= now()` nella SELECT del claim), non applicato:
+  tocca il modo avvisa, cantiere Argo — la voce in validazione, non questo.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -2698,4 +2721,101 @@ o ometterlo (nuovo contratto AV07 nella mappa).
   condivisi, es. designer) e di `/impatto` su un componente con molti
   contratti (verificare che non si tronchi più) — criterio di chiusura del
   brief: incollare qui il brief generato e le righe nuove di `mandati`.
+
+## Sessione 2026-09-18 — Cantiere Argo — il ponte, passo 4: il ramo conversazionale
+
+Argo rispondeva solo ai comandi; un messaggio libero produceva l'elenco dei
+comandi. Ora un messaggio che non inizia con `/` riceve una risposta
+conversazionale informata dallo stato reale. I cinque comandi restano
+identici: il ramo nuovo è solo l'else (un `/qualcosa` sconosciuto riceve
+ancora l'elenco dei comandi, zero LLM).
+
+- **Il ramo.** `connectors/telegram.py:e_messaggio_libero` (pura, testata)
+  decide se è conversazione. `backend/main.py:_accoda_conversazione`
+  registra il messaggio di Leonardo nella nuova tabella `conversazione_argo`
+  e accoda `genera_conversazione` in una transazione sola, sotto lock
+  advisory: `tg_message_id UNIQUE` è il claim contro la redelivery Telegram
+  (messaggio dell'operatore, non evento di dominio: niente `events`, niente
+  `dedup_key`, come da CLAUDE.md); un solo job in volo, e se ce n'è già uno
+  il messaggio non viene registrato e Leonardo riceve "riscrivi tra un
+  minuto" (altrimenti resterebbe nella finestra senza risposta). Consumer:
+  `scripts/argo/orienta_webhook.py`, stesso cron; esclusione aggiunta in
+  `worker/loop.py:claim_job`.
+- **La finestra.** Ultimi 10 scambi da `conversazione_argo`
+  (`argo/stato.py:conversazione_recente`), non in memoria: il consumer è un
+  processo nuovo ogni minuto. La risposta di Argo entra in tabella PRIMA
+  dell'invio. Nel prompt gli scambi servono solo a capire il riferimento,
+  non come fonte di fatti.
+- **La consultazione.** Prima chiamata in JSON forzato:
+  `{"consultazione": null | {"tipo", "argomento"}, "risposta"}`. Insieme
+  chiuso `CONSULTAZIONI_PERMESSE` (sei tipi, tutti sola lettura):
+  `impatti_file`, `impatti_componente`, `impatti_tabella` (impatti.py),
+  `contratti_pipeline` (impatti.py --componente, solo su nomi di pipeline),
+  `stato_cantiere` (riga CANTIERI + ultime 2 sessioni, stessa risoluzione
+  senza indovinare di /brief), `osservazioni_recenti` (nuovo
+  `argo/stato.py:osservazioni_recenti`, ultime 10 in qualunque stato). Un
+  tipo fuori dall'insieme non viene mai eseguito. Il vocabolario (pipeline,
+  condivisi, tabelle) è letto dalla mappa e da `db/schema.sql`, non
+  hardcoded. Argomenti verso impatti.py come `--flag=valore`, rifiutati se
+  assoluti, con `..` o con `-` iniziale. La seconda chiamata riceve SOLO il
+  risultato della consultazione (contesto stretto, come /impatto) e la sua
+  risposta è testo, mai riletta: un giro solo per costruzione.
+- **Guardie spostate dal prompt al codice, dopo il collaudo.** Tre giri
+  di collaudo reale hanno mostrato che più regole nel prompt (~10k token di
+  stato) non bastavano a Haiku. Quattro correzioni deterministiche su una
+  copia dello stato (`_senza_campi_derivati`, `raccogli_stato()` resta
+  intatto): tolti `ore_ferma`/`ultimo_commit_giorni_fa` (il modello li
+  trasformava in durate); `job_falliti` limitato agli ultimi 7 giorni con i
+  gruppi più vecchi contati e dichiarati (presentava i 109 fallimenti di
+  digest_serale del 28-29/08 come "in corso da ieri"); cantieri non chiusi
+  raggruppati per "Aspetta" (metteva tra "in attesa di te" cantieri che
+  aspettano il calendario); `_togli_rilancio` toglie una domanda finale
+  (aveva chiuso con "Cosa specifico vuoi toccare?"). Seconda chiamata a
+  contesto stretto: con lo stato intero mescolava la mappa con altro e
+  inventava collegamenti (DM01 attribuito al gate).
+- **Guardrail centrale invariato.** Ogni consultazione eseguita diventa un
+  mandato con `tipo='consultazione'` scritto in chiaro
+  (`_registra_mandato_conversazione`, mai dal payload o dall'LLM) e
+  `origine_msg` = messaggio Telegram di Leonardo. Nessun percorso scrive
+  `'esecuzione'`: guardrail statico nei test su voce.py, orienta_webhook.py
+  e backend/main.py. Il prompt dice che da conversazione non esegue nulla.
+- **Costi.** Due chiamate al massimo per messaggio (~9.5k + ~5k token in
+  ingresso misurati), stesso gateway `chiama()`. `TettoLLMRaggiunto`, alla
+  prima o alla seconda chiamata, diventa `TESTO_TETTO_CONVERSAZIONE`,
+  mandato come risposta; una consultazione già fatta resta registrata.
+  **Ma il tetto non scatta mai sul consumer host**: vedi DECISIONI APERTE.
+- **Collaudo reale da host** (`genera_conversazione` chiamata direttamente,
+  LLM vero, stato vero, zero scritture su DB e zero Telegram: un mandato
+  scritto dal collaudo avrebbe un `origine_msg` non di Leonardo, contro AV01):
+  "come stiamo messi?" → quattro cantieri su Leonardo con il loro motivo, uno
+  sul sistema, due sul calendario, l'approvazione ferma dal 3/9, niente job
+  falliti recenti (due imprecisioni minori nell'ultima riga: accomuna
+  Panoptes e la voce sotto "validazione d'uso" e scrive "fine mese" per la
+  voce). "cosa rischio se tocco il gate di approvazione Telegram?" →
+  consulta da solo `impatti_componente approvazione_telegram`, risponde con
+  la catena a due anelli RE01/DM04 e RE02/DM02 "non garantiti", fedele
+  all'output. "quanti host hanno aperto l'email di benvenuto la settimana
+  scorsa?" → "Non lo so", nessuna consultazione.
+- **Migrazione** `db/migrations/007_conversazione_argo.sql` applicata al DB
+  (additiva, `CREATE TABLE IF NOT EXISTS`), `db/schema.sql` aggiornato.
+- **Mappa Panoptes**: scheda `argo_voce` con `conversazione_argo` in legge/
+  scrive (motivi per le scritture via docker exec), migrazione nel codice,
+  nuovi contratti AV08 (una consultazione da un insieme chiuso, solo
+  mandati di consultazione, `file:riga`) e AV09 (solo fatti presenti, "non
+  lo so", niente rilancio, `eval`). Range spostati: `backend/main.py`
+  argo_voce 414-577→414-627, approvazione_telegram 580-596→630-646 (anche
+  nel testo di RE01), `connectors/telegram.py` telegram_notifica
+  114-156→123-165 e approvazione_telegram 35-254→35-263.
+  `verifica_mappa.py`: 0 divergenze su 14 schede. `impatti.py --diff`:
+  trasversale su 4 pipeline (via `connectors/telegram.py:49-57`, funzione
+  pura nuova dentro il range di approvazione_telegram), zero contratti in
+  gioco.
+- **Verifiche**: suite verde (`test_argo_voce` 226/226, `test_webhook_argo`
+  44/44, `test_panoptes_lib` 35/35 con la tabella nuova, gli altri
+  invariati e verdi). Sub-agent `guardrail-review` sul diff.
+- **Resta a Leonardo**: `docker compose up -d --build` (api e worker:
+  l'esclusione in claim_job deve essere attiva PRIMA del primo messaggio
+  libero, altrimenti il worker Docker reclama il job e lo marca failed);
+  collaudo reale da Telegram delle tre frasi; le due decisioni aperte
+  (tetto inerte sul consumer host, `run_after` ignorato dal consumer).
 

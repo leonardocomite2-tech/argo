@@ -707,6 +707,182 @@ _flag_stato_md = voce._risolvi_flag_impatti("STATO.md")
 caso("_risolvi_flag_impatti: STATO.md esiste come file -> --file", "--file", _flag_stato_md)
 
 
+# --- Ramo conversazionale (cantiere Argo — il ponte, passo 4) ---
+from connectors.llm import TettoLLMRaggiunto as _Tetto  # noqa: E402
+
+caso(
+    "CONSULTAZIONI_PERMESSE: insieme chiuso, esattamente sei tipi di sola lettura",
+    ["contratti_pipeline", "impatti_componente", "impatti_file", "impatti_tabella",
+     "osservazioni_recenti", "stato_cantiere"],
+    sorted(voce.CONSULTAZIONI_PERMESSE),
+)
+
+_r, _c = voce._interpreta_prima_risposta('{"consultazione": null, "risposta": "ciao"}')
+caso("prima risposta senza consultazione -> (risposta, None)", ("ciao", None), (_r, _c))
+_r, _c = voce._interpreta_prima_risposta(
+    '```json\n{"consultazione": {"tipo": "impatti_componente", "argomento": " approvazione_telegram "}, "risposta": ""}\n```'
+)
+caso("prima risposta con consultazione valida (fence tollerato, argomento ripulito)",
+     {"tipo": "impatti_componente", "argomento": "approvazione_telegram"}, _c)
+_r, _c = voce._interpreta_prima_risposta('{"consultazione": {"tipo": "esegui_comando", "argomento": "rm"}, "risposta": ""}')
+caso("tipo fuori dall'insieme chiuso -> mai eseguito, trattato come nessuna consultazione", None, _c)
+_r, _c = voce._interpreta_prima_risposta('{"consultazione": {"tipo": "esecuzione", "argomento": "x"}, "risposta": "no"}')
+caso("tipo 'esecuzione' -> scartato", ("no", None), (_r, _c))
+_r, _c = voce._interpreta_prima_risposta('{"consultazione": "impatti_file", "risposta": "x"}')
+caso("consultazione non oggetto -> scartata", None, _c)
+try:
+    voce._interpreta_prima_risposta("testo libero, non JSON")
+    _sollevata = False
+except voce.ConversazioneErrore:
+    _sollevata = True
+caso("JSON non valido -> ConversazioneErrore", True, _sollevata)
+
+for _arg, _atteso in (("argo/voce.py", True), ("/etc/passwd", False), ("../fuori", False),
+                      ("--diff", False), ("", False), ("approvazione_telegram", True)):
+    caso(f"_argomento_sicuro({_arg!r})", _atteso, voce._argomento_sicuro(_arg))
+
+try:
+    voce._esegui_consultazione("esegui_qualcosa", "x", {})
+    _sollevata = False
+except ValueError:
+    _sollevata = True
+caso("_esegui_consultazione: tipo sconosciuto solleva, mai eseguito", True, _sollevata)
+
+_voc = voce._vocabolario_mappa()
+caso("vocabolario mappa letto", "completa", _voc["copertura"])
+caso("vocabolario mappa: approvazione_telegram tra i condivisi", True, "approvazione_telegram" in _voc["condivisi"])
+caso("vocabolario mappa: argo_voce tra le pipeline", True, "argo_voce" in _voc["pipeline"])
+caso("vocabolario mappa: conversazione_argo tra le tabelle", True, "conversazione_argo" in _voc["tabelle"])
+
+# Invocazioni reali di impatti.py (locale, zero rete)
+_ris, _es = voce._esegui_consultazione("impatti_componente", "approvazione_telegram", _voc)
+caso("consultazione impatti_componente reale -> riuscito", "riuscito", _es)
+caso("consultazione impatti_componente reale -> RE01 nel risultato", True, "RE01" in _ris)
+_ris, _es = voce._esegui_consultazione("impatti_componente", "gate_inesistente", _voc)
+caso("componente inesistente -> esito fallito, messaggio di impatti.py", True,
+     _es.startswith("fallito:") and "nessun componente condiviso o pipeline" in _ris)
+_ris, _es = voce._esegui_consultazione("impatti_file", "--diff", _voc)
+caso("impatti_file con argomento-flag -> non eseguita", "non eseguita: argomento non valido", _es)
+_ris, _es = voce._esegui_consultazione("contratti_pipeline", "approvazione_telegram", _voc)
+caso("contratti_pipeline su un condiviso (non pipeline) -> fallito senza lanciare impatti.py",
+     "fallito: pipeline inesistente", _es)
+_ris, _es = voce._esegui_consultazione("impatti_tabella", "mandati", _voc)
+caso("consultazione impatti_tabella reale su mandati -> riuscito", "riuscito", _es)
+
+# _senza_campi_derivati: toglie i numeri derivati da una copia, non dall'originale
+_orig = {
+    "approvazioni_in_attesa": {"righe": [{"id": 1, "ore_ferma": 353.8, "updated_at": "2026-09-03"}]},
+    "attivita_git": {"ultimo_commit_giorni_fa": 5.2, "commits_recenti": []},
+}
+_copia = voce._senza_campi_derivati(_orig)
+caso("_senza_campi_derivati: ore_ferma tolto dalla copia", False, "ore_ferma" in _copia["approvazioni_in_attesa"]["righe"][0])
+caso("_senza_campi_derivati: updated_at resta", "2026-09-03", _copia["approvazioni_in_attesa"]["righe"][0]["updated_at"])
+caso("_senza_campi_derivati: ultimo_commit_giorni_fa tolto", False, "ultimo_commit_giorni_fa" in _copia["attivita_git"])
+caso("_senza_campi_derivati: originale intatto", 353.8, _orig["approvazioni_in_attesa"]["righe"][0]["ore_ferma"])
+
+# job falliti: solo gli ultimi N giorni, i vecchi contati e dichiarati
+_st = voce._senza_campi_derivati({
+    "oggi": "2026-09-18",
+    "job_falliti": {"falliti": [
+        {"tipo": "digest_serale", "piu_recente": "2026-08-29T21:59:51+00:00"},
+        {"tipo": "recente", "piu_recente": "2026-09-17T10:00:00+00:00"},
+    ]},
+})
+caso("job falliti: resta solo quello recente", ["recente"], [r["tipo"] for r in _st["job_falliti"]["falliti"]])
+caso("job falliti: i vecchi dichiarati, non nascosti", True, _st["job_falliti"]["falliti_piu_vecchi_omessi"].startswith("1 gruppi"))
+
+# cantieri non chiusi raggruppati per "Aspetta", i chiusi esclusi
+_st = voce._senza_campi_derivati({"cantieri_aperti": {"cantieri": [
+    {"nome": "A", "stato": "aperto", "aspetta": "Leonardo"},
+    {"nome": "B", "stato": "in attesa", "aspetta": "calendario"},
+    {"nome": "C", "stato": "chiuso", "aspetta": "—"},
+    {"nome": "D", "stato": "in attesa", "aspetta": "Leonardo"},
+]}})
+caso("cantieri per chi aspettano", {"Leonardo": ["A", "D"], "calendario": ["B"]},
+     _st["cantieri_aperti"]["cantieri_non_chiusi_per_chi_aspettano"])
+
+# niente rilancio, garantito dal codice
+caso("_togli_rilancio: domanda finale tolta", "Fatto uno.\nFatto due.",
+     voce._togli_rilancio("Fatto uno.\nFatto due.\n\nCosa specifico vuoi toccare?"))
+caso("_togli_rilancio: testo senza domanda invariato", "Solo fatti.", voce._togli_rilancio("Solo fatti."))
+caso("_togli_rilancio: domanda nel mezzo resta", "Chi scrive approvals?\nLo scrive il gate.",
+     voce._togli_rilancio("Chi scrive approvals?\nLo scrive il gate."))
+caso("_togli_rilancio: solo una domanda -> resta (mai messaggio vuoto)", "Quale file?", voce._togli_rilancio("Quale file?"))
+
+_p = voce._prompt_conversazione(
+    [{"ruolo": "leonardo", "testo": "come va?", "created_at": "t1"}, {"ruolo": "argo", "testo": "bene", "created_at": "t2"}],
+    "e il gate?",
+)
+caso("_prompt_conversazione: storico in ordine con i ruoli", True, _p.index("Leonardo: come va?") < _p.index("Argo: bene"))
+caso("_prompt_conversazione: messaggio attuale in coda", True, _p.rstrip().endswith("e il gate?"))
+caso("_prompt_conversazione: storico vuoto dichiarato", True, "(nessuno)" in voce._prompt_conversazione([], "x"))
+
+# genera_conversazione con chiama/stato finti: flusso a una e due chiamate, tetto
+_originali = (voce.chiama, voce.raccogli_stato, voce.stato.conversazione_recente, voce._esegui_consultazione)
+voce.raccogli_stato = lambda: {"oggi": "2026-09-18", "MARCATORE_STATO_INTERO": 1}
+voce.stato.conversazione_recente = lambda prima_di_id, n: {"copertura": "completa", "motivo": None, "righe": []}
+_chiamate = []
+
+
+def _chiama_finta(risposte):
+    def f(system, prompt, **kw):
+        _chiamate.append(system)
+        r = risposte[len(_chiamate) - 1]
+        if isinstance(r, Exception):
+            raise r
+        return r
+    return f
+
+
+_eseguite = []
+voce._esegui_consultazione = lambda t, a, v: (_eseguite.append((t, a)) or ("RISULTATO_FINTO", "riuscito"))
+
+_chiamate.clear(); _eseguite.clear()
+voce.chiama = _chiama_finta(['{"consultazione": null, "risposta": "Tutto fermo.\\nVuoi altro?"}'])
+caso("conversazione senza consultazione: una sola chiamata", ("Tutto fermo.", None), voce.genera_conversazione(1, "come va?"))
+caso("conversazione senza consultazione: nessuna consultazione eseguita", [], list(_eseguite))
+
+_chiamate.clear(); _eseguite.clear()
+voce.chiama = _chiama_finta([
+    '{"consultazione": {"tipo": "impatti_componente", "argomento": "approvazione_telegram"}, "risposta": ""}',
+    '{"consultazione": {"tipo": "impatti_file", "argomento": "worker/loop.py"}, "risposta": ""}',
+])
+_t, _c = voce.genera_conversazione(1, "cosa rischio?")
+caso("una consultazione, poi seconda chiamata: esattamente due chiamate", 2, len(_chiamate))
+caso("un solo giro: la seconda risposta non viene mai rieseguita come consultazione", [("impatti_componente", "approvazione_telegram")], list(_eseguite))
+caso("consultazione ritornata per il mandato", {"oggetto": "conversazione: impatti_componente approvazione_telegram", "esito": "riuscito"}, _c)
+caso("risultato della consultazione passato alla seconda chiamata", True, "RISULTATO_FINTO" in _chiamate[1])
+caso("prima chiamata: vede lo stato intero", True, "MARCATORE_STATO_INTERO" in _chiamate[0])
+caso("seconda chiamata: contesto stretto, senza lo stato intero", False, "MARCATORE_STATO_INTERO" in _chiamate[1])
+
+_chiamate.clear(); _eseguite.clear()
+voce.chiama = _chiama_finta([_Tetto("tetto")])
+caso("tetto alla prima chiamata: Argo lo dice, nessuna consultazione", (voce.TESTO_TETTO_CONVERSAZIONE, None), voce.genera_conversazione(1, "x"))
+
+_chiamate.clear(); _eseguite.clear()
+voce.chiama = _chiama_finta(['{"consultazione": {"tipo": "osservazioni_recenti", "argomento": ""}, "risposta": ""}', _Tetto("tetto")])
+_t, _c = voce.genera_conversazione(1, "x")
+caso("tetto alla seconda chiamata: Argo lo dice", voce.TESTO_TETTO_CONVERSAZIONE, _t)
+caso("tetto alla seconda chiamata: la consultazione già fatta resta da registrare", "riuscito", (_c or {}).get("esito"))
+
+_chiamate.clear(); _eseguite.clear()
+voce.chiama = _chiama_finta(['{"consultazione": {"tipo": "cancella_tutto", "argomento": ""}, "risposta": ""}'])
+caso("tipo non permesso e risposta vuota -> 'non lo so' fisso", (voce.TESTO_NON_SO, None), voce.genera_conversazione(1, "x"))
+caso("tipo non permesso: niente eseguito", [], list(_eseguite))
+
+voce.chiama, voce.raccogli_stato, voce.stato.conversazione_recente, voce._esegui_consultazione = _originali
+
+# Guardrail AV01 sul ramo nuovo: nessun punto del codice scrive un mandato di
+# esecuzione — il tipo registrato dalla conversazione è 'consultazione' in chiaro.
+for _rel in ("argo/voce.py", "scripts/argo/orienta_webhook.py", "backend/main.py"):
+    _src = (REPO_ROOT / _rel).read_text(encoding="utf-8")
+    caso(f"{_rel}: nessun letterale SQL 'esecuzione'", False, "'esecuzione'" in _src)
+_src_consumer = (REPO_ROOT / "scripts/argo/orienta_webhook.py").read_text(encoding="utf-8")
+_corpo = _src_consumer.split("def _registra_mandato_conversazione", 1)[1].split("\ndef ", 1)[0]
+caso("_registra_mandato_conversazione scrive tipo 'consultazione' in chiaro", True, "'consultazione'" in _corpo)
+caso("_registra_mandato_conversazione scrive origine_msg", True, "origine_msg" in _corpo)
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:

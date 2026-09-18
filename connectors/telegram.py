@@ -46,6 +46,15 @@ def normalizza_comando(testo):
     return testo.split()[0].split("@", 1)[0]
 
 
+def e_messaggio_libero(testo):
+    """True se `testo` è un messaggio in linguaggio naturale (non vuoto e non
+    un comando, cioè non inizia con '/'). Un '/qualcosa' sconosciuto resta un
+    comando sbagliato, non una conversazione: riceve l'elenco dei comandi
+    come prima. Usata da backend/main.py per il ramo conversazionale di Argo."""
+    comando = normalizza_comando(testo)
+    return comando is not None and not comando.startswith("/")
+
+
 def argomenti_comando(testo):
     """Token successivi al comando (esclude il comando stesso e l'eventuale
     '@NomeBot'). [] se il testo è vuoto/assente o ha solo il comando. Usata da

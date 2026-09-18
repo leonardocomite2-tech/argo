@@ -231,6 +231,48 @@ def osservazioni_nuove():
     return {"copertura": "completa", "motivo": motivo, "righe": righe}
 
 
+def osservazioni_recenti(n=10):
+    """Da `osservazioni`: le ultime `n` in qualunque stato (nuova, riferita,
+    archiviata) — a differenza di osservazioni_nuove(), che vede solo quelle
+    non ancora riferite. Usata dalla consultazione 'osservazioni_recenti'
+    del ramo conversazionale di Argo."""
+    sql = f"""
+        SELECT id, created_at, fonte, severita, contratto_toccato, testo, stato
+        FROM osservazioni
+        ORDER BY id DESC
+        LIMIT {int(n)}
+    """
+    try:
+        righe = _query_db(sql)
+    except ErroreQueryDB as e:
+        return {"copertura": "assente", "motivo": str(e), "righe": []}
+    righe.sort(key=lambda r: r["id"])
+    motivo = None
+    if not righe:
+        motivo = "zero righe: la tabella osservazioni è vuota (nessuna pipeline ci scrive ancora)."
+    return {"copertura": "completa", "motivo": motivo, "righe": righe}
+
+
+def conversazione_recente(prima_di_id, n=10):
+    """Da `conversazione_argo`: gli ultimi `n` scambi (Leonardo e Argo)
+    precedenti al messaggio `prima_di_id`, dal più vecchio al più recente.
+    È la finestra breve del ramo conversazionale: sta in tabella e non in
+    memoria perché il consumer host è un processo nuovo a ogni giro."""
+    sql = f"""
+        SELECT id, created_at, ruolo, testo
+        FROM conversazione_argo
+        WHERE id < {int(prima_di_id)}
+        ORDER BY id DESC
+        LIMIT {int(n)}
+    """
+    try:
+        righe = _query_db(sql)
+    except ErroreQueryDB as e:
+        return {"copertura": "assente", "motivo": str(e), "righe": []}
+    righe.sort(key=lambda r: r["id"])
+    return {"copertura": "completa", "motivo": None, "righe": righe}
+
+
 def job_falliti_recenti(ore=24):
     """Da `jobs`: falliti nelle ultime `ore`, aggregati per (tipo,
     ultimo_errore) come job_falliti(), ma con finestra temporale — quella

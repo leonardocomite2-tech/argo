@@ -113,7 +113,7 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-386,580-596 — range spostato più volte dall'inserimento di comandi argo_voce in mezzo, aggiornato al passo 3 del ponte). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
+        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-386,630-646 — range spostato più volte dall'inserimento di comandi argo_voce in mezzo, aggiornato al passo 4 del ponte). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
@@ -542,6 +542,7 @@ pipeline:
       - "modo brief: testo pronto da incollare in Claude Code su Telegram (stesso bot, uno o più messaggi via invia_lungo se supera 4096 caratteri) — titolo/Plan mode obbligatorio/Vincoli standard/riga sul repo fissi, Contesto/Obiettivo/Criterio di chiusura sintetizzati dall'LLM solo da dati presenti alla lettera nel contesto raccolto; nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, zero LLM"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
+      - "db/migrations/007_conversazione_argo.sql"
       - "knowledge/argo/SOUL.md"
       - "knowledge/argo/IDENTITY.md"
       - "knowledge/argo/USER.md"
@@ -550,14 +551,14 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:414-577"
+      - "backend/main.py:414-627"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
       - "worker/loop.py:83-88"
       - "worker/loop.py:1636-1669"
     tabelle:
-      legge: [approvals, messages, events, jobs, alert_inviati, osservazioni]
-      scrive: [jobs, alert_inviati, osservazioni, mandati]
+      legge: [approvals, messages, events, jobs, alert_inviati, osservazioni, conversazione_argo]
+      scrive: [jobs, alert_inviati, osservazioni, mandati, conversazione_argo]
     verifica:
       indecidibile:
         - campo: tabelle.legge
@@ -636,6 +637,27 @@ pipeline:
             _scrivi_esito_mandato: qui il mandato non esiste già, viene creato
             solo se una consultazione di impatti.py dentro /brief è avvenuta
             davvero) via `docker exec argo-db-1 psql`, stessa deviazione.
+            PASSO 4 (18/9/2026): quinto scrittore, stessa deviazione —
+            scripts/argo/orienta_webhook.py:_registra_mandato_conversazione
+            (INSERT con tipo 'consultazione' scritto in chiaro, origine_msg
+            dal payload del job) quando il ramo conversazionale ha eseguito
+            una consultazione.
+        - campo: tabelle.scrive
+          valore: conversazione_argo
+          motivo: >
+            PASSO 4 (18/9/2026): due scrittori. backend/main.py:_accoda_conversazione
+            (riga di Leonardo, cur.execute() reale, visibile a verifica_mappa.py)
+            e scripts/argo/orienta_webhook.py:_registra_risposta_conversazione
+            (riga di Argo, PRIMA dell'invio, via docker exec psql — invisibile,
+            dichiarata qui a mano).
+        - campo: tabelle.legge
+          valore: conversazione_argo
+          motivo: >
+            PASSO 4: letta anche da argo/stato.py:conversazione_recente (la
+            finestra degli ultimi 10 scambi) via docker exec psql, invisibile a
+            verifica_mappa.py come le altre letture di argo/stato.py; la
+            SELECT di dedup in backend/main.py:_accoda_conversazione è invece
+            visibile.
     condivisi: [telegram_notifica]
     env:
       - ANTHROPIC_API_KEY
@@ -666,6 +688,12 @@ pipeline:
       - id: AV07
         enunciato: "Un file citato nel contesto di un brief che tocca un componente condiviso o un contratto genera sempre un avvertimento nei Vincoli del brief, composto in Python — mai lasciato all'LLM"
         garantito_da: "argo/voce.py:_verifica_impatti_brief (interroga impatti.py sui file citati, deterministico) + _componi_brief (accoda l'avvertimento a VINCOLI_STANDARD_BRIEF nella sezione ## Vincoli prima di restituire il testo, il modello non vede mai questo blocco)"
+      - id: AV08
+        enunciato: "Il ramo conversazionale (messaggio libero al bot Argo) esegue al più UNA consultazione per messaggio, scelta da un insieme chiuso di consultazioni di sola lettura, e registra solo mandati di tipo consultazione — mai di esecuzione"
+        garantito_da: "argo/voce.py:_interpreta_prima_risposta (tipo fuori da CONSULTAZIONI_PERMESSE scartato, mai eseguito) + argo/voce.py:genera_conversazione (la seconda risposta dell'LLM è testo, mai riletta come richiesta: un solo giro per costruzione) + scripts/argo/orienta_webhook.py:_registra_mandato_conversazione (tipo 'consultazione' in chiaro, mai dal payload o dall'LLM) + tests/test_argo_voce.py (guardrail statico: nessun letterale 'esecuzione' in voce.py/orienta_webhook.py/backend/main.py)"
+      - id: AV09
+        enunciato: "In conversazione, Argo risponde solo con fatti presenti nello stato, nella mappa o nel DB; se non sa, lo dice; nessuna domanda di rilancio"
+        garantito_da: eval
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -745,10 +773,10 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:580-596"
+      - "backend/main.py:630-646"
       - "backend/main.py:283-386"
       - "backend/main.py:387-411"
-      - "connectors/telegram.py:35-254"
+      - "connectors/telegram.py:35-263"
     usato_da: [risposte_email, dm_instagram_facebook]
     env:
       - TELEGRAM_TOKEN
@@ -781,7 +809,7 @@ condivisi:
       - "env distinti per i due usi: SMTP_* per poster_host (via invia_email), REPLY_SMTP_*/MAIL_FROM_NAME per il resto (connectors/mailer.py:12,19,21,30,34,36,53,64) — tutti letti direttamente qui, non nelle pipeline"
 
   - nome: telegram_notifica
-    codice: ["connectors/telegram.py:12-21", "connectors/telegram.py:114-156"]
+    codice: ["connectors/telegram.py:12-21", "connectors/telegram.py:123-165"]
     usato_da: [poster_host, risposte_email, dm_instagram_facebook, manutenzione_sistema, lead_gen_host, argo_voce]
     env:
       - TELEGRAM_TOKEN

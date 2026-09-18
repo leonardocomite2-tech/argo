@@ -17,6 +17,7 @@ from connectors.telegram import (  # noqa: E402
     normalizza_comando,
     argomenti_comando,
     interpreta_instrada,
+    e_messaggio_libero,
 )
 
 COMANDO_ORIENTA = "/orienta"  # stesso valore di backend/main.py:COMANDO_ORIENTA
@@ -137,6 +138,15 @@ caso(
     True,
     "import argo" not in _sorgente_main,
 )
+
+
+# --- e_messaggio_libero: il ramo else del bot Argo (passo 4 del ponte) ---
+caso("frase libera -> conversazione", True, e_messaggio_libero("come stiamo messi?"))
+caso("frase con spazi attorno -> conversazione", True, e_messaggio_libero("  ciao  "))
+for _cmd in ("/orienta", "/instrada 20 telefono", "/brief designer", "/impatto mailer", "/avvisa", "/stato"):
+    caso(f"comando {_cmd!r} -> non conversazione (i comandi restano identici)", False, e_messaggio_libero(_cmd))
+caso("testo vuoto -> non conversazione", False, e_messaggio_libero(""))
+caso("None (foto, sticker) -> non conversazione", False, e_messaggio_libero(None))
 
 
 def main():

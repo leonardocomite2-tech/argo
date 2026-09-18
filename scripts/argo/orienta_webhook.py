@@ -50,6 +50,14 @@ avvenuta davvero (log non None) — un brief che non cita nessun file reale
 non produce nessun mandato, il silenzio è l'esito normale. argo/voce.py
 resta sola lettura (vedi il suo guardrail statico), la scrittura vera vive
 qui, che già scrive su `jobs` per lo stesso motivo (gira da host).
+
+Passo 4 del ponte, 'genera_conversazione' (messaggio libero al bot Argo,
+accodato da backend/main.py:_accoda_conversazione): PRIMA dell'invio scrive
+l'eventuale mandato di CONSULTAZIONE (_registra_mandato_conversazione, mai
+di esecuzione) e la risposta di Argo nella finestra conversazione_argo
+(_registra_risposta_conversazione). Il tetto LLM non arriva qui come
+eccezione: argo/voce.py:genera_conversazione lo trasforma in un testo che lo
+dice, mandato come qualunque risposta.
 """
 
 import json
@@ -70,7 +78,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("argo.orienta_webhook")
 
 CONTAINER_DB = "argo-db-1"
-TIPI_JOB = ("genera_orienta", "genera_instrada", "genera_avviso", "genera_brief", "genera_impatto")
+TIPI_JOB = (
+    "genera_orienta", "genera_instrada", "genera_avviso", "genera_brief", "genera_impatto",
+    "genera_conversazione",
+)
 
 
 def _psql(sql, timeout=15):
@@ -153,6 +164,30 @@ def _registra_mandato_brief(origine_msg, oggetto, esito):
     )
 
 
+def _registra_mandato_conversazione(origine_msg, oggetto, esito):
+    """Passo 4 del ponte: un mandato di CONSULTAZIONE per la consultazione
+    eseguita dal ramo conversazionale (al più una per messaggio). tipo è
+    scritto qui in chiaro, mai preso dal payload o dall'LLM: da una
+    conversazione non nasce mai un mandato di esecuzione. origine_msg è il
+    messaggio Telegram di Leonardo (backend/main.py lo mette nel payload).
+    Scritto PRIMA dell'invio, via docker exec psql come il resto del file."""
+    origine_sql = origine_msg.replace("'", "''")
+    oggetto_sql = oggetto.replace("'", "''")
+    esito_sql = esito.replace("'", "''")
+    _psql(
+        "INSERT INTO mandati (origine_msg, tipo, oggetto, esito) VALUES "
+        f"('{origine_sql}', 'consultazione', '{oggetto_sql}', '{esito_sql}')"
+    )
+
+
+def _registra_risposta_conversazione(testo):
+    """La risposta di Argo entra nella finestra di conversazione PRIMA
+    dell'invio (stesso ordine del resto del repo), così il prossimo messaggio
+    la vede anche se questo processo muore subito dopo."""
+    testo_sql = testo.replace("'", "''")
+    _psql(f"INSERT INTO conversazione_argo (ruolo, testo) VALUES ('argo', '{testo_sql}')")
+
+
 def _marca_avviso_inviato(marcatori):
     """Scrive PRIMA dell'invio, mai dopo — chiamata da main() prima di
     notifica(): stesso ordine "scritto prima dell'invio" usato ovunque nel
@@ -173,6 +208,7 @@ ERRORE_RIPETI = {
     "genera_avviso": "controllo al prossimo giro",
     "genera_brief": "riprova con /brief <nome cantiere>",
     "genera_impatto": "riprova con /impatto <componente o file>",
+    "genera_conversazione": "riscrivi il messaggio",
 }
 
 
@@ -182,11 +218,15 @@ def main():
         return
     job_id, tipo, payload = reclamato
 
-    from argo.voce import genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief, genera_impatto
+    from argo.voce import (
+        genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief, genera_impatto,
+        genera_conversazione,
+    )
     from connectors.telegram import invia_lungo
 
     esito_mandato = None
     log_impatti_brief = None
+    consultazione = None
     try:
         if tipo == "genera_orienta":
             testo, marcatori = genera_risposta(), None
@@ -197,6 +237,9 @@ def main():
             marcatori = None
         elif tipo == "genera_impatto":
             testo, esito_mandato = genera_impatto(payload["componente"])
+            marcatori = None
+        elif tipo == "genera_conversazione":
+            testo, consultazione = genera_conversazione(payload["conversazione_id"], payload["testo"])
             marcatori = None
         else:
             testo, marcatori = genera_avviso()
@@ -226,6 +269,12 @@ def main():
         _registra_mandato_brief(
             payload["origine_msg"], f"brief: {payload['nome']}", log_impatti_brief
         )
+    if tipo == "genera_conversazione":
+        if consultazione:
+            _registra_mandato_conversazione(
+                payload["origine_msg"], consultazione["oggetto"], consultazione["esito"]
+            )
+        _registra_risposta_conversazione(testo)
 
     invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)

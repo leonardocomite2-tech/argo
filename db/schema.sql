@@ -110,3 +110,11 @@ CREATE TABLE IF NOT EXISTS mandati (
 );
 
 CREATE INDEX IF NOT EXISTS mandati_esito_aperti_idx ON mandati (id) WHERE esito IS NULL;
+
+CREATE TABLE IF NOT EXISTS conversazione_argo (
+  id             SERIAL PRIMARY KEY,
+  created_at     TIMESTAMPTZ DEFAULT now(),
+  ruolo          TEXT NOT NULL,
+  testo          TEXT NOT NULL,
+  tg_message_id  BIGINT UNIQUE
+);
