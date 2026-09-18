@@ -1,6 +1,7 @@
-"""python3 tests/eval_classificatore_argo.py
+"""python3 tests/eval_classificatore_argo.py [--anthropic] [--modello <id:free>]
 
-Chiama l'API Anthropic per davvero (non è un mock): misura il prompt vero
+Chiama un LLM per davvero (non è un mock; di default OpenRouter gratuito,
+tests/_llm_eval.py: mai il tetto di produzione; --anthropic per Haiku): misura il prompt vero
 del classificatore dei messaggi liberi di Argo (argo/voce.py:
 SISTEMA_CLASSIFICATORE). Va rilanciato dopo ogni modifica a quel prompt.
 Nessuna scrittura su DB: la finestra di conversazione è finta, passata caso
@@ -12,9 +13,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.llm import carica_env  # noqa: E402
+from tests._llm_eval import esci_se_quota_esaurita, prepara_eval  # noqa: E402
 
-carica_env()
+# Frasi scritte a mano da Leonardo verso Argo: nessun dato di terzi.
+prepara_eval(sys.argv[1:], oscura_email=False)
 
 import argo.voce as voce  # noqa: E402
 
@@ -94,6 +96,7 @@ def main():
             decisione = voce.classifica_modo(0, caso["testo"])
             ottenuta = voce.risolvi_modo(decisione)
         except voce.ClassificatoreErrore as e:
+            esci_se_quota_esaurita(e)
             decisione, ottenuta = None, f"ERRORE({e})"
         if ottenuta != caso["attesa"]:
             falliti += 1

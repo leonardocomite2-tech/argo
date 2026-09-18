@@ -1,8 +1,11 @@
-"""python3 tests/eval_modi_argo.py [giri]
+"""python3 tests/eval_modi_argo.py [giri] [--anthropic] [--modello <id:free>]
 
-Chiama l'API Anthropic per davvero (non è un mock): misura le risposte dei
-modi di Argo (argo/voce.py) sullo stato vero del sistema, letto in sola
-lettura. Nessuna scrittura su DB, nessun Telegram. Va rilanciato dopo ogni
+Chiama un LLM per davvero (non è un mock): misura le risposte dei modi di
+Argo (argo/voce.py) sullo stato vero del sistema, letto in sola lettura.
+Nessuna scrittura su DB, nessun Telegram. Di default su OpenRouter gratuito
+(tests/_llm_eval.py: mai il tetto di produzione); --anthropic per Haiku.
+Sul ramo gratuito lo stato esce oscurato (mittente, oggetto, ultimo_errore,
+ogni indirizzo email: CD07). Un giro costa ~11 chiamate su 40 al giorno. Va rilanciato dopo ogni
 modifica a SOUL.md o alle ISTRUZIONI_* dei modi.
 
 Controlla i tre difetti del collaudo del passo 9 (passo 10 della voce):
@@ -47,11 +50,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.llm import carica_env  # noqa: E402
+from tests._llm_eval import esci_se_quota_esaurita, oscura_stato, prepara_eval  # noqa: E402
 
-carica_env()
+ARGOMENTI = prepara_eval(sys.argv[1:])
 
 import argo.voce as voce  # noqa: E402
+
+oscura_stato(voce.stato)
 
 AZIONI_GIA_IN_FUNZIONE = re.compile(
     r"\b(avvia\w*|lancia\w*|attiva\w*|fai partire|metti in cron|configura\w*)\b[^.\n]{0,40}"
@@ -185,12 +190,16 @@ def controlla(testo, tipo):
 
 
 def main():
-    giri = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    giri = int(ARGOMENTI[0]) if ARGOMENTI else 1
     falliti, totale = 0, 0
     for giro in range(1, giri + 1):
         for nome, genera, tipo in CASI:
             totale += 1
-            testo = genera()
+            try:
+                testo = genera()
+            except Exception as e:
+                esci_se_quota_esaurita(e)
+                raise
             problemi = controlla(testo, tipo)
             if problemi:
                 falliti += 1

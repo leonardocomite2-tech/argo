@@ -869,6 +869,32 @@ caso("_ripulisci_conversazione: collaudo del passo 11, paragrafo inventato e dom
      "(finestra di tempo e contesto fisico per vedere se propone la cosa che chiude), una su avvisa. "
      "Ogni sessione due minuti, osservi se le risposte arrivano senza backtick.",
      voce._ripulisci_conversazione(_COLLAUDO_12, "{}"))
+# conteggio dei contratti tolto dal codice (passo 13): testo reale del 18/9
+_IMPATTO_MAILER = (
+    "Mailer è usato da due pipeline: poster_host e risposte_email. Il rischio più importante è RE01.\n\n"
+    "Gli altri quattro contratti (PH01, PH02, PH03, PH04) sono garantiti da guardie nel backend e nel worker. "
+    "RE02, RE03, RE04 hanno coperture parziali o assenti."
+)
+caso("_conta_contratti: la frase reale 'Gli altri quattro contratti' va via, il resto resta",
+     "Mailer è usato da due pipeline: poster_host e risposte_email. Il rischio più importante è RE01.\n\n"
+     "RE02, RE03, RE04 hanno coperture parziali o assenti.",
+     voce._togli_frasi(_IMPATTO_MAILER, voce._conta_contratti))
+caso("_conta_contratti: 'I contratti in gioco sono sette' è un conteggio", True, voce._conta_contratti("I contratti in gioco sono sette."))
+caso("_conta_contratti: 'gli altri tre (PH01, ...)' è un conteggio", True, voce._conta_contratti("Gli altri tre (PH01, PH02, PH03) reggono."))
+caso("_conta_contratti: 'due pipeline' non è un conteggio di contratti", False, voce._conta_contratti("Tocca due pipeline."))
+caso("_conta_contratti: un ID non è un conteggio", False, voce._conta_contratti("RE01 è il contratto più importante."))
+caso("_conta_contratti: 'gli altri due anelli' senza contratti resta", False, voce._conta_contratti("Gli altri due anelli sono nel worker."))
+caso("_conta_contratti: 'due anelli del contratto' non è un conteggio", False, voce._conta_contratti("Tocca due anelli del contratto RE01."))
+
+_chiama_vero = voce.chiama
+voce.chiama = lambda *a, **k: _IMPATTO_MAILER
+_testo_impatto, _ = voce.genera_impatto("mailer")
+voce.chiama = _chiama_vero
+caso("genera_impatto mailer (impatti.py vero, LLM finto): niente conteggio del modello, riga del codice in coda",
+     (False, True),
+     ("Gli altri quattro" in _testo_impatto,
+      bool(re.search(r"\n\nContratti in gioco \(\d+\): [^\n]+\.$", _testo_impatto))))
+
 caso("guardrail: _togli_rilancio non esiste più", False, hasattr(voce, "_togli_rilancio"))
 
 _p = voce._prompt_conversazione(

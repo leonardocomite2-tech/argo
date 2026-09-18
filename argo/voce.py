@@ -115,6 +115,26 @@ LIMITE_ERRORE_IMPATTI_CARATTERI = 300
 # token è un margine ampio sopra quel caso (arrotondando ~4 caratteri/token
 # come per MAX_TOKENS_BRIEF), a un costo comunque trascurabile su Haiku.
 MAX_TOKENS_IMPATTO = 700
+# Un conteggio di contratti scritto dal modello: numero attaccato a
+# "contratti", "gli altri N", "i contratti ... sono N". Stessa forma del
+# controllo TOTALE_DEL_MODELLO di tests/eval_modi_argo.py, che resta
+# indipendente. Il numero di pipeline non è toccato.
+_NUMERO_CONTRATTI = r"(\d+|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici)"
+_CONTEGGIO_CONTRATTI_RE = re.compile(
+    rf"\b{_NUMERO_CONTRATTI}\s+(\w+\s+)?contratt\w*"
+    rf"|\bcontratt\w*\b[^.\n]{{0,30}}\bsono\s+{_NUMERO_CONTRATTI}\b",
+    re.IGNORECASE,
+)
+# "gli altri N" conta i contratti solo se la frase nomina un contratto o un
+# suo ID ("Gli altri quattro (PH01, ...)"): "gli altri due anelli" resta.
+_ALTRI_N_RE = re.compile(rf"\b(gli\s+)?altri\s+{_NUMERO_CONTRATTI}\b", re.IGNORECASE)
+_TEMA_CONTRATTO_RE = re.compile(r"contratt|\b[A-Z]{2}\d{2}\b")
+
+
+def _conta_contratti(frase):
+    return bool(_CONTEGGIO_CONTRATTI_RE.search(frase)) or (
+        bool(_ALTRI_N_RE.search(frase)) and bool(_TEMA_CONTRATTO_RE.search(frase))
+    )
 MARCATORE_TRONCAMENTO_IMPATTO = (
     "[RISPOSTA TRONCATA — max_tokens raggiunto, l'elenco completo resta in "
     "scripts/panoptes/impatti.py]"
@@ -1161,6 +1181,11 @@ def genera_impatto(componente_o_file):
         r for r in _senza_backtick(testo).splitlines()
         if not r.strip().lower().startswith("contratti in gioco")
     ).strip()
+    # Passo 13 della voce: la regola "nomina, non contare" è nel prompt dal
+    # passo 10 e non è stata indebolita, ma il modello ha scritto comunque
+    # "Gli altri quattro contratti (PH01, ...)" con otto in gioco. La frase
+    # che conta i contratti si toglie intera, come i fatti del passo 11.
+    testo = _togli_frasi(testo, _conta_contratti)
     contratti = _contratti_in_gioco(stdout.splitlines())
     if contratti:
         testo = f"{testo}\n\nContratti in gioco ({len(contratti)}): {', '.join(contratti)}."

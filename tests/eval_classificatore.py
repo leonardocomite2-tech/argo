@@ -1,6 +1,8 @@
-"""python3 tests/eval_classificatore.py
+"""python3 tests/eval_classificatore.py [--anthropic] [--modello <id:free>]
 
-Chiama l'API Anthropic per davvero (non è un mock): serve a misurare il
+Chiama un LLM per davvero (non è un mock; di default OpenRouter gratuito,
+tests/_llm_eval.py: mai il tetto di produzione; --anthropic per Haiku, il
+modello che classifica davvero le email): serve a misurare il
 prompt vero, non solo il parsing del JSON. Va rilanciato dopo ogni modifica
 al prompt in brain/classifier.py."""
 import sys
@@ -9,9 +11,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.llm import carica_env  # noqa: E402
+from tests._llm_eval import esci_se_quota_esaurita, prepara_eval  # noqa: E402
 
-carica_env()
+# Email inventate, scritte a mano: nessun dato di terzi (CD07).
+prepara_eval(sys.argv[1:], oscura_email=False)
 
 from brain.classifier import classifica, ClassificazioneErrore  # noqa: E402
 
@@ -181,6 +184,7 @@ def main():
             esito = classifica(caso["mittente"], caso["oggetto"], caso["testo"])
             ottenuta = esito["categoria"]
         except ClassificazioneErrore as e:
+            esci_se_quota_esaurita(e)
             ottenuta = f"ERRORE({e})"
 
         if ottenuta != caso["attesa"]:

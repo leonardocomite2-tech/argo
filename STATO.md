@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 12: conversazione in poche righe, domande tolte anche in mezzo al testo (salvo quella su un parametro), frasi con percorsi, comandi di shell o comandi Telegram inventati tolte dal codice; resta a Leonardo il push e il ricollaudo dal telefono ("come collauderesti argo voce") da domani: il tetto LLM di oggi è esaurito. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 13: eval fuori dal tetto di produzione (OpenRouter di default, --anthropic esplicito con contatore in-memory), conteggio dei contratti di impatto tolto dal codice; resta a Leonardo il push, un giro di eval quando un endpoint gratuito risponde (oggi 429) o con --anthropic, e il ricollaudo dal telefono del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host in cron ogni 15 secondi, quattro righe sfalsate dal passo 11 della voce); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
@@ -746,7 +746,22 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   esiste nel repo anche quando il modello lo cita a sproposito — il filtro
   prova che il file c'è, non che sia quello giusto; (d) `COMANDI_TELEGRAM` è
   una copia dei `COMANDO_*` di `backend/main.py`, tenuta allineata da un test
-  statico. Brevità solo da prompt: nessun tetto deterministico sulle frasi.
+  statico. Brevità solo da prompt: nessun tetto deterministico sulle frasi. Dal
+  passo 13 anche impatto ha un filtro a frasi intere (`_conta_contratti`):
+  togliere "Gli altri quattro contratti ..." lascia la frase dopo ("RE02,
+  RE03, RE04 hanno coperture parziali") senza il suo quadro.
+- **Eval sul ramo gratuito (18/9/2026, passo 13 della voce).** Tre limiti
+  dichiarati. (1) Quota: 40 chiamate al giorno, anche fallite; un giro di
+  eval_modi_argo ne usa ~11 senza 429, eval_classificatore_argo 21: tre giri
+  non ci stanno, il default è un giro. (2) Un modello diverso da Haiku misura
+  il prompt, non la produzione: per chiudere un passo sulla voce serve un
+  giro `--anthropic`, che spende davvero ma sul contatore in-memory — quella
+  spesa non compare in `llm_chiamate_giorno`. (3) I modelli di testo gratuiti
+  ZDR ragionano tutti: l'eval aggiunge `MARGINE_RAGIONAMENTO_EVAL=8000` a
+  max_tokens (scelta di Leonardo), quindi il troncamento in eval scatta più
+  tardi che in produzione e i marcatori di troncamento non si misurano lì. Il
+  provider gratuito risponde spesso 429: due nuovi tentativi dopo
+  retry_after, ognuno costa quota.
 - **Argo — la voce, passo 11: `/brief` solo per cantieri con Stato
   "aperto"** (deciso da Leonardo). Per ogni altro stato una riga fissa, zero
   LLM, che dice lo stato, chi aspetta e la cella della sessione. Un cantiere
@@ -3468,3 +3483,61 @@ passo 11: non c'erano, aggiunte ora.
 - **Resta a Leonardo**: push, ricollaudo dal telefono da domani (il
   consumer legge i file da disco, nessun rebuild), decidere se ripetere il
   confronto su impatto mailer col SOUL vecchio.
+
+
+## Sessione 2026-09-18 (sera, continua) — Cantiere Argo — la voce, passo 13: eval fuori dal tetto di produzione, conteggio dei contratti
+
+Due correzioni chieste da Leonardo dopo il passo 12: le eval di quella
+sessione avevano portato `llm_chiamate_giorno` a 151/150 (Argo muto fino a
+mezzanotte), e impatto mailer aveva scritto "Gli altri quattro contratti".
+
+- **Eval sul ramo gratuito.** Helper `tests/_llm_eval.py:prepara_eval`,
+  chiamato da eval_modi_argo, eval_classificatore_argo ed eval_classificatore
+  prima di importare argo.voce/brain. Default OpenRouter: sostituisce il nome
+  `chiama` in argo.voce, brain.classifier, brain.drafter (produzione
+  invariata; `connectors/llm.py`, `connectors/openrouter.py` e
+  `test_tetto_llm.py` non toccati), `sensibile=False`, `fallback=False`, e
+  aggancia al contatore Anthropic una funzione che solleva: una chiamata
+  sfuggita allo scambio si blocca prima dell'HTTP. `--anthropic` esplicito:
+  Haiku con il contatore in-memory. In nessuno dei due modi un'eval arriva a
+  `llm_chiamate_giorno`: `tests/test_llm_eval.py` (21 casi, rete e DB finti,
+  più un guardrail statico su ogni `tests/eval_*.py`). Verificato anche dal
+  vivo: 13 chiamate eval su OpenRouter oggi, `llm_chiamate_giorno` fermo a
+  151. Quota finita -> eval ferma con esito 2, non un caso fallito.
+- **CD07.** Lo stato vero di eval_modi_argo contiene dati di terzi
+  (mittente e oggetto delle approvazioni). `oscura_stato` mette "[oscurato]"
+  su mittente, oggetto, ultimo_errore dei job (anche `job_falliti_recenti` di
+  avvisa, seconda revisione del guardrail) e testo delle osservazioni
+  nuove e recenti (queste ultime segnalate dal guardrail: oggi la tabella è
+  vuota, ma è un buco per costruzione); `chiama_eval` oscura ogni indirizzo
+  email prima dell'invio (STATO.md ne contiene uno reale). Le due eval dei
+  classificatori hanno solo casi scritti a mano: niente oscuramento.
+- **Modello.** Tutti i modelli di testo gratuiti ZDR ragionano.
+  deepseek-v4-flash:free ha consumato 200, 2200 e poi 8200 token senza testo
+  su instrada (una chiamata riuscita a 8000: 6215 token, 230 s). Deciso con
+  Leonardo: margine solo nell'eval (`MARGINE_RAGIONAMENTO_EVAL=8000`),
+  gateway invariato. Default passato a `z-ai/glm-5.2:free`: stesso caso in
+  32 s con 1475 token. qwen3.8-27b:free: 429.
+- **Esito delle eval: nessun giro completo oggi.** Dopo la prova riuscita,
+  glm-5.2 ha risposto 429 a ogni tentativo (anche con due nuovi tentativi
+  dopo retry_after). Fermato a quota 16/40 per non bruciare il resto. Nessun
+  giro `--anthropic`: costa, e senza il via di Leonardo non si fa.
+- **Conteggio dei contratti.** La regola del prompt di impatto non era stata
+  indebolita (`git log -L`: solo 30bd11e e 36ebc75, che l'ha rafforzata e
+  vieta alla lettera "gli altri tre"): il modello la ignora. `genera_impatto`
+  toglie con `_togli_frasi` le frasi per cui `_conta_contratti` è vero:
+  numero attaccato a "contratti", "i contratti ... sono N", "gli altri N"
+  solo se la frase nomina un contratto o un ID ("gli altri due anelli"
+  resta). Test sul testo reale del 18/9 e su `genera_impatto("mailer")` con
+  impatti.py vero e LLM finto: la frase va via, la riga "Contratti in gioco
+  (N)" del codice resta in coda.
+- **Mappa**: `llm_gratuito` con `tests/_llm_eval.py` nel codice e
+  un'evidenza sulle eval, CD07 con l'oscuramento, nota PASSO 13 su argo_voce,
+  AV11 esteso. `verifica_mappa.py` 0 divergenze.
+- **Verifiche**: suite verde (`test_argo_voce` 368/368, `test_llm_eval`
+  21/21, `test_tetto_llm` 23/23 invariato). Guardrail-review: un bloccante
+  (osservazioni non oscurate), corretto; seconda revisione: nessun
+  bloccante, una nota (job_falliti_recenti) chiusa.
+- **Resta a Leonardo**: push; un giro di `eval_modi_argo.py` quando
+  l'endpoint gratuito risponde, oppure `--anthropic` se vuole il modello
+  vero; il ricollaudo dal telefono del passo 12.
