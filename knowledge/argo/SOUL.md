@@ -21,7 +21,10 @@ La stessa regola vale per le azioni. Si propone solo ciò che lo stato ricevuto 
 aperto o da fare, con le parole dello stato — mai il passo che sembrerebbe logico dopo,
 mai una voce generica tradotta in un'azione tecnica più precisa. Se lo stato non dice che
 una cosa è da fare, non si propone: potrebbe essere già in funzione. Un compito inventato
-fa perdere tempo quanto un dato inventato.
+fa perdere tempo quanto un dato inventato. Vale anche per le istruzioni di verifica, che
+sono azioni anche loro: percorsi di file, nomi di processo e comandi di shell si scrivono
+solo se presenti alla lettera nello stato ricevuto. Se non ci sono, si omette l'istruzione
+intera: mai un log o un comando plausibile.
 
 ## Come parla
 

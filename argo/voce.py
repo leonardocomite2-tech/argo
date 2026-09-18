@@ -1224,19 +1224,24 @@ queste regole, senza eccezioni:
 - Gli scambi precedenti servono SOLO a capire a cosa si riferisce il
   messaggio. Non sono una fonte di fatti: le tue risposte passate possono
   essere vecchie o sbagliate, i fatti si prendono dallo stato qui sotto.
-- Conclusione prima, dettagli dopo: la prima riga è la risposta in una
-  frase, poi al massimo tre righe brevi di dettaglio, una per fatto, ognuna
-  su una riga separata. Mai un elenco di tutto
-  lo stato: se la domanda è generale ("come stiamo?"), la conclusione è il
-  quadro in una frase e i dettagli sono solo le cose che aspettano Leonardo
-  adesso.
+- Poche righe. La prima riga è la risposta in una frase, poi al massimo due
+  righe brevi di dettaglio, una per fatto, ognuna su una riga separata. Mai
+  paragrafi, mai un elenco di tutto lo stato: se elenchi tutto, hai fallito.
+  Se la domanda è generale ("come stiamo?"), la conclusione è il quadro in
+  una frase e i dettagli sono solo le cose che aspettano Leonardo adesso. Se
+  ti chiede come fare qualcosa (un collaudo, una verifica), di' UNA cosa
+  sola, quella che lo stato nomina, non una procedura.
 - Dai del tu.
-- Niente domande di rilancio: la risposta finisce con l'ultimo fatto utile,
-  mai con una domanda, niente "vuoi che...", niente offerte di passi
-  successivi.
+- Niente domande, né in fondo né in mezzo al testo: la risposta finisce con
+  l'ultimo fatto utile, niente "vuoi che...", niente offerte di passi
+  successivi. Unica eccezione: se il messaggio non dice di quale file,
+  componente o cantiere parla e ti serve saperlo, chiedi solo quello, con
+  una domanda che comincia con "Quale".
 - Date, hash, numeri, nomi di file, ID, nomi di pipeline e contratti:
   riportali SOLO se compaiono alla lettera nei dati, copiati senza
-  modifiche. Mai calcolare durate o date relative ("ieri", "da 15 giorni",
+  modifiche. Percorsi di file, nomi di processo e comandi di shell anche
+  quando sono istruzioni di verifica ("controlla il log X", "lancia Y"):
+  se non compaiono alla lettera nei dati, ometti l'istruzione intera. Mai calcolare durate o date relative ("ieri", "da 15 giorni",
   "3 settimane fa"), nemmeno partendo dal campo "oggi" o da campi numerici
   come ore_ferma o ultimo_commit_giorni_fa: se una data serve, copia il
   giorno com'è nel campo del fatto stesso (es. piu_recente 2026-08-29 si
@@ -1509,18 +1514,131 @@ def _senza_campi_derivati(stato_dict):
     return copia
 
 
-def _togli_rilancio(testo):
-    """Deterministico: toglie le righe finali che finiscono con '?'. La
-    regola "niente domande di rilancio" è anche nel prompt, ma nel collaudo
-    del 18/9 il modello ha chiuso comunque con "Cosa specifico vuoi
-    toccare?" — qui è garantita dal codice. Se il testo fosse fatto solo di
-    domande, resta com'è (meglio una domanda che un messaggio vuoto)."""
-    righe = testo.rstrip().splitlines()
-    while righe and righe[-1].strip().endswith("?") and len(righe) > 1:
-        righe.pop()
-        while righe and not righe[-1].strip():
-            righe.pop()
-    return "\n".join(righe).strip() if righe else testo
+def _togli_frasi(testo, scarta):
+    """Pura: toglie le frasi (stesso _FRASE_RE di _togli_fatti_del_modello)
+    per cui scarta(frase) è vero. Frasi intere, mai un pezzo: due filtri in
+    fila non possono lasciare una frase monca a vicenda. Una riga rimasta
+    senza frasi sparisce; le righe vuote tra paragrafi restano."""
+    righe_tenute = []
+    for riga in (testo or "").splitlines():
+        frasi = [f for f in _FRASE_RE.split(riga) if not scarta(f)]
+        if frasi or not riga.strip():
+            righe_tenute.append(" ".join(frasi))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(righe_tenute)).strip()
+
+
+# --- Domande (passo 12 della voce) ---
+#
+# Il passo 4bis toglieva solo le domande finali: una domanda in mezzo al
+# testo restava. Ora ogni frase che finisce con '?' va via, tranne quella
+# che chiede un parametro mancante ("Quale cantiere?") senza offrire niente.
+_DOMANDA_PARAMETRO_RE = re.compile(r"^\s*(quale|quali|qual|di quale|su quale|a quale|in quale)\b", re.IGNORECASE)
+_OFFERTA_RE = re.compile(r"\b(vuoi che|ti preparo|posso|preferisci che)\b", re.IGNORECASE)
+
+
+def _e_domanda(frase):
+    return frase.strip().rstrip("\"'»)").endswith("?")
+
+
+def _togli_domande(testo):
+    """Pura: toglie ogni domanda, finale o interna. Resta la domanda su un
+    parametro mancante (comincia con "Quale" e non offre niente). Se il testo
+    è fatto solo di domande resta com'è: meglio una domanda che un messaggio
+    vuoto (stessa regola del vecchio _togli_rilancio)."""
+    frasi = [f for riga in (testo or "").splitlines() for f in _FRASE_RE.split(riga) if f.strip()]
+    if not frasi or all(_e_domanda(f) for f in frasi):
+        return testo
+    return _togli_frasi(testo, lambda f: _e_domanda(f) and not (
+        _DOMANDA_PARAMETRO_RE.search(f) and not _OFFERTA_RE.search(f)
+    ))
+
+
+# --- Percorsi e comandi (passo 12 della voce) ---
+#
+# Collaudo del passo 11: "verifica che sia partito (log in
+# argo/consumer_voce.log o ps aux | grep consumer)" — né il file né il
+# processo esistono. La regola è in SOUL e nel prompt; qui il codice toglie
+# la frase che cita un percorso che non è nei dati né sul filesystem, o un
+# comando di shell che non è copiato alla lettera dai dati.
+_ESTENSIONI_FILE = r"py|log|md|yaml|yml|sql|sh|json|txt|env"
+_TOKEN_PERCORSO_RE = re.compile(r"(?<![\w/.-])(?:\.{1,2}/)*/?[\w-][\w./-]*")
+_COMANDO_RE = re.compile(
+    r"\b(ps|grep|tail|cat|ls|docker|psql|crontab|systemctl|journalctl|pkill|kill|git|curl|sudo)\s+\S"
+    r"|\bpython3?\s+[-\w]*[-./]",
+    re.IGNORECASE,
+)
+# Dove finisce un comando dentro una frase: parentesi, virgola, punto e
+# virgola, fine frase, o un connettivo italiano ("... o ps aux", "... e poi").
+_FINE_COMANDO_RE = re.compile(r"[,;()]|[.!?](\s|$)|\s(o|e|oppure|poi|per|che)\s", re.IGNORECASE)
+_PIPE_RE = re.compile(r"\S\s*\|\s*\S")
+# Comandi Telegram veri: gli stessi COMANDO_* di backend/main.py (non
+# importabile da qui, è l'app FastAPI) — test statico in test_argo_voce.py.
+# Collaudo del passo 12: il modello ha proposto "/avvisa", che non esiste.
+COMANDI_TELEGRAM = ("/orienta", "/instrada", "/brief", "/impatto")
+_COMANDO_TELEGRAM_RE = re.compile(r"(?<![\w/.-])/[a-z_]+\b(?!/)", re.IGNORECASE)
+
+
+def _e_percorso(token):
+    """Un token è un percorso se ha un'estensione di file nota, o una '/' con
+    la prima parte che è una cartella vera del repo (così "orienta/instrada"
+    o "api/worker" restano testo), o se è assoluto con almeno due parti (un
+    comando Telegram come /orienta o /brief non è un percorso)."""
+    if re.search(rf"\.({_ESTENSIONI_FILE})$", token, re.IGNORECASE):
+        return True
+    if token.startswith("/"):
+        return token.count("/") >= 2
+    if "/" in token:
+        return (REPO_ROOT / token.split("/", 1)[0]).is_dir()
+    return False
+
+
+def _percorso_esiste(token):
+    """Esiste sotto REPO_ROOT. Un percorso assoluto conta solo se è dentro
+    REPO_ROOT; il resto passa da _argomento_sicuro (niente '..', niente
+    assoluti), quindi il controllo non esce mai dal repo."""
+    radice = str(REPO_ROOT) + "/"
+    if token.startswith(radice):
+        token = token[len(radice):]
+    if not _argomento_sicuro(token):
+        return False
+    return (REPO_ROOT / token).exists()
+
+
+def _cita_inventato(frase, dati):
+    if any(m.group(0).lower() not in COMANDI_TELEGRAM for m in _COMANDO_TELEGRAM_RE.finditer(frase)):
+        return True
+    for m in _TOKEN_PERCORSO_RE.finditer(frase):
+        token = m.group(0).rstrip(".-/")
+        if _e_percorso(token) and token not in dati and not _percorso_esiste(token):
+            return True
+    resto = frase
+    for m in _COMANDO_RE.finditer(frase):
+        fine = _FINE_COMANDO_RE.search(frase, m.end())
+        comando = frase[m.start():fine.start() if fine else len(frase)].strip()
+        if comando not in dati:
+            return True
+        resto = resto.replace(comando, " ")
+    # Una pipe fuori da un comando copiato dai dati è comunque un comando.
+    return bool(_PIPE_RE.search(resto))
+
+
+def _togli_riferimenti_inventati(testo, dati):
+    """Pura: toglie le frasi che citano un percorso che non compare alla
+    lettera in `dati` e non esiste sotto REPO_ROOT, o un comando di shell
+    (verbo noto seguito da un argomento, o una pipe) che non compare alla
+    lettera in `dati`, o un comando Telegram fuori da COMANDI_TELEGRAM.
+    `dati` è quello che il modello ha ricevuto più il messaggio di
+    Leonardo. Limite: un nome di processo senza comando ("il
+    processo consumer") lo copre solo il prompt."""
+    return _togli_frasi(testo, lambda f: _cita_inventato(f, dati))
+
+
+def _ripulisci_conversazione(testo, dati):
+    """I filtri del ramo conversazionale, in quest'ordine: backtick (toglie
+    solo caratteri), domande, percorsi e comandi. Tutti lavorano su frasi
+    intere. Nella prima chiamata segue _con_riga_fatti, che aggiunge la riga
+    Fatti per ultima: nessun filtro la tocca."""
+    return _togli_riferimenti_inventati(_togli_domande(_senza_backtick(testo)), dati)
 
 
 # 'leonardo_non_processato' (backend/main.py:_accoda_conversazione): messaggio
@@ -1580,7 +1698,10 @@ def genera_conversazione(conversazione_id, messaggio):
         # Risposta costruita sullo stato: i fatti numerici li scrive il codice.
         if not risposta:
             return TESTO_NON_SO, None
-        return _con_riga_fatti(_senza_backtick(_togli_rilancio(risposta)), stato_completo), None
+        # Solo il messaggio attuale, non lo storico: una risposta passata di
+        # Argo con un percorso inventato non deve renderlo "presente nei dati".
+        dati = json.dumps(_stato_per_prompt(stato_dict), default=str, ensure_ascii=False) + "\n" + messaggio
+        return _con_riga_fatti(_ripulisci_conversazione(risposta, dati), stato_completo), None
 
     risultato, esito = _esegui_consultazione(richiesta["tipo"], richiesta["argomento"], vocabolario)
     consultazione = {
@@ -1611,7 +1732,8 @@ def genera_conversazione(conversazione_id, messaggio):
         return TESTO_TETTO_CONVERSAZIONE, consultazione
     except LLMErrore as e:
         raise ConversazioneErrore("chiamata LLM fallita") from e
-    return (_senza_backtick(_togli_rilancio(testo)) or TESTO_NON_SO), consultazione
+    dati = json.dumps(dati_consultazione, default=str, ensure_ascii=False) + "\n" + messaggio
+    return (_ripulisci_conversazione(testo, dati) or TESTO_NON_SO), consultazione
 
 
 # --- Classificatore dei messaggi liberi (cantiere Argo — la voce, passo 9) ---

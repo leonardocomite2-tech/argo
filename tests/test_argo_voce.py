@@ -811,13 +811,65 @@ _st = voce._senza_campi_derivati({"cantieri_aperti": {"cantieri": [
 caso("cantieri per chi aspettano", {"Leonardo": ["A", "D"], "calendario": ["B"]},
      _st["cantieri_aperti"]["cantieri_non_chiusi_per_chi_aspettano"])
 
-# niente rilancio, garantito dal codice
-caso("_togli_rilancio: domanda finale tolta", "Fatto uno.\nFatto due.",
-     voce._togli_rilancio("Fatto uno.\nFatto due.\n\nCosa specifico vuoi toccare?"))
-caso("_togli_rilancio: testo senza domanda invariato", "Solo fatti.", voce._togli_rilancio("Solo fatti."))
-caso("_togli_rilancio: domanda nel mezzo resta", "Chi scrive approvals?\nLo scrive il gate.",
-     voce._togli_rilancio("Chi scrive approvals?\nLo scrive il gate."))
-caso("_togli_rilancio: solo una domanda -> resta (mai messaggio vuoto)", "Quale file?", voce._togli_rilancio("Quale file?"))
+# niente domande, né finali né interne (passo 12: prima solo le finali)
+caso("_togli_domande: domanda finale tolta", "Fatto uno.\nFatto due.",
+     voce._togli_domande("Fatto uno.\nFatto due.\n\nCosa specifico vuoi toccare?"))
+caso("_togli_domande: testo senza domanda invariato", "Solo fatti.", voce._togli_domande("Solo fatti."))
+caso("_togli_domande: domanda nel mezzo ora va via", "Lo scrive il gate.",
+     voce._togli_domande("Chi scrive approvals?\nLo scrive il gate."))
+caso("_togli_domande: domanda interna nella stessa riga va via", "Il ponte aspetta te. Il resto è fermo.",
+     voce._togli_domande("Il ponte aspetta te. Serve ancora? Il resto è fermo."))
+caso("_togli_domande: solo una domanda -> resta (mai messaggio vuoto)", "Quale file?", voce._togli_domande("Quale file?"))
+caso("_togli_domande: domanda su un parametro mancante resta", "Non lo trovo nella mappa. Quale componente intendi?",
+     voce._togli_domande("Non lo trovo nella mappa. Quale componente intendi?"))
+caso("_togli_domande: 'Quale' con un'offerta è un rilancio, va via", "Ci sono due brief possibili.",
+     voce._togli_domande("Ci sono due brief possibili. Quale vuoi che ti preparo?"))
+caso("_togli_domande: domanda tra virgolette in chiusura va via", "Il gate è fermo.",
+     voce._togli_domande('Il gate è fermo. "Serve ancora?"'))
+
+# percorsi e comandi inventati (passo 12): la frase intera va via
+_rif = voce._togli_riferimenti_inventati
+caso("riferimenti: percorso inesistente -> frase via", "Il consumer gira da cron.",
+     _rif("Il consumer gira da cron. Controlla argo/consumer_voce.log.", ""))
+caso("riferimenti: percorso esistente nel repo resta", "La regola è in argo/voce.py.",
+     _rif("La regola è in argo/voce.py.", ""))
+caso("riferimenti: nome di file presente alla lettera nei dati resta", "Guarda orienta_webhook.log.",
+     _rif("Guarda orienta_webhook.log.", '{"x": "log in orienta_webhook.log"}'))
+caso("riferimenti: nome di file né nei dati né sul disco -> via", "", _rif("Guarda consumer_voce.log.", ""))
+caso("riferimenti: assoluto dentro il repo che esiste resta", "Guarda /root/argo/argo/voce.py.",
+     _rif("Guarda /root/argo/argo/voce.py.", "") if str(voce.REPO_ROOT) == "/root/argo" else "Guarda /root/argo/argo/voce.py.")
+caso("riferimenti: assoluto fuori dal repo mai controllato sul disco -> via", "", _rif("Leggi /etc/hostname.", ""))
+caso("riferimenti: '..' mai controllato sul disco -> via", "", _rif("Leggi ../argo/voce.py.", ""))
+caso("riferimenti: comando Telegram /orienta non è un percorso", "Prova /orienta dal telefono.",
+     _rif("Prova /orienta dal telefono.", ""))
+caso("riferimenti: comando Telegram inesistente -> via", "Prova /orienta dal telefono.",
+     _rif("Prova /orienta dal telefono. Poi /avvisa per l'approvazione.", ""))
+caso("COMANDI_TELEGRAM uguali ai COMANDO_* di backend/main.py", sorted(voce.COMANDI_TELEGRAM),
+     sorted(re.findall(r'^COMANDO_\w+ = "(/\w+)"', (REPO_ROOT / "backend" / "main.py").read_text(encoding="utf-8"), re.MULTILINE)))
+caso("riferimenti: barre tra parole non sono percorsi", "Vale per orienta/instrada/avvisa e api/worker.",
+     _rif("Vale per orienta/instrada/avvisa e api/worker.", ""))
+caso("riferimenti: pipe -> frase via", "", _rif("Verifica con ps aux | grep consumer.", ""))
+caso("riferimenti: comando non nei dati -> via", "Resta il collaudo.", _rif("Resta il collaudo. Poi git push.", ""))
+caso("riferimenti: comando copiato dai dati resta", "Lancia python3 scripts/panoptes/impatti.py --diff, poi leggi.",
+     _rif("Lancia python3 scripts/panoptes/impatti.py --diff, poi leggi.", "python3 scripts/panoptes/impatti.py --diff"))
+caso("riferimenti: 'python' come parola non è un comando", "Lo script python gira da cron.",
+     _rif("Lo script python gira da cron.", ""))
+
+# catena intera sul testo reale del collaudo del passo 11 (conversazione_argo
+# id 17): nessuna frase monca, resta solo ciò che non cita riferimenti inventati
+_COLLAUDO_12 = (
+    "Tre sessioni: una su orienta (comando /orienta da Telegram con contesto generico), una su instrada "
+    "(finestra di tempo e contesto fisico per vedere se propone la cosa che chiude), una su avvisa. "
+    "Ogni sessione due minuti, osservi se le risposte arrivano senza `backtick`.\n\n"
+    "Prima di tutto: il consumer argo_voce è in cron ogni minuto da ieri, verifica che sia partito "
+    "(log in argo/consumer_voce.log o ps aux | grep consumer). Ti torna?"
+)
+caso("_ripulisci_conversazione: collaudo del passo 11, paragrafo inventato e domanda via",
+     "Tre sessioni: una su orienta (comando /orienta da Telegram con contesto generico), una su instrada "
+     "(finestra di tempo e contesto fisico per vedere se propone la cosa che chiude), una su avvisa. "
+     "Ogni sessione due minuti, osservi se le risposte arrivano senza backtick.",
+     voce._ripulisci_conversazione(_COLLAUDO_12, "{}"))
+caso("guardrail: _togli_rilancio non esiste più", False, hasattr(voce, "_togli_rilancio"))
 
 _p = voce._prompt_conversazione(
     [{"ruolo": "leonardo", "testo": "come va?", "created_at": "t1"}, {"ruolo": "argo", "testo": "bene", "created_at": "t2"}],
@@ -1236,6 +1288,10 @@ caso("_riga_fatti: lista cantieri vuota ma letta -> nessuno, non 'non rilevabili
      "cantieri che aspettano te: nessuno" in voce._riga_fatti(_zero_cant)[0])
 caso("_riga_fatti: copertura assente -> non rilevabili, mai zero", True,
      "approvazioni in attesa: non rilevabili" in voce._riga_fatti(_assente)[0])
+
+caso("catena passo 12: la riga Fatti del codice chiude il testo dopo tutti i filtri", True,
+     voce._con_riga_fatti(voce._ripulisci_conversazione(_COLLAUDO_12, "{}"), _STATO_FATTI)
+     .endswith("\n\n" + voce._riga_fatti(_STATO_FATTI)[0]))
 
 _TESTO_COLLAUDO = (
     "Due cantieri bloccati su di te, uno aperto sul sistema. Argo — la voce aspetta il collaudo dal telefono. "

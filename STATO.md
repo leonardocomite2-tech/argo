@@ -15,8 +15,8 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 11: brief solo se chiesto a parole e per cantieri "aperto", riga "Fatti" scritta dal codice in orienta/instrada/conversazione, claim del consumer corretto ("UPDATE 0"); resta a Leonardo il push, le quattro righe di crontab ogni 15 secondi e il ricollaudo dal telefono ("come collauderesti al meglio Argo voce", "come sta andando?"). Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host già in cron ogni minuto); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 12: conversazione in poche righe, domande tolte anche in mezzo al testo (salvo quella su un parametro), frasi con percorsi, comandi di shell o comandi Telegram inventati tolte dal codice; resta a Leonardo il push e il ricollaudo dal telefono ("come collauderesti argo voce") da domani: il tetto LLM di oggi è esaurito. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host in cron ogni 15 secondi, quattro righe sfalsate dal passo 11 della voce); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
@@ -732,6 +732,21 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   adesso" senza il soggetto). La riga "Fatti" in coda resta comunque giusta
   perché è scritta dal codice. Trade-off scelto: niente seconda chiamata LLM
   di verifica; nuove forme si aggiungono alla lista quando compaiono.
+- **Argo — la voce, passo 12 (18/9/2026): i filtri della conversazione sono
+  quattro, tutti su frasi intere.** Nell'ordine: `_senza_backtick` (toglie
+  solo caratteri), `_togli_domande`, `_togli_riferimenti_inventati`, poi
+  `_togli_fatti_del_modello` dentro `_con_riga_fatti`. Nessuno taglia dentro
+  una frase, quindi non si mangiano pezzi a vicenda; ma togliere una frase
+  può lasciare orfana la successiva, come sopra (visto in prova: tolta la
+  frase con "/avvisa", resta "Poi un messaggio libero..."). Limiti dichiarati:
+  (a) `_togli_domande` tiene solo le domande che cominciano con "Quale" senza
+  offerte, o un testo fatto solo di domande: una domanda legittima scritta in
+  altra forma dentro un testo va via; (b) un nome di processo senza comando
+  ("il processo consumer") lo copre solo il prompt; (c) un percorso passa se
+  esiste nel repo anche quando il modello lo cita a sproposito — il filtro
+  prova che il file c'è, non che sia quello giusto; (d) `COMANDI_TELEGRAM` è
+  una copia dei `COMANDO_*` di `backend/main.py`, tenuta allineata da un test
+  statico. Brevità solo da prompt: nessun tetto deterministico sulle frasi.
 - **Argo — la voce, passo 11: `/brief` solo per cantieri con Stato
   "aperto"** (deciso da Leonardo). Per ogni altro stato una riga fissa, zero
   LLM, che dice lo stato, chi aspetta e la cella della sessione. Un cantiere
@@ -3386,3 +3401,70 @@ sensibili; classificatore e drafter restano su Anthropic per contratto.
   anche in CD07). `OPENROUTER_API_KEY` oggi è nell'ambiente della shell di
   Leonardo, non in `.env`: script a mano sì, cron e hook no — voluto finché
   il ramo serve solo agli eval.
+
+
+## Sessione 2026-09-18 (sera) — Cantiere Argo — la voce, passo 12: tre difetti del modo conversazione
+
+Dal collaudo dal telefono del passo 11 (`conversazione_argo` id 17, "Come
+collauderesti argo voce"): tre paragrafi più la riga Fatti, e nel secondo
+"verifica che sia partito (log in argo/consumer_voce.log o ps aux | grep
+consumer)". Nessuno dei due esiste; il log vero è `orienta_webhook.log` e il
+consumer è uno script lanciato da cron. "ogni minuto" invece non era
+inventato: era scritto nella riga CANTIERI del ponte, scaduta dal passo 11
+(corretta in questa sessione, riga di un altro cantiere, solo quel dato).
+Il brief diceva che le domande interne erano già in DECISIONI APERTE dal
+passo 11: non c'erano, aggiunte ora.
+
+- **Percorsi e comandi inventati.** Regola in SOUL.md (le istruzioni di
+  verifica sono azioni: percorsi, processi e comandi solo se alla lettera
+  nello stato, altrimenti si omette l'istruzione) e in
+  `ISTRUZIONI_CONVERSA_BASE`. Filtro `_togli_riferimenti_inventati`: toglie
+  la frase intera se cita un percorso (estensione nota, o `/` con prima parte
+  una cartella del repo, o assoluto con almeno due parti) che non compare nei
+  dati ricevuti dal modello e non esiste sotto REPO_ROOT (controllo via
+  `_argomento_sicuro`: niente `..`, niente assoluti fuori dal repo); un
+  comando di shell (verbo noto con argomento, o una pipe) non copiato alla
+  lettera dai dati; un comando Telegram fuori da `COMANDI_TELEGRAM` (in prova
+  il modello ha proposto "/avvisa", che non esiste). I "dati" sono lo stato o
+  la consultazione più il messaggio attuale, mai lo storico: la risposta 17,
+  con il percorso inventato, è nello storico.
+- **Lunghezza.** "Poche righe" come orienta: una frase di risposta, al
+  massimo due di dettaglio, UNA cosa se la domanda è come fare qualcosa.
+  `max_tokens` invariati: la prima chiamata risponde in JSON senza marcatore
+  di troncamento, un taglio darebbe `ConversazioneErrore` invece di una
+  risposta; la riga Fatti la aggiunge il codice dopo, non si può tagliare.
+- **Domande interne.** `_togli_domande` sostituisce `_togli_rilancio`: ogni
+  frase che finisce con "?", finale o interna, salvo la domanda su un
+  parametro ("Quale...", senza "vuoi che"/"ti preparo"/"posso") e salvo un
+  testo fatto solo di domande (mai un messaggio vuoto).
+- **Filtri accumulati**: vedi DECISIONI APERTE. Helper comune `_togli_frasi`
+  per i due filtri nuovi; `_togli_fatti_del_modello` non toccato. Test sulla
+  catena intera con il testo reale della risposta 17: resta il primo
+  paragrafo intero, via il secondo e la domanda, riga Fatti intatta in coda.
+- **Mappa**: nota PASSO 12 su argo_voce e contratto nuovo AV12 (il piano
+  diceva di estendere AV11, ma il suo enunciato parla di backtick e totali:
+  un contratto a parte è più onesto). `verifica_mappa.py` 0 divergenze,
+  `impatti.py --diff`: solo argo_voce, zero contratti in gioco.
+- **Verifiche**: `test_argo_voce` 360/360, suite intera verde.
+  `eval_modi_argo` con il caso nuovo "Come collauderesti argo voce" e i
+  controlli nuovi sulla conversazione (righe, caratteri, domande, file
+  inesistenti, pipe, comandi Telegram): 9/9 al primo giro, poi 26/27 su tre
+  giri — l'unico fallimento è impatto mailer ("Gli altri quattro
+  contratti"), modo non toccato se non per SOUL.md, che entra in ogni
+  prompt. Il confronto con il SOUL vecchio non si è potuto fare: **le eval di
+  questa sessione hanno esaurito il tetto giornaliero (151/150,
+  `llm_chiamate_giorno`, contatore condiviso con il consumer)**, quindi oggi
+  Argo da telefono risponde con il testo del tetto fino a mezzanotte.
+  `eval_classificatore_argo` non rilanciato per lo stesso motivo
+  (classificatore non toccato).
+- **Collaudo da host** (`genera_conversazione` diretta, storico vuoto, zero
+  DB, zero Telegram), due giri identici: "Dal telefono: /orienta per vedere
+  se la riga Fatti è scritta dal codice, /instrada per una proposta che
+  chiude qualcosa, un messaggio libero per verificare che arrivi al modo
+  giusto. Poi verifica che l'avviso parta alle 22:15 come da cantiere." più
+  la riga Fatti. Breve, niente percorsi né domande; l'avviso delle 22:15 è
+  della riga del ponte, non della voce (fonte vera, attribuzione imprecisa).
+  In un terzo giro il testo grezzo aveva "/avvisa": tolto dal filtro.
+- **Resta a Leonardo**: push, ricollaudo dal telefono da domani (il
+  consumer legge i file da disco, nessun rebuild), decidere se ripetere il
+  confronto su impatto mailer col SOUL vecchio.
