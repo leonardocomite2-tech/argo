@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 9: messaggi liberi instradati ai modi da un classificatore Haiku (orienta/instrada/impatto/brief/conversazione, parametro mancante → una riga che chiede); collaudato da host sulle tre frasi del criterio, mai da Telegram; resta a Leonardo il collaudo dal telefono. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host, mai da Telegram; resta a Leonardo deploy, collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
@@ -696,6 +696,13 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   2× il valore, uno per processo. Unificarli vorrebbe dire far passare
   anche il worker dalla tabella (psycopg, stessa UPSERT): non fatto per non
   toccare il comportamento delle pipeline email/DM in questo passo.
+- **Argo — la voce, passo 9 (18/9/2026): i comandi /xxx non entrano nella
+  finestra `conversazione_argo`.** Solo i messaggi liberi e le risposte di
+  Argo a quei messaggi. Un seguito come "sì, fammelo" dopo una proposta nata
+  da /instrada o /orienta non ha contesto: il classificatore lo vede senza lo
+  scambio a cui risponde. Trade-off scelto per restare nel footprint del
+  passo 4 (backend/main.py non toccato); estenderlo richiede di scrivere
+  anche la riga dei comandi. Da conversazione Argo non esegue comunque nulla.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -2860,3 +2867,90 @@ Richieste da Leonardo dopo il passo 4, prima del deploy.
   stasera, verificare che l'avviso delle 22:15 parta (o taccia) una volta
   sola.
 
+## Sessione 2026-09-18 (continua) — Cantiere Argo — la voce, passo 9: messaggi liberi instradati ai modi
+
+Correzione di progettazione, non una feature: Argo era un menu di comandi.
+Dal passo 4 del ponte un messaggio libero riceveva una risposta
+conversazionale, ma non raggiungeva mai orienta, instrada, impatto o brief
+("ho mezz'ora al computer" finiva in conversazione, che non sa instradare).
+Ora un classificatore sceglie il modo; risponde la funzione del modo,
+invariata. I comandi /xxx restano identici e saltano il classificatore.
+
+- **Dove vive.** Dentro il job `genera_conversazione` del passo 4, come
+  primo passo del consumer host (`scripts/argo/orienta_webhook.py:
+  _instrada_messaggio_libero`): nessun tipo di job nuovo, `backend/main.py`,
+  `worker/loop.py`, `TIPI_JOB` e schema invariati. Per orienta/instrada/
+  brief/impatto riassegna `tipo`/`payload` a quelli del comando e il ramo
+  esistente di `main()` lo esegue identico; conversazione resta
+  `genera_conversazione`. Per impatto registra prima il mandato
+  (`_registra_mandato_impatto`, tipo 'consultazione' in chiaro, origine_msg
+  del messaggio), come fa backend/main.py per /impatto.
+- **Il classificatore** (`argo/voce.py`: `classifica_modo`,
+  `_analizza_classificazione`, `risolvi_modo`). Haiku, temperatura 0, JSON
+  forzato, enum chiuso `MODI_ARGO`. Prompt corto senza SOUL/IDENTITY/USER né
+  stato: per scegliere il modo non servono. Vede gli ultimi 4 scambi di
+  `conversazione_argo` (troncati a 300 caratteri), così "telefono" in
+  risposta a "Sei al telefono o al computer?" dopo "ho dieci minuti" diventa
+  instrada 10/telefono. Soglia di confidenza 0.7 in Python (stesso valore di
+  `SOGLIA_CONFIDENZA_BOZZA`): sotto, non_chiaro.
+- **Mai indovina.** Instrada passa da `interpreta_instrada`, la stessa
+  validazione di /instrada (stesse domande: "Quanti minuti hai?", "Sei al
+  telefono o al computer?"). Impatto senza oggetto → "Quale componente o
+  file?", brief senza nome → "Quale cantiere?", non_chiaro → una riga fissa
+  che rimanda ai comandi. Nessuna di queste fa una seconda chiamata LLM. Un
+  parametro di tipo sbagliato diventa None e si chiede, mai corretto per
+  plausibilità.
+- **Memoria.** Nessuna tabella nuova: `conversazione_argo` del passo 4 è già
+  la forma minima. La riga di Argo entra per ogni job nato da un messaggio
+  libero, qualunque sia il modo scelto (anche la domanda sul parametro
+  mancante), prima dell'invio. Niente potatura: la lettura è sempre per id
+  con LIMIT, la tabella cresce di poche righe per messaggio.
+- **`main()` più stretto.** L'`else` finale assumeva `genera_avviso` per
+  qualunque tipo: ora `genera_avviso` è un ramo esplicito e un tipo
+  sconosciuto solleva (job failed + messaggio d'errore), invece di mandare un
+  digest.
+- **Costo.** Una chiamata Haiku in più per messaggio libero (~1.2k token in
+  ingresso, max 150 in uscita), i comandi non la pagano. Per messaggio: 1
+  chiamata se chiede, 2 per orienta/instrada/impatto/brief, 3 nel caso
+  peggiore (conversazione con consultazione). Tutte nel tetto persistente
+  del consumer. "Cosa rischio se tocco X" costa meno di prima: classificatore
+  + /impatto invece delle due chiamate grosse della conversazione.
+- **Eval** `tests/eval_classificatore_argo.py` (API vera, 15 frasi: le tre
+  del criterio, gli esempi del brief, parametri mancanti, un seguito con
+  finestra, confine conversazione/non_chiaro). Primo giro 14/15 ("sono al
+  computer, cosa chiudo?" → orienta, perdendo il contesto); corretto il
+  prompt (basta uno dei due dati per instrada), poi due instabilità a
+  temperatura 0 ("il designer" con l'articolo, che /brief non risolve;
+  "cosa rischio se lo tocco?" → non_chiaro invece di impatto senza oggetto),
+  corrette nel prompt. Finale: 15/15 su tre giri consecutivi.
+- **Collaudo da host** (classificatore vero + funzione del modo vera, zero
+  scritture su DB — mandato di impatto sostituito, AV01 — zero Telegram):
+  "come sta andando?" → conversazione ("Tre cantieri aspettano te, uno
+  aspetta il sistema, due aspettano il calendario...");
+  "ho mezz'ora al computer" → instrada 30/computer (deploy e collaudo del
+  ponte); "cosa rischio se tocco mailer" → impatto mailer (poster_host e
+  risposte_email, RE01 in testa). Instradamento corretto su tutte e tre.
+  **Difetti delle risposte, non del classificatore** (modi invariati per
+  vincolo, da rivedere a parte): instrada ha usato un backtick ("`git
+  push`", contro la regola niente markdown) e ha proposto di "avviare il
+  consumer su host", che gira già da cron; impatto ha scritto "i contratti
+  in gioco sono quattro" e poi ne ha elencati sette.
+- **Mappa**: scheda `argo_voce` con la nota PASSO 9, la riga "messaggio
+  libero" in produce, il sesto scrittore di `mandati`, e il contratto AV10
+  (solo modi di sola lettura, parametro mancante → domanda, mai un mandato
+  di esecuzione; `file:riga` + test, estrazione dei parametri = eval).
+  `verifica_mappa.py` exit 0; `impatti.py --diff`: solo argo_voce, zero
+  contratti.
+- **Verifiche**: suite verde (`test_argo_voce` 281/281, gli altri
+  invariati). Sub-agent `guardrail-review` sul diff: nessun blocco. Unica
+  nota: se il processo muore (crash, non un'eccezione) fra l'INSERT di
+  `_registra_mandato_impatto` e la scrittura dell'esito, il mandato resta con
+  `esito` NULL e il job non è ritentato — stesso trade-off già accettato per
+  /impatto (mandato registrato da backend/main.py prima del consumer),
+  visibile dall'indice `mandati_esito_aperti_idx`.
+- **Limite dichiarato**: i comandi /xxx non entrano nella finestra (come
+  dal passo 4): un "sì, fammelo" dopo un /instrada non ha contesto. Da
+  conversazione comunque Argo non esegue nulla.
+- **Resta a Leonardo**: collaudo dal telefono delle tre frasi. Il consumer
+  legge i file da disco: nessun rebuild per questo passo, basta il deploy
+  del passo 4 (`docker compose up -d --build`) se non è già stato fatto.

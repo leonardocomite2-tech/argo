@@ -58,6 +58,14 @@ di esecuzione) e la risposta di Argo nella finestra conversazione_argo
 (_registra_risposta_conversazione). Il tetto LLM non arriva qui come
 eccezione: argo/voce.py:genera_conversazione lo trasforma in un testo che lo
 dice, mandato come qualunque risposta.
+
+Passo 9 della voce: un genera_conversazione passa prima dal classificatore
+(_instrada_messaggio_libero). Se il modo è orienta/instrada/brief/impatto,
+`tipo` e `payload` diventano quelli del comando corrispondente e il ramo
+esistente lo esegue identico (per impatto il mandato è registrato qui prima,
+come fa backend/main.py per /impatto); se manca un parametro o il modo non è
+chiaro, la risposta è una riga fissa senza altre chiamate LLM. In ogni caso
+la risposta entra nella finestra conversazione_argo.
 """
 
 import json
@@ -202,6 +210,56 @@ def _registra_mandato_conversazione(origine_msg, oggetto, esito):
     )
 
 
+def _registra_mandato_impatto(origine_msg, componente):
+    """Passo 9 della voce: /impatto raggiunto da un messaggio libero. Stesso
+    mandato che backend/main.py registra per il comando /impatto (tipo
+    'consultazione' in chiaro, origine_msg = messaggio di Leonardo), ma qui:
+    il componente si conosce solo dopo il classificatore. Registrato PRIMA
+    di eseguire impatti.py; l'esito lo scrive poi il ramo genera_impatto
+    esistente (_scrivi_esito_mandato). Ritorna l'id del mandato."""
+    origine_sql = origine_msg.replace("'", "''")
+    oggetto_sql = f"impatto: {componente}".replace("'", "''")
+    risultato = _psql(
+        "INSERT INTO mandati (origine_msg, tipo, oggetto) VALUES "
+        f"('{origine_sql}', 'consultazione', '{oggetto_sql}') RETURNING id"
+    )
+    return int(risultato.splitlines()[0])
+
+
+def _instrada_messaggio_libero(payload):
+    """Passo 9 della voce: il classificatore sceglie il modo di un messaggio
+    libero. Ritorna (tipo, payload, testo_diretto): tipo/payload sono quelli
+    del job del modo scelto — il ramo esistente lo esegue identico —, oppure
+    testo_diretto è la riga da mandare così com'è (parametro mancante, modo
+    non chiaro, tetto LLM) senza altre chiamate. Per conversazione nulla
+    cambia: resta genera_conversazione col suo payload."""
+    from argo.voce import TESTO_TETTO_CONVERSAZIONE, classifica_modo, risolvi_modo
+    from connectors.llm import TettoLLMRaggiunto
+
+    try:
+        decisione = classifica_modo(payload["conversazione_id"], payload["testo"])
+    except TettoLLMRaggiunto:
+        return "genera_conversazione", payload, TESTO_TETTO_CONVERSAZIONE
+    logger.info(
+        "orienta_webhook: messaggio libero classificato come %s (confidenza %.2f)",
+        decisione["modo"], decisione["confidenza"],
+    )
+    modo, parametri = risolvi_modo(decisione)
+
+    if modo == "chiedi":
+        return "genera_conversazione", payload, parametri
+    if modo == "orienta":
+        return "genera_orienta", {}, None
+    if modo == "instrada":
+        return "genera_instrada", parametri, None
+    if modo == "brief":
+        return "genera_brief", {"nome": parametri["nome"], "origine_msg": payload["origine_msg"]}, None
+    if modo == "impatto":
+        mandato_id = _registra_mandato_impatto(payload["origine_msg"], parametri["componente"])
+        return "genera_impatto", {"componente": parametri["componente"], "mandato_id": mandato_id}, None
+    return "genera_conversazione", payload, None
+
+
 def _registra_risposta_conversazione(testo):
     """La risposta di Argo entra nella finestra di conversazione PRIMA
     dell'invio (stesso ordine del resto del repo), così il prossimo messaggio
@@ -250,8 +308,18 @@ def main():
     esito_mandato = None
     log_impatti_brief = None
     consultazione = None
+    # Un messaggio libero entra sempre come genera_conversazione; dopo il
+    # classificatore `tipo` può diventare quello di un altro modo, ma la
+    # risposta va comunque nella finestra di conversazione.
+    da_messaggio_libero = tipo == "genera_conversazione"
+    testo_diretto = None
     try:
-        if tipo == "genera_orienta":
+        if da_messaggio_libero:
+            tipo, payload, testo_diretto = _instrada_messaggio_libero(payload)
+
+        if testo_diretto is not None:
+            testo, marcatori = testo_diretto, None
+        elif tipo == "genera_orienta":
             testo, marcatori = genera_risposta(), None
         elif tipo == "genera_instrada":
             testo, marcatori = genera_risposta_instrada(payload["minuti"], payload["contesto"]), None
@@ -264,8 +332,10 @@ def main():
         elif tipo == "genera_conversazione":
             testo, consultazione = genera_conversazione(payload["conversazione_id"], payload["testo"])
             marcatori = None
-        else:
+        elif tipo == "genera_avviso":
             testo, marcatori = genera_avviso()
+        else:
+            raise RuntimeError(f"tipo di job sconosciuto: {tipo}")
     except Exception as e:
         logger.exception("orienta_webhook: job %s (%s) fallito", job_id, tipo)
         _segna_failed(job_id, f"{type(e).__name__}: {e}")
@@ -292,11 +362,11 @@ def main():
         _registra_mandato_brief(
             payload["origine_msg"], f"brief: {payload['nome']}", log_impatti_brief
         )
-    if tipo == "genera_conversazione":
-        if consultazione:
-            _registra_mandato_conversazione(
-                payload["origine_msg"], consultazione["oggetto"], consultazione["esito"]
-            )
+    if consultazione:
+        _registra_mandato_conversazione(
+            payload["origine_msg"], consultazione["oggetto"], consultazione["esito"]
+        )
+    if da_messaggio_libero:
         _registra_risposta_conversazione(testo)
 
     invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])

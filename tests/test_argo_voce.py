@@ -4,6 +4,7 @@ mano, con scripts/argo/orienta.py (criterio di chiusura della sessione).
 Lancio: python3 tests/test_argo_voce.py
 """
 import copy
+import json
 import re
 import sys
 from pathlib import Path
@@ -928,6 +929,176 @@ _src_consumer = (REPO_ROOT / "scripts/argo/orienta_webhook.py").read_text(encodi
 _corpo = _src_consumer.split("def _registra_mandato_conversazione", 1)[1].split("\ndef ", 1)[0]
 caso("_registra_mandato_conversazione scrive tipo 'consultazione' in chiaro", True, "'consultazione'" in _corpo)
 caso("_registra_mandato_conversazione scrive origine_msg", True, "origine_msg" in _corpo)
+
+
+# --- Passo 9 della voce: classificatore dei messaggi liberi ---
+
+def _cls(**campi):
+    base = {"modo": "conversazione", "minuti": None, "contesto": None,
+            "oggetto": None, "nome_cantiere": None, "confidenza": 0.9}
+    base.update(campi)
+    return json.dumps(base)
+
+
+def _errore_classificatore(grezzo):
+    try:
+        voce._analizza_classificazione(grezzo)
+    except voce.ClassificatoreErrore as e:
+        return str(e)
+    return None
+
+
+caso("classificatore: JSON rotto -> errore categorico", "JSON non valido", _errore_classificatore("non json"))
+caso("classificatore: lista invece di oggetto -> errore", "JSON non è un oggetto", _errore_classificatore("[1]"))
+caso("classificatore: modo fuori enum -> errore", "modo fuori dall'insieme chiuso",
+     _errore_classificatore(_cls(modo="esegui")))
+caso("classificatore: confidenza > 1 -> errore", "confidenza non valida", _errore_classificatore(_cls(confidenza=1.5)))
+caso("classificatore: confidenza testo -> errore", "confidenza non valida", _errore_classificatore(_cls(confidenza="alta")))
+caso("classificatore: confidenza booleana -> errore", "confidenza non valida", _errore_classificatore(_cls(confidenza=True)))
+
+_d = voce._analizza_classificazione("```json\n" + _cls(modo="instrada", minuti=30, contesto="Computer") + "\n```")
+caso("classificatore: fence markdown tollerata, modo instrada", "instrada", _d["modo"])
+caso("classificatore: minuti intero", 30, _d["minuti"])
+caso("classificatore: contesto normalizzato minuscolo", "computer", _d["contesto"])
+caso("classificatore: minuti come stringa di cifre -> intero", 20,
+     voce._analizza_classificazione(_cls(modo="instrada", minuti="20"))["minuti"])
+caso("classificatore: minuti non numerici -> None, mai dedotti", None,
+     voce._analizza_classificazione(_cls(modo="instrada", minuti="venti"))["minuti"])
+caso("classificatore: minuti zero -> None", None,
+     voce._analizza_classificazione(_cls(modo="instrada", minuti=0))["minuti"])
+caso("classificatore: oggetto vuoto -> None", None,
+     voce._analizza_classificazione(_cls(modo="impatto", oggetto="  "))["oggetto"])
+caso("classificatore: sotto soglia -> non_chiaro", "non_chiaro",
+     voce._analizza_classificazione(_cls(modo="orienta", confidenza=0.69))["modo"])
+caso("classificatore: alla soglia resta il modo", "orienta",
+     voce._analizza_classificazione(_cls(modo="orienta", confidenza=voce.SOGLIA_CONFIDENZA_MODO))["modo"])
+
+
+def _dec(**campi):
+    base = {"modo": "conversazione", "minuti": None, "contesto": None,
+            "oggetto": None, "nome_cantiere": None, "confidenza": 0.9}
+    base.update(campi)
+    return base
+
+
+caso("risolvi_modo: orienta", ("orienta", {}), voce.risolvi_modo(_dec(modo="orienta")))
+caso("risolvi_modo: instrada completo", ("instrada", {"minuti": 20, "contesto": "telefono"}),
+     voce.risolvi_modo(_dec(modo="instrada", minuti=20, contesto="telefono")))
+caso("risolvi_modo: instrada senza minuti -> stessa domanda di /instrada",
+     ("chiedi", "Quanti minuti hai?"), voce.risolvi_modo(_dec(modo="instrada", contesto="computer")))
+caso("risolvi_modo: instrada senza contesto -> stessa domanda di /instrada",
+     ("chiedi", "Sei al telefono o al computer?"), voce.risolvi_modo(_dec(modo="instrada", minuti=30)))
+caso("risolvi_modo: instrada con contesto fuori enum -> chiede, non indovina",
+     ("chiedi", "Contesto non riconosciuto: telefono o computer?"),
+     voce.risolvi_modo(_dec(modo="instrada", minuti=30, contesto="tablet")))
+caso("risolvi_modo: impatto con oggetto", ("impatto", {"componente": "mailer"}),
+     voce.risolvi_modo(_dec(modo="impatto", oggetto="mailer")))
+caso("risolvi_modo: impatto senza oggetto -> chiede", ("chiedi", "Quale componente o file?"),
+     voce.risolvi_modo(_dec(modo="impatto")))
+caso("risolvi_modo: brief con nome", ("brief", {"nome": "designer"}),
+     voce.risolvi_modo(_dec(modo="brief", nome_cantiere="designer")))
+caso("risolvi_modo: brief senza nome -> chiede", ("chiedi", "Quale cantiere?"),
+     voce.risolvi_modo(_dec(modo="brief")))
+caso("risolvi_modo: conversazione", ("conversazione", {}), voce.risolvi_modo(_dec()))
+caso("risolvi_modo: non_chiaro -> riga fissa", ("chiedi", voce.TESTO_NON_CHIARO),
+     voce.risolvi_modo(_dec(modo="non_chiaro")))
+caso("TESTO_NON_CHIARO è una riga sola", 1, len(voce.TESTO_NON_CHIARO.splitlines()))
+
+# Il prompt del classificatore resta corto: niente identità, niente stato.
+caso("prompt classificatore: niente SOUL.md", False, soul.strip()[:200] in voce.SISTEMA_CLASSIFICATORE)
+caso("prompt classificatore: niente IDENTITY.md", False, identity.strip()[:200] in voce.SISTEMA_CLASSIFICATORE)
+caso("prompt classificatore: sotto i 3000 caratteri", True, len(voce.SISTEMA_CLASSIFICATORE) < 3000)
+caso("prompt classificatore: elenca tutti i modi", True,
+     all(f"- {m}:" in voce.SISTEMA_CLASSIFICATORE for m in voce.MODI_ARGO))
+
+_p = voce._prompt_classificatore(
+    [{"ruolo": "argo", "testo": "Sei al telefono o al computer?"}, {"ruolo": "leonardo", "testo": "x" * 1000}],
+    "telefono",
+)
+caso("prompt classificatore: scambio di Argo etichettato", True, "Argo: Sei al telefono o al computer?" in _p)
+caso("prompt classificatore: scambio lungo troncato", True, "x" * 1000 not in _p and "[TRONCATO" in _p)
+caso("prompt classificatore: messaggio attuale in coda", True, _p.endswith("Messaggio attuale di Leonardo:\ntelefono"))
+caso("prompt classificatore: finestra vuota dichiarata", True,
+     "(nessuno)" in voce._prompt_classificatore([], "come sta andando?"))
+
+# classifica_modo: chiama() mockata, nessuna rete.
+_orig_chiama_cls, _orig_recente_cls = voce.chiama, voce.stato.conversazione_recente
+_viste = {}
+
+
+def _chiama_finta_cls(system, prompt, max_tokens=None, temperature=None, **_):
+    _viste.update(system=system, prompt=prompt, max_tokens=max_tokens)
+    return _cls(modo="impatto", oggetto="mailer", confidenza=0.95)
+
+
+voce.chiama = _chiama_finta_cls
+voce.stato.conversazione_recente = lambda prima_di_id, n: {"copertura": "assente", "motivo": "x", "righe": []}
+_esito_cls = voce.classifica_modo(123, "cosa rischio se tocco mailer")
+caso("classifica_modo: decisione dal JSON", ("impatto", "mailer"), (_esito_cls["modo"], _esito_cls["oggetto"]))
+caso("classifica_modo: usa il prompt corto", voce.SISTEMA_CLASSIFICATORE, _viste["system"])
+caso("classifica_modo: max_tokens del classificatore", voce.MAX_TOKENS_CLASSIFICATORE, _viste["max_tokens"])
+caso("classifica_modo: finestra illeggibile non blocca", True, "cosa rischio se tocco mailer" in _viste["prompt"])
+
+
+def _chiama_rotta(*a, **k):
+    raise voce.LLMErrore("status=500")
+
+
+voce.chiama = _chiama_rotta
+try:
+    voce.classifica_modo(123, "ciao")
+    _err = None
+except voce.ClassificatoreErrore as e:
+    _err = str(e)
+caso("classifica_modo: errore LLM -> ClassificatoreErrore", "chiamata LLM fallita", _err)
+voce.chiama, voce.stato.conversazione_recente = _orig_chiama_cls, _orig_recente_cls
+
+# Dispatch nel consumer: classifica_modo mockata, nessun DB (il mandato è mockato).
+import scripts.argo.orienta_webhook as consumer  # noqa: E402
+
+_orig_classifica, _orig_mandato = voce.classifica_modo, consumer._registra_mandato_impatto
+_mandati_scritti = []
+consumer._registra_mandato_impatto = lambda origine, comp: (_mandati_scritti.append((origine, comp)) or 77)
+_PAYLOAD = {"conversazione_id": 5, "testo": "t", "origine_msg": "Telegram message_id=9: t"}
+
+
+def _instrada_con(decisione):
+    voce.classifica_modo = lambda cid, testo: decisione
+    return consumer._instrada_messaggio_libero(dict(_PAYLOAD))
+
+
+caso("dispatch: orienta -> genera_orienta", ("genera_orienta", {}, None), _instrada_con(_dec(modo="orienta")))
+caso("dispatch: instrada -> genera_instrada coi parametri",
+     ("genera_instrada", {"minuti": 30, "contesto": "computer"}, None),
+     _instrada_con(_dec(modo="instrada", minuti=30, contesto="computer")))
+caso("dispatch: brief -> genera_brief con origine_msg",
+     ("genera_brief", {"nome": "designer", "origine_msg": _PAYLOAD["origine_msg"]}, None),
+     _instrada_con(_dec(modo="brief", nome_cantiere="designer")))
+caso("dispatch: impatto -> mandato registrato prima, poi genera_impatto",
+     ("genera_impatto", {"componente": "mailer", "mandato_id": 77}, None),
+     _instrada_con(_dec(modo="impatto", oggetto="mailer")))
+caso("dispatch: mandato impatto con origine_msg del messaggio", [(_PAYLOAD["origine_msg"], "mailer")], _mandati_scritti)
+caso("dispatch: conversazione resta genera_conversazione, payload intatto",
+     ("genera_conversazione", _PAYLOAD, None), _instrada_con(_dec()))
+caso("dispatch: parametro mancante -> riga diretta, nessun mandato",
+     ("genera_conversazione", _PAYLOAD, "Quale componente o file?"), _instrada_con(_dec(modo="impatto")))
+caso("dispatch: nessun mandato per la domanda", 1, len(_mandati_scritti))
+
+
+def _classifica_tetto(cid, testo):
+    raise voce.TettoLLMRaggiunto("tetto")
+
+
+voce.classifica_modo = _classifica_tetto
+caso("dispatch: tetto sul classificatore -> testo che lo dice",
+     ("genera_conversazione", _PAYLOAD, voce.TESTO_TETTO_CONVERSAZIONE),
+     consumer._instrada_messaggio_libero(dict(_PAYLOAD)))
+voce.classifica_modo, consumer._registra_mandato_impatto = _orig_classifica, _orig_mandato
+
+_corpo_mandato_impatto = _src_consumer.split("def _registra_mandato_impatto", 1)[1].split("\ndef ", 1)[0]
+caso("_registra_mandato_impatto scrive tipo 'consultazione' in chiaro", True, "'consultazione'" in _corpo_mandato_impatto)
+caso("main(): un tipo sconosciuto solleva, non cade su genera_avviso", True,
+     'raise RuntimeError(f"tipo di job sconosciuto' in _src_consumer)
 
 
 def main():

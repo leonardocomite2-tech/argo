@@ -540,6 +540,7 @@ pipeline:
       - "modo instrada: messaggio breve su Telegram (stesso bot) — una sola proposta dentro la finestra dichiarata e coerente col contesto fisico (telefono/computer), a parità di finestra ciò che chiude qualcosa prima di ciò che ne apre una; se niente si adatta, lo dice e si ferma"
       - "modo avvisa: digest serale su Telegram (stesso bot), UNA volta al giorno alle 22:15 — solo se almeno una approvazione ferma da più di 24h, un job fallito nelle ultime 24h o un'osservazione grave qualificano (mai già segnalati in passato); altrimenti nessun messaggio, il silenzio è l'esito normale"
       - "modo brief: testo pronto da incollare in Claude Code su Telegram (stesso bot, uno o più messaggi via invia_lungo se supera 4096 caratteri) — titolo/Plan mode obbligatorio/Vincoli standard/riga sul repo fissi, Contesto/Obiettivo/Criterio di chiusura sintetizzati dall'LLM solo da dati presenti alla lettera nel contesto raccolto; nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, zero LLM"
+      - "messaggio libero (passo 9 della voce): prima un classificatore Haiku corto sceglie il modo (orienta, instrada, impatto, brief, conversazione) ed estrae i parametri; risponde la funzione del modo scelto, invariata. Parametro mancante o modo incerto (confidenza sotto 0.7): una riga che chiede, nessun'altra chiamata LLM"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "db/migrations/007_conversazione_argo.sql"
@@ -644,6 +645,12 @@ pipeline:
             (INSERT con tipo 'consultazione' scritto in chiaro, origine_msg
             dal payload del job) quando il ramo conversazionale ha eseguito
             una consultazione.
+            PASSO 9 della voce (18/9/2026): sesto scrittore, stessa
+            deviazione — scripts/argo/orienta_webhook.py:_registra_mandato_impatto
+            (INSERT ... RETURNING id, tipo 'consultazione' in chiaro,
+            origine_msg dal payload) quando un messaggio libero è
+            instradato a impatto; l'esito lo scrive poi
+            _scrivi_esito_mandato, come per il comando /impatto.
         - campo: tabelle.scrive
           valore: conversazione_argo
           motivo: >
@@ -651,7 +658,10 @@ pipeline:
             (riga di Leonardo, cur.execute() reale, visibile a verifica_mappa.py)
             e scripts/argo/orienta_webhook.py:_registra_risposta_conversazione
             (riga di Argo, PRIMA dell'invio, via docker exec psql — invisibile,
-            dichiarata qui a mano).
+            dichiarata qui a mano). PASSO 9 della voce: la riga di Argo è
+            scritta per ogni job nato da un messaggio libero, qualunque sia
+            il modo scelto dal classificatore (anche la riga che chiede un
+            parametro mancante: è ciò che dà contesto alla risposta).
         - campo: tabelle.legge
           valore: conversazione_argo
           motivo: >
@@ -709,6 +719,9 @@ pipeline:
       - id: AV09
         enunciato: "In conversazione, Argo risponde solo con fatti presenti nello stato, nella mappa o nel DB; se non sa, lo dice; nessuna domanda di rilancio"
         garantito_da: eval
+      - id: AV10
+        enunciato: "Un messaggio libero raggiunge solo un modo di sola lettura (orienta, instrada, impatto, brief, conversazione); se un parametro manca o il modo è incerto, Argo chiede in una riga — mai un valore dedotto, mai un mandato di esecuzione"
+        garantito_da: "argo/voce.py:_analizza_classificazione (modo fuori da MODI_ARGO -> ClassificatoreErrore, mai eseguito; confidenza sotto SOGLIA_CONFIDENZA_MODO -> non_chiaro; parametro di tipo sbagliato -> None) + argo/voce.py:risolvi_modo (parametro assente -> ('chiedi', riga); instrada validato da connectors/telegram.py:interpreta_instrada come /instrada) + scripts/argo/orienta_webhook.py:_instrada_messaggio_libero (solo i quattro tipi di job esistenti o genera_conversazione; mandato di impatto con tipo 'consultazione' in chiaro) + test:tests/test_argo_voce.py. L'estrazione corretta dei parametri dal testo è invece eval: tests/eval_classificatore_argo.py"
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -730,6 +743,8 @@ pipeline:
       - "PASSO 1 (ponte): backend/main.py:414-524 (ex 414-504) dopo l'inserimento di COMANDO_BRIEF/RISPOSTA_BRIEF_SENZA_NOME e del ramo /brief in _gestisci_messaggio_argo — approvazione_telegram (condiviso) non tocca queste righe, nessun aggiornamento al suo range necessario. worker/loop.py:claim_job (60-70/83-85/1635-1668, invariati) ha guadagnato 'genera_brief' nella stessa esclusione NOT IN, stessa riga, nessuno spostamento di riga nel file."
       - "PASSO 2 (ponte, 12/9/2026) — comando /impatto: backend/main.py:414-572 (ex 414-524) dopo COMANDO_IMPATTO/RISPOSTA_IMPATTO_SENZA_ARGOMENTO/_registra_mandato/il ramo /impatto — approvazione_telegram (condiviso) sposta webhook_telegram da 527-543 a 575-591, stesso tipo di aggiustamento dei passi precedenti. worker/loop.py:claim_job (60-70 invariato, 83-85→83-88, 1635-1668→1636-1669: +1 riga uniforme da qui in poi) ha guadagnato 'genera_impatto' nella stessa esclusione NOT IN. DECISIONE presa nel piano, non nel codice: impatti.py non ha un flag --json (l'obiettivo del brief lo assumeva, il vincolo 'non modificarlo' vince) — genera_impatto lo invoca nella sua unica modalità reale (testo su stdout/stderr) e fa tradurre l'LLM sotto anti-invenzione rinforzata; sull'errore vero (returncode != 0, percorso/componente inesistente) zero chiamata LLM, il messaggio di impatti.py è rilanciato com'è. Il secondo uso del brief, rinviato in questo passo, è implementato al PASSO 3 sotto."
       - "PASSO 3 (ponte, 12/9/2026) — fix troncamento /impatto + /brief consapevole degli impatti. (1) MAX_TOKENS_RISPOSTA (200) troncava a metà frase una consultazione con molti contratti (collaudo reale, /impatto mailer: 8 contratti, ~3085 caratteri di output grezzo) — nuova MAX_TOKENS_IMPATTO=700 dedicata al solo modo impatto, e connectors/llm.py:chiama() guadagna un parametro opt-in marcatore_se_troncato (default None, nessun altro chiamante toccato) che accoda un marcatore esplicito se stop_reason=='max_tokens' — mai un taglio silenzioso, stessa logica di _tronca() per il testo in ingresso. (2) genera_brief interroga ora impatti.py --file sui percorsi citati nel proprio campo 'contesto' che esistono davvero sul filesystem (stesso controllo deterministico di _risolvi_flag_impatti — un nome nudo indovinato male dal modello, es. pavimento.mjs, semplicemente non passa il controllo: nessun avviso, nessun errore), fino a LIMITE_FILE_IMPATTI_BRIEF=8 per contenere il costo. L'output di impatti.py (formato fisso, mai modificato) è analizzato a riga da _analizza_output_impatti_file/_contratti_in_gioco: un file che tocca un componente condiviso o almeno un contratto produce un avvertimento accodato ai Vincoli standard da _componi_brief (mai passato al modello, vedi AV07); nessun file con impatti -> nessun avvertimento, zero righe vuote, come per avvisa. Un solo mandato di consultazione per invocazione di /brief (non uno per file, per non far crescere la tabella quando un brief ne cita molti), registrato da scripts/argo/orienta_webhook.py:_registra_mandato_brief SOLO se almeno un file citato esisteva davvero (altrimenti nessuna consultazione, nessun mandato). backend/main.py guadagna origine_msg anche sul ramo /brief (stesso stile di /impatto), passato nel payload del job perché il mandato nasce solo dopo l'esecuzione, non alla ricezione del comando. Collaudato a mano su tre file reali: connectors/mailer.py (condiviso mailer + contratto RE04, genera avvertimento), argo/voce.py (mappato ma zero condivisi/contratti, nessun avvertimento), tests/test_argo_voce.py (non mappato, nessun avvertimento) — tests/test_argo_voce.py copre tutti e tre i casi con invocazioni reali di impatti.py, zero LLM. Range backend/main.py aggiornati: argo_voce 414-572→414-577 (+5, dal docstring esteso di _gestisci_messaggio_argo e dalla riga origine_msg nel ramo /brief), approvazione_telegram 575-591→580-596 (stesso +5, nessuna riga toccata dentro quella funzione)."
+
+      - "PASSO 9 della voce (18/9/2026) — messaggi liberi instradati ai modi: il classificatore vive DENTRO il job genera_conversazione del passo 4 del ponte (scripts/argo/orienta_webhook.py:_instrada_messaggio_libero, primo passo di main()), che riassegna tipo/payload a genera_orienta/genera_instrada/genera_brief/genera_impatto e lascia al ramo esistente l'esecuzione identica — nessun tipo di job nuovo, backend/main.py e worker/loop.py invariati, nessuna tabella nuova (la finestra è conversazione_argo). main() ha ora un ramo esplicito per genera_avviso e solleva su un tipo sconosciuto (prima l'else assumeva genera_avviso per qualunque tipo). Prompt del classificatore senza SOUL/IDENTITY/USER né stato: ~1.2k token in ingresso, max 150 in uscita, conta nel tetto persistente come ogni chiamata del consumer."
 
 condivisi:
   - nome: valuta_e_rispondi

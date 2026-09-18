@@ -30,6 +30,11 @@ anche il ramo conversazionale (genera_conversazione): un messaggio libero,
 non un comando, riceve una risposta dallo stato reale; l'LLM può chiedere
 UNA consultazione da un insieme chiuso (CONSULTAZIONI_PERMESSE), eseguita
 qui in modo deterministico e in sola lettura, poi risponde col risultato.
+Dal passo 9 della voce, un messaggio libero passa prima dal classificatore
+(classifica_modo + risolvi_modo): sceglie il modo — orienta, instrada,
+impatto, brief, conversazione — ed estrae i parametri; chi risponde resta la
+funzione di quel modo, invariata. Parametro mancante o modo incerto: una
+riga che chiede, mai un valore dedotto.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
@@ -53,6 +58,7 @@ from zoneinfo import ZoneInfo
 
 import argo.stato as stato
 from connectors.llm import LLMErrore, TettoLLMRaggiunto, chiama, estrai_json
+from connectors.telegram import interpreta_instrada
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = REPO_ROOT / "knowledge" / "argo"
@@ -1345,3 +1351,166 @@ def genera_conversazione(conversazione_id, messaggio):
     except LLMErrore as e:
         raise ConversazioneErrore("chiamata LLM fallita") from e
     return (_togli_rilancio(testo) or TESTO_NON_SO), consultazione
+
+
+# --- Classificatore dei messaggi liberi (cantiere Argo — la voce, passo 9) ---
+#
+# Un messaggio libero passa da qui PRIMA del ramo conversazionale: una
+# chiamata corta decide quale modo gli corrisponde ed estrae i parametri.
+# Il prompt non contiene SOUL/IDENTITY/USER né lo stato del sistema: per
+# scegliere il modo non servono, e tenerlo corto è il suo costo. Il
+# classificatore decide il modo, non la risposta: risponde sempre la
+# funzione del modo (genera_risposta, genera_risposta_instrada,
+# genera_impatto, genera_brief, genera_conversazione), chiamata identica.
+
+MODI_ARGO = ("orienta", "instrada", "impatto", "brief", "conversazione", "non_chiaro")
+SOGLIA_CONFIDENZA_MODO = 0.7  # stesso valore di SOGLIA_CONFIDENZA_BOZZA (worker/loop.py)
+MAX_TOKENS_CLASSIFICATORE = 150
+N_SCAMBI_CLASSIFICATORE = 4
+LIMITE_SCAMBIO_CLASSIFICATORE_CARATTERI = 300
+
+# Stesse frasi di backend/main.py (RISPOSTA_IMPATTO_SENZA_ARGOMENTO,
+# RISPOSTA_BRIEF_SENZA_NOME): quel modulo importa psycopg/fastapi e non è
+# importabile da host, dove gira questo.
+TESTO_CHIEDI_OGGETTO_IMPATTO = "Quale componente o file?"
+TESTO_CHIEDI_CANTIERE = "Quale cantiere?"
+TESTO_NON_CHIARO = (
+    "Non ho capito cosa ti serve: dimmelo con altre parole, oppure usa "
+    "/orienta, /instrada, /impatto o /brief."
+)
+
+SISTEMA_CLASSIFICATORE = """Smisti i messaggi che Leonardo scrive in italiano libero ad Argo, il suo assistente sul sistema. Non rispondi al messaggio: decidi solo quale modo gli corrisponde ed estrai i parametri.
+
+Rispondi SOLO con un oggetto JSON, senza testo attorno:
+{"modo": "...", "minuti": null, "contesto": null, "oggetto": null, "nome_cantiere": null, "confidenza": 0.0}
+
+"modo" è ESATTAMENTE uno di questi:
+- orienta: Leonardo è perso e chiede in generale dove si trova, cosa è aperto, qual è la prossima cosa ("sono perso", "dove ero rimasto?", "cosa faccio adesso?"), senza dire né quanto tempo ha né se è al telefono o al computer.
+- instrada: vuole sapere cosa fare e dice quanto tempo ha, oppure se è al telefono o al computer, oppure entrambi ("ho venti minuti in metro", "ho mezz'ora al computer", "sono al computer, cosa chiudo?"). Basta uno dei due dati: l'altro resta null.
+- impatto: chiede cosa rischia, cosa si rompe o cosa dipende toccando un componente, una tabella o un file ("cosa rischio se tocco mailer").
+- brief: chiede un brief, o un testo da dare a Claude Code, per un cantiere.
+- conversazione: qualunque altra cosa che si capisce: domande sullo stato ("come sta andando?", "è passato il digest ieri sera?"), chiarimenti, commenti, risposte a quello che Argo ha appena detto.
+- non_chiaro: solo se non si capisce cosa chiede.
+
+Parametri (null se il modo non li usa):
+- minuti (instrada): intero. "mezz'ora" = 30, "un'ora" = 60, "venti minuti" = 20.
+- contesto (instrada): "telefono" se ha solo il telefono o è in giro (metro, treno, fuori casa); "computer" se è al computer.
+- oggetto (impatto): il nome del componente, tabella o file, copiato com'è scritto, senza articolo ("mailer", non "il mailer").
+- nome_cantiere (brief): il nome del cantiere, copiato com'è scritto, senza articolo ("designer", non "il designer").
+
+Un parametro che Leonardo non ha detto resta null: mai dedurlo, mai un valore tipico. Se si capisce il modo ma manca il parametro ("cosa rischio se lo tocco?", "fammi un brief"), il modo resta quello, con confidenza alta, e il parametro null: non è non_chiaro. Vale anche un parametro detto nell'ultimo scambio, se il messaggio attuale risponde a una domanda di Argo (Argo: "Sei al telefono o al computer?" — Leonardo: "telefono", dopo "ho venti minuti": instrada, minuti 20, contesto telefono).
+
+"confidenza" (0.0-1.0) è quanto sei sicuro del modo. Nessun testo fuori dal JSON."""
+
+
+class ClassificatoreErrore(Exception):
+    """Errore rumoroso del classificatore: JSON non valido, modo fuori
+    dall'insieme chiuso, confidenza non valida. Motivo sempre categorico, mai
+    il testo grezzo del modello (stesso stile di BriefErrore)."""
+
+
+def _intero_positivo(valore):
+    if isinstance(valore, bool):
+        return None
+    if isinstance(valore, int) and valore > 0:
+        return valore
+    if isinstance(valore, float) and valore.is_integer() and valore > 0:
+        return int(valore)
+    if isinstance(valore, str) and valore.strip().isdigit() and int(valore.strip()) > 0:
+        return int(valore.strip())
+    return None
+
+
+def _testo_o_none(valore):
+    return valore.strip() or None if isinstance(valore, str) else None
+
+
+def _analizza_classificazione(grezzo):
+    """Pura: valida il JSON del classificatore e normalizza i parametri.
+    Sotto SOGLIA_CONFIDENZA_MODO il modo diventa non_chiaro — la soglia è in
+    Python, non affidata al modello. Un parametro di tipo sbagliato diventa
+    None (poi risolvi_modo chiede), mai corretto per plausibilità."""
+    try:
+        risultato = json.loads(estrai_json(grezzo))
+    except Exception:
+        raise ClassificatoreErrore("JSON non valido") from None
+    if not isinstance(risultato, dict):
+        raise ClassificatoreErrore("JSON non è un oggetto")
+
+    modo = risultato.get("modo")
+    confidenza = risultato.get("confidenza")
+    if modo not in MODI_ARGO:
+        raise ClassificatoreErrore("modo fuori dall'insieme chiuso")
+    if isinstance(confidenza, bool) or not isinstance(confidenza, (int, float)) or not (0.0 <= confidenza <= 1.0):
+        raise ClassificatoreErrore("confidenza non valida")
+
+    contesto = _testo_o_none(risultato.get("contesto"))
+    return {
+        "modo": modo if confidenza >= SOGLIA_CONFIDENZA_MODO else "non_chiaro",
+        "confidenza": float(confidenza),
+        "minuti": _intero_positivo(risultato.get("minuti")),
+        "contesto": contesto.lower() if contesto else None,
+        "oggetto": _testo_o_none(risultato.get("oggetto")),
+        "nome_cantiere": _testo_o_none(risultato.get("nome_cantiere")),
+    }
+
+
+def _prompt_classificatore(storico, messaggio):
+    """Pura: ultimi scambi (troncati, dal più vecchio) più il messaggio."""
+    righe = [
+        f"{ETICHETTE_RUOLO_CONVERSAZIONE.get(r.get('ruolo'), 'Argo')}: "
+        f"{_tronca(r.get('testo') or '', LIMITE_SCAMBIO_CLASSIFICATORE_CARATTERI, fonte='conversazione_argo')}"
+        for r in storico
+    ]
+    blocco = "\n".join(righe) if righe else "(nessuno)"
+    return f"Ultimi scambi:\n{blocco}\n\nMessaggio attuale di Leonardo:\n{messaggio}"
+
+
+def classifica_modo(conversazione_id, messaggio):
+    """Una chiamata corta: ritorna la decisione di _analizza_classificazione.
+    Una finestra illeggibile non blocca: si classifica sul solo messaggio (la
+    finestra aiuta solo sui seguiti). TettoLLMRaggiunto passa com'è, chi
+    chiama lo trasforma in testo; ogni altro errore LLM diventa
+    ClassificatoreErrore."""
+    storico = stato.conversazione_recente(conversazione_id, N_SCAMBI_CLASSIFICATORE)
+    prompt = _prompt_classificatore(storico["righe"], messaggio)
+    try:
+        grezzo = chiama(SISTEMA_CLASSIFICATORE, prompt, max_tokens=MAX_TOKENS_CLASSIFICATORE, temperature=0.0)
+    except TettoLLMRaggiunto:
+        raise
+    except LLMErrore as e:
+        raise ClassificatoreErrore("chiamata LLM fallita") from e
+    return _analizza_classificazione(grezzo)
+
+
+def risolvi_modo(decisione):
+    """Pura: dalla decisione del classificatore al modo da eseguire. Ritorna
+    (modo, parametri) con modo in orienta/instrada/impatto/brief/conversazione,
+    oppure ("chiedi", riga) quando manca un parametro o il modo non è chiaro —
+    la riga va mandata a Leonardo così com'è, senza altre chiamate LLM.
+    Instrada passa da interpreta_instrada, la stessa validazione (e le stesse
+    domande) di /instrada."""
+    modo = decisione["modo"]
+    if modo == "orienta":
+        return "orienta", {}
+    if modo == "instrada":
+        argomenti = []
+        if decisione["minuti"] is not None:
+            argomenti.append(str(decisione["minuti"]))
+            if decisione["contesto"]:
+                argomenti.append(decisione["contesto"])
+        minuti, contesto, errore = interpreta_instrada(argomenti)
+        if errore:
+            return "chiedi", errore
+        return "instrada", {"minuti": minuti, "contesto": contesto}
+    if modo == "impatto":
+        if not decisione["oggetto"]:
+            return "chiedi", TESTO_CHIEDI_OGGETTO_IMPATTO
+        return "impatto", {"componente": decisione["oggetto"]}
+    if modo == "brief":
+        if not decisione["nome_cantiere"]:
+            return "chiedi", TESTO_CHIEDI_CANTIERE
+        return "brief", {"nome": decisione["nome_cantiere"]}
+    if modo == "conversazione":
+        return "conversazione", {}
+    return "chiedi", TESTO_NON_CHIARO
