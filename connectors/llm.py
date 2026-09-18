@@ -50,32 +50,66 @@ def carica_env():
 
 
 _contatore = {"giorno": None, "chiamate": 0}
+_contatore_persistente = {"incrementa": None, "cosa_si_ferma": None}
+
+COSA_SI_FERMA_DEFAULT = "classificazione e bozze sospese"
 
 
-def _verifica_tetto():
-    """Incrementa il contatore giornaliero (in-memory, azzerato ad ogni
-    riavvio del worker — trade-off documentato in STATO.md) e solleva
-    TettoLLMRaggiunto PRIMA di qualunque chiamata HTTP se il tetto è
-    superato, notificando una sola volta per giorno."""
-    oggi = datetime.now(FUSO_ROMA).date()
+def usa_contatore_persistente(incrementa, cosa_si_ferma):
+    """Sostituisce il contatore in-memory per questo processo.
+    `incrementa(giorno)` deve incrementare in modo atomico il conteggio di
+    `giorno` (date, fuso Europe/Rome) e ritornare il valore dopo
+    l'incremento. Serve a chi vive un processo per job (il consumer host di
+    Argo, lanciato da cron ogni minuto), dove il contatore in-memory
+    ripartirebbe da 0 a ogni lancio e il tetto non scatterebbe mai. Chi non
+    la chiama (il worker Docker: classificatore/drafter) resta sul
+    contatore in-memory, invariato. `cosa_si_ferma` finisce nella notifica
+    di superamento."""
+    _contatore_persistente["incrementa"] = incrementa
+    _contatore_persistente["cosa_si_ferma"] = cosa_si_ferma
+
+
+def _incrementa_contatore(oggi):
+    """Ritorna il conteggio di oggi dopo l'incremento. Se il contatore
+    persistente non è leggibile solleva LLMErrore: si chiude, non si chiama
+    l'API senza sapere a che punto è il tetto."""
+    incrementa = _contatore_persistente["incrementa"]
+    if incrementa is not None:
+        try:
+            return int(incrementa(oggi))
+        except Exception as e:
+            logger.error("chiama: contatore persistente non leggibile (%s), chiamata bloccata", type(e).__name__)
+            raise LLMErrore(f"contatore del tetto non leggibile ({type(e).__name__})") from None
+
     if _contatore["giorno"] != oggi:
         _contatore["giorno"] = oggi
         _contatore["chiamate"] = 0
-
     _contatore["chiamate"] += 1
+    return _contatore["chiamate"]
+
+
+def _verifica_tetto():
+    """Incrementa il contatore giornaliero e solleva TettoLLMRaggiunto PRIMA
+    di qualunque chiamata HTTP se il tetto è superato, notificando una sola
+    volta per giorno. Contatore in-memory per default (azzerato ad ogni
+    riavvio del worker — trade-off documentato in STATO.md), persistente se
+    il processo ha chiamato usa_contatore_persistente()."""
+    oggi = datetime.now(FUSO_ROMA).date()
+    chiamate = _incrementa_contatore(oggi)
     tetto = int(os.environ["LLM_TETTO_GIORNALIERO"])
 
-    if _contatore["chiamate"] > tetto:
-        if _contatore["chiamate"] == tetto + 1:
+    if chiamate > tetto:
+        if chiamate == tetto + 1:
             # Notifica una volta sola al superamento, non ad ogni chiamata
             # successiva bloccata nello stesso giorno.
+            cosa_si_ferma = _contatore_persistente["cosa_si_ferma"] or COSA_SI_FERMA_DEFAULT
             notifica(
                 f"🛑 Tetto giornaliero di chiamate LLM raggiunto ({tetto}/giorno) — "
-                "classificazione e bozze sospese fino a domani, verificare il volume."
+                f"{cosa_si_ferma} fino a domani, verificare il volume."
             )
         logger.warning(
             "chiama: tetto giornaliero superato (%d/%d), chiamata bloccata",
-            _contatore["chiamate"], tetto,
+            chiamate, tetto,
         )
         raise TettoLLMRaggiunto(f"tetto giornaliero di {tetto} chiamate superato")
 

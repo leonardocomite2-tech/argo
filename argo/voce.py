@@ -1260,12 +1260,21 @@ def _togli_rilancio(testo):
     return "\n".join(righe).strip() if righe else testo
 
 
+# 'leonardo_non_processato' (backend/main.py:_accoda_conversazione): messaggio
+# arrivato mentre Argo rispondeva al precedente, salvato ma mai risposto.
+ETICHETTE_RUOLO_CONVERSAZIONE = {
+    "leonardo": "Leonardo",
+    "leonardo_non_processato": "Leonardo (arrivato mentre rispondevi, rimasto senza risposta)",
+    "argo": "Argo",
+}
+
+
 def _prompt_conversazione(storico, messaggio):
     """Pura: il messaggio utente per le due chiamate — gli ultimi scambi
     (dal più vecchio, con data) più il messaggio attuale di Leonardo."""
     righe = []
     for r in storico:
-        chi = "Leonardo" if r.get("ruolo") == "leonardo" else "Argo"
+        chi = ETICHETTE_RUOLO_CONVERSAZIONE.get(r.get("ruolo"), "Argo")
         righe.append(f"[{r.get('created_at')}] {chi}: {_tronca(r.get('testo') or '', LIMITE_SCAMBIO_CARATTERI, fonte='conversazione_argo')}")
     blocco = "\n".join(righe) if righe else "(nessuno)"
     return (

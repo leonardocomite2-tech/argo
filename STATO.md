@@ -16,7 +16,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | calendario | Sessione 2026-09-11 — passo 8: terzo modo "avvisa" (digest serale, 22:15, silenzio se niente qualifica), collaudo reale da host andato a segno (messaggio vero mandato, poi anti-ripetizione verificata su seconda chiamata → silenzio); chiuso lato tecnico, in validazione d'uso per 30 giorni (deroga cantiere-parallelo sotto) |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4: ramo conversazionale (messaggio libero → risposta dallo stato reale, una consultazione da un insieme chiuso di sei, solo mandati di consultazione); collaudato da host con LLM vero sulle tre prove del done-when, mai da Telegram; resta a Leonardo il deploy, il collaudo reale e due decisioni aperte (tetto LLM inerte sul consumer host, avviso che gira ogni minuto) |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host, mai da Telegram; resta a Leonardo deploy, collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -688,28 +688,14 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   reincolla i blocchi corretti sulla pagina di prova, poi si ripete
   pavimento + anti-finestra-morta sull'anteprima reale (non solo locale).
 
-- **Tetto LLM inerte sul consumer host di Argo (trovato il 18/9/2026, passo 4
-  del ponte).** `connectors/llm.py:_contatore` è in memoria nel processo, e
-  `scripts/argo/orienta_webhook.py` è un processo nuovo a ogni minuto
-  (cron): il contatore riparte da 0 a ogni job, quindi per orienta/
-  instrada/brief/impatto/conversazione `LLM_TETTO_GIORNALIERO` non scatta
-  mai in pratica. Il ramo conversazionale passa comunque dal gateway e, se
-  il tetto scatta, lo dice (testato con chiama finta); ma è il primo ramo in
-  cui Leonardo può generare chiamate scrivendo testo libero (fino a 2 per
-  messaggio, un messaggio in volo alla volta). Non risolto: servirebbe un
-  contatore persistente (tabella o file), fuori dal perimetro dichiarato del
-  passo 4 ("nessuna modifica di schema oltre la finestra di conversazione").
-  Decisione di Leonardo.
-- **`orienta_webhook.py:_reclama_job` ignora `run_after` (trovato il 18/9/2026,
-  preesistente dal passo 8 di Argo — la voce).** Il `genera_avviso`
-  programmato per le 22:15 viene reclamato subito dopo la creazione: ~1.400
-  esecuzioni al giorno dall'11/9 (contate in `jobs`), ognuna con cinque
-  letture via docker exec; quasi sempre silenzio (anti-ripetizione), ma un
-  candidato nuovo verrebbe avvisato entro un minuto invece che alle 22:15, e
-  il job pending con `run_after` futuro sta sempre in testa alla FIFO
-  (fino a un minuto di ritardo in più sui comandi). Fix probabile di una
-  riga (`AND run_after <= now()` nella SELECT del claim), non applicato:
-  tocca il modo avvisa, cantiere Argo — la voce in validazione, non questo.
+- **Tetto LLM: due contatori separati (dal 18/9/2026, passo 4bis del ponte).**
+  Il consumer host di Argo usa ora un contatore persistente
+  (`llm_chiamate_giorno`), il worker Docker (classificatore/drafter) resta
+  sul contatore in-memory descritto sopra. Entrambi confrontano con lo
+  stesso `LLM_TETTO_GIORNALIERO`: il tetto reale del giorno è quindi fino a
+  2× il valore, uno per processo. Unificarli vorrebbe dire far passare
+  anche il worker dalla tabella (psycopg, stessa UPSERT): non fatto per non
+  toccare il comportamento delle pipeline email/DM in questo passo.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -2818,4 +2804,59 @@ ancora l'elenco dei comandi, zero LLM).
   libero, altrimenti il worker Docker reclama il job e lo marca failed);
   collaudo reale da Telegram delle tre frasi; le due decisioni aperte
   (tetto inerte sul consumer host, `run_after` ignorato dal consumer).
+
+## Sessione 2026-09-18 (continua) — Cantiere Argo — il ponte, passo 4bis: quattro correzioni prima dell'uso
+
+Richieste da Leonardo dopo il passo 4, prima del deploy.
+
+- **`_reclama_job` rispetta `run_after`** (`scripts/argo/orienta_webhook.py`).
+  Preesistente dal passo 8 di Argo — la voce: il `genera_avviso` delle 22:15
+  veniva reclamato un minuto dopo la creazione, ~1.400 volte al giorno
+  dall'11/9, e il digest serale non era mai stato provato alle 22:15 (la
+  validazione di 30 giorni non misurava niente). Aggiunto `AND run_after <=
+  now()` alla SELECT del claim; i job di comandi e conversazione hanno
+  `run_after = now()` (default), per loro nulla cambia. Deroga al cantiere
+  unico decisa da Leonardo: il fix ripristina il comportamento previsto.
+  **Verificato dal vivo** (il cron usa il file su disco, attivo subito): il
+  job 29228 creato alle 07:50 UTC con `run_after` 20:15 UTC è rimasto
+  `pending` con 0 tentativi nei giri successivi, e da allora nessun nuovo
+  `genera_avviso` è stato creato. Da controllare stasera: che parta alle
+  22:15 e che il successivo venga creato per domani.
+- **Tetto LLM persistente per il consumer host.** Verificato prima: le
+  chiamate LLM non sono registrate in nessuna tabella (solo log su file),
+  quindi tabella minima `llm_chiamate_giorno (giorno DATE PK, chiamate
+  INTEGER)`, migrazione `008`, applicata. `connectors/llm.py` guadagna
+  `usa_contatore_persistente(incrementa, cosa_si_ferma)`: chi non la chiama
+  (worker Docker) resta sul contatore in-memory, invariato (test).
+  `orienta_webhook.py:_incrementa_chiamate_llm` fa un UPSERT atomico
+  `INSERT ... ON CONFLICT (giorno) DO UPDATE ... RETURNING` e viene
+  agganciato in `main()` dopo il claim. Ogni `chiama()` passa di lì, quindi
+  entrambe le chiamate della conversazione contano (test con la vera
+  `_verifica_tetto`: a 4/5 la prima passa, la seconda fa 6/5 e Argo dice
+  del tetto). Contatore illeggibile → `LLMErrore`, mai una chiamata alla
+  cieca. Verificato dal vivo su una data fittizia (1999-01-01, poi
+  cancellata): tre processi separati → 1, 2, 3. Resta: il worker ha il suo
+  contatore separato (vedi DECISIONI APERTE).
+- **Messaggio arrivato mentre Argo risponde: salvato, non scartato.**
+  `backend/main.py:_accoda_conversazione` lo registra con
+  `ruolo='leonardo_non_processato'` (nessuno schema nuovo: `ruolo` è testo
+  libero), senza job; la finestra del messaggio successivo lo mostra come
+  "arrivato mentre rispondevi, rimasto senza risposta"; Leonardo riceve
+  "l'ho salvato ma non ha una risposta". La dedup su `tg_message_id` vale
+  anche per queste righe. SQL provata sul DB in una transazione annullata.
+- **Mappa: range ristretto.** `approvazione_telegram` in
+  `connectors/telegram.py` passa da 35-263 a 99-120 + 168-263 (le sole
+  parti dell'approvazione); i parser dei comandi del bot Argo (39-97) vanno
+  nella scheda `argo_voce`. `impatti.py --file connectors/telegram.py:49-57`
+  ora dà solo argo_voce. Range backend/main.py aggiornati (argo_voce
+  414-635, webhook_telegram 638-654, anche nel testo di RE01). Nuova
+  tabella in `argo_voce.tabelle.scrive` con motivo. `verifica_mappa.py`: 0
+  divergenze. `impatti.py --diff`: trasversale su 3 pipeline, questa volta
+  per un motivo vero (`connectors/llm.py` condiviso con classificatore e
+  drafter), zero contratti.
+- **Verifiche**: suite verde (`test_argo_voce` 230/230, `test_llm` 9/9,
+  `test_panoptes_lib` 35/35 con 12 tabelle, gli altri invariati).
+- **Resta a Leonardo**: `docker compose up -d --build`; collaudo da Telegram;
+  stasera, verificare che l'avviso delle 22:15 parta (o taccia) una volta
+  sola.
 

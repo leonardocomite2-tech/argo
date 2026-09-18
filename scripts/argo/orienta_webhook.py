@@ -70,7 +70,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from connectors.llm import carica_env  # noqa: E402
+from connectors.llm import carica_env, usa_contatore_persistente  # noqa: E402
 
 carica_env()
 
@@ -100,15 +100,22 @@ def _psql(sql, timeout=15):
 
 
 def _reclama_job():
-    """Claim atomico: prima trova il pending più vecchio tra i tre tipi (FIFO),
-    poi lo reclama con una UPDATE guardata su stato='pending' — se nel frattempo
+    """Claim atomico: prima trova il pending più vecchio tra i tipi di
+    TIPI_JOB il cui run_after è già passato (FIFO) — senza quella condizione
+    (mancava fino al 18/9/2026) il genera_avviso programmato per le 22:15
+    veniva reclamato un minuto dopo la sua creazione, ~1.400 volte al giorno,
+    e il digest serale non partiva mai davvero alle 22:15. I job accodati da
+    backend/main.py hanno run_after = now() (default di jobs), quindi per i
+    comandi e la conversazione non cambia nulla. Poi lo reclama con una
+    UPDATE guardata su stato='pending' — se nel frattempo
     un altro lancio di questo stesso script lo ha già preso, la UPDATE non tocca
     righe e questo lancio esce a mani vuote (nessun doppio invio). Ritorna
     (job_id, tipo, payload) o None."""
     tipi_sql = ",".join(f"'{t}'" for t in TIPI_JOB)
     riga = _psql(
         "SELECT json_agg(t) FROM (SELECT id, tipo, payload FROM jobs "
-        f"WHERE tipo IN ({tipi_sql}) AND stato='pending' ORDER BY id LIMIT 1) t"
+        f"WHERE tipo IN ({tipi_sql}) AND stato='pending' AND run_after <= now() "
+        "ORDER BY id LIMIT 1) t"
     )
     if not riga or riga == "null":
         return None
@@ -121,6 +128,21 @@ def _reclama_job():
     if not claimato:
         return None
     return job_id, job["tipo"], job.get("payload") or {}
+
+
+def _incrementa_chiamate_llm(giorno):
+    """Contatore persistente del tetto LLM per questo processo (vedi
+    connectors/llm.py:usa_contatore_persistente): un UPSERT atomico sulla
+    riga del giorno, che ritorna il conteggio dopo l'incremento. Ogni
+    chiamata di ogni job di questo consumer passa di qui, comprese le due
+    della conversazione. `giorno` è una date, mai testo dall'esterno."""
+    risultato = _psql(
+        "INSERT INTO llm_chiamate_giorno (giorno, chiamate) "
+        f"VALUES ('{giorno.isoformat()}', 1) "
+        "ON CONFLICT (giorno) DO UPDATE SET chiamate = llm_chiamate_giorno.chiamate + 1 "
+        "RETURNING chiamate"
+    )
+    return int(risultato.splitlines()[0])
 
 
 def _segna_done(job_id):
@@ -217,6 +239,7 @@ def main():
     if reclamato is None:
         return
     job_id, tipo, payload = reclamato
+    usa_contatore_persistente(_incrementa_chiamate_llm, "risposte di Argo sospese")
 
     from argo.voce import (
         genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief, genera_impatto,

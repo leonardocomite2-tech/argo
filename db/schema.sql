@@ -118,3 +118,8 @@ CREATE TABLE IF NOT EXISTS conversazione_argo (
   testo          TEXT NOT NULL,
   tg_message_id  BIGINT UNIQUE
 );
+
+CREATE TABLE IF NOT EXISTS llm_chiamate_giorno (
+  giorno    DATE PRIMARY KEY,
+  chiamate  INTEGER NOT NULL
+);

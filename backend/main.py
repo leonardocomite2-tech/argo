@@ -426,7 +426,8 @@ RISPOSTA_BRIEF_SENZA_NOME = "Quale cantiere?"
 RISPOSTA_IMPATTO_SENZA_ARGOMENTO = "Quale componente o file?"
 ESITO_MANDATO_GIA_IN_CORSO = "non eseguito: richiesta già in corso"
 RISPOSTA_CONVERSAZIONE_IN_CORSO = (
-    "Sto ancora rispondendo al messaggio precedente: riscrivi questo tra un minuto."
+    "Sto ancora rispondendo al messaggio precedente. Questo l'ho salvato ma non "
+    "ha una risposta: se ti serve, riscrivilo tra un minuto."
 )
 
 
@@ -476,9 +477,11 @@ def _accoda_conversazione(tg_message_id, testo, origine_msg):
     di _accoda_job_argo. Due guardie: tg_message_id già presente -> redelivery
     Telegram dello stesso messaggio, niente (claim atomico sulla riga, non
     una dedup_key: è un messaggio dell'operatore, non un evento di dominio);
-    un genera_conversazione già in volo -> il messaggio NON viene registrato
-    (resterebbe senza risposta nella finestra) e Leonardo è avvisato di
-    riscriverlo. Ritorna "accodato" | "duplicato" | "in_corso"."""
+    un genera_conversazione già in volo -> il messaggio viene registrato
+    comunque, con ruolo 'leonardo_non_processato' e senza job (perderlo è
+    peggio del ritardo): la finestra del messaggio successivo lo vede
+    marcato come senza risposta, e Leonardo è avvisato che è salvato ma non
+    ha risposta. Ritorna "accodato" | "duplicato" | "in_corso"."""
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("genera_conversazione_enqueue",))
@@ -489,6 +492,11 @@ def _accoda_conversazione(tg_message_id, testo, origine_msg):
                 "SELECT 1 FROM jobs WHERE tipo = 'genera_conversazione' AND stato IN ('pending', 'running')"
             )
             if cur.fetchone() is not None:
+                cur.execute(
+                    "INSERT INTO conversazione_argo (ruolo, testo, tg_message_id) "
+                    "VALUES ('leonardo_non_processato', %s, %s)",
+                    (testo, tg_message_id),
+                )
                 return "in_corso"
             cur.execute(
                 "INSERT INTO conversazione_argo (ruolo, testo, tg_message_id) "

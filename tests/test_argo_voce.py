@@ -815,6 +815,9 @@ _p = voce._prompt_conversazione(
 )
 caso("_prompt_conversazione: storico in ordine con i ruoli", True, _p.index("Leonardo: come va?") < _p.index("Argo: bene"))
 caso("_prompt_conversazione: messaggio attuale in coda", True, _p.rstrip().endswith("e il gate?"))
+caso("_prompt_conversazione: messaggio non processato marcato come senza risposta", True,
+     "Leonardo (arrivato mentre rispondevi, rimasto senza risposta): e il poster?" in voce._prompt_conversazione(
+         [{"ruolo": "leonardo_non_processato", "testo": "e il poster?", "created_at": "t"}], "x"))
 caso("_prompt_conversazione: storico vuoto dichiarato", True, "(nessuno)" in voce._prompt_conversazione([], "x"))
 
 # genera_conversazione con chiama/stato finti: flusso a una e due chiamate, tetto
@@ -869,6 +872,50 @@ _chiamate.clear(); _eseguite.clear()
 voce.chiama = _chiama_finta(['{"consultazione": {"tipo": "cancella_tutto", "argomento": ""}, "risposta": ""}'])
 caso("tipo non permesso e risposta vuota -> 'non lo so' fisso", (voce.TESTO_NON_SO, None), voce.genera_conversazione(1, "x"))
 caso("tipo non permesso: niente eseguito", [], list(_eseguite))
+
+# Il tetto vale per ENTRAMBE le chiamate della conversazione: chiama finta
+# che passa davvero da connectors/llm.py:_verifica_tetto, contatore
+# persistente finto a un passo dal tetto -> la prima passa, la seconda no.
+import os  # noqa: E402
+import connectors.llm as _llm  # noqa: E402
+
+_notifica_vera = _llm.notifica
+_llm.notifica = lambda testo, token=None: None
+_env_tetto = os.environ.get("LLM_TETTO_GIORNALIERO")
+os.environ["LLM_TETTO_GIORNALIERO"] = "5"
+_riga_tetto = {"chiamate": 4}
+
+
+def _incrementa_finto(giorno):
+    _riga_tetto["chiamate"] += 1
+    return _riga_tetto["chiamate"]
+
+
+_llm.usa_contatore_persistente(_incrementa_finto, "risposte di Argo sospese")
+_risposte_tetto = [
+    '{"consultazione": {"tipo": "impatti_componente", "argomento": "approvazione_telegram"}, "risposta": ""}',
+    "mai restituita",
+]
+
+
+def _chiama_col_tetto(system, prompt, **kw):
+    _llm._verifica_tetto()
+    return _risposte_tetto.pop(0)
+
+
+_eseguite.clear()
+voce.chiama = _chiama_col_tetto
+_t, _c = voce.genera_conversazione(1, "cosa rischio se tocco il gate?")
+caso("tetto: la prima chiamata della conversazione conta (5/5, passa)", 1, len(_eseguite))
+caso("tetto: la seconda chiamata conta anche lei (6/5) -> Argo lo dice", voce.TESTO_TETTO_CONVERSAZIONE, _t)
+caso("tetto: il contatore ha visto entrambe le chiamate", 6, _riga_tetto["chiamate"])
+_llm._contatore_persistente["incrementa"] = None
+_llm._contatore_persistente["cosa_si_ferma"] = None
+_llm.notifica = _notifica_vera
+if _env_tetto is None:
+    del os.environ["LLM_TETTO_GIORNALIERO"]
+else:
+    os.environ["LLM_TETTO_GIORNALIERO"] = _env_tetto
 
 voce.chiama, voce.raccogli_stato, voce.stato.conversazione_recente, voce._esegui_consultazione = _originali
 

@@ -113,7 +113,7 @@ pipeline:
     contratti:
       - id: RE01
         enunciato: "Nessuna risposta redatta dall'LLM esce senza passare da approvals in stato approvata o modificata"
-        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-386,630-646 — range spostato più volte dall'inserimento di comandi argo_voce in mezzo, aggiornato al passo 4 del ponte). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
+        garantito_da: "worker/loop.py:1240-1244 (guardia stato IN ('approvata','modificata') in invia_risposta, comune a email e DM) — _valuta_e_rispondi non invia mai direttamente: scrive solo approvals (1088-1099) e chiama chiedi_approvazione (1102). CATENA A DUE ANELLI (non modellata separatamente da questa mappa, 10/9/2026): questa guardia si fida del valore di approvals.stato, che non scrive da sé — lo scrive il componente condiviso approvazione_telegram (transizioni via UPDATE...WHERE stato=atteso, backend/main.py:283-386,638-654 — range spostato più volte dall'inserimento di comandi argo_voce in mezzo, aggiornato al passo 4bis del ponte). Un difetto in quelle transizioni (es. una che permette rifiutata→approvata, o un claim non atomico) svuota questa garanzia senza toccare una riga di worker/loop.py:1240-1244."
       - id: RE02
         enunciato: "Un bounce definitivo entra in soppressioni prima di qualunque altro invio a quell'indirizzo"
         garantito_da: nessuno
@@ -543,6 +543,7 @@ pipeline:
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "db/migrations/007_conversazione_argo.sql"
+      - "db/migrations/008_llm_chiamate_giorno.sql"
       - "knowledge/argo/SOUL.md"
       - "knowledge/argo/IDENTITY.md"
       - "knowledge/argo/USER.md"
@@ -551,14 +552,15 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
-      - "backend/main.py:414-627"
+      - "backend/main.py:414-635"
+      - "connectors/telegram.py:39-97"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
       - "worker/loop.py:83-88"
       - "worker/loop.py:1636-1669"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni, conversazione_argo]
-      scrive: [jobs, alert_inviati, osservazioni, mandati, conversazione_argo]
+      scrive: [jobs, alert_inviati, osservazioni, mandati, conversazione_argo, llm_chiamate_giorno]
     verifica:
       indecidibile:
         - campo: tabelle.legge
@@ -657,7 +659,20 @@ pipeline:
             finestra degli ultimi 10 scambi) via docker exec psql, invisibile a
             verifica_mappa.py come le altre letture di argo/stato.py; la
             SELECT di dedup in backend/main.py:_accoda_conversazione è invece
-            visibile.
+            visibile. PASSO 4bis (18/9/2026): _accoda_conversazione scrive
+            anche la riga 'leonardo_non_processato' quando un messaggio arriva
+            con un genera_conversazione già in volo (salvato, mai scartato).
+        - campo: tabelle.scrive
+          valore: llm_chiamate_giorno
+          motivo: >
+            PASSO 4bis (18/9/2026): contatore persistente del tetto LLM per il
+            consumer host. scripts/argo/orienta_webhook.py:_incrementa_chiamate_llm
+            fa INSERT ... ON CONFLICT (giorno) DO UPDATE ... RETURNING via
+            docker exec psql (invisibile a verifica_mappa.py, stessa
+            deviazione delle altre scritture di quel file), agganciato a
+            connectors/llm.py con usa_contatore_persistente(). Il worker
+            Docker (classificatore/drafter) non la usa: resta sul contatore
+            in-memory.
     condivisi: [telegram_notifica]
     env:
       - ANTHROPIC_API_KEY
@@ -773,10 +788,11 @@ condivisi:
 
   - nome: approvazione_telegram
     codice:
-      - "backend/main.py:630-646"
+      - "backend/main.py:638-654"
       - "backend/main.py:283-386"
       - "backend/main.py:387-411"
-      - "connectors/telegram.py:35-263"
+      - "connectors/telegram.py:99-120"
+      - "connectors/telegram.py:168-263"
     usato_da: [risposte_email, dm_instagram_facebook]
     env:
       - TELEGRAM_TOKEN
@@ -788,6 +804,7 @@ condivisi:
       - "usata sia dalle approvals create da _valuta_e_rispondi per email sia per DM — main.py non distingue il canale, agisce solo sulla tabella approvals"
       - "auth: header X-Telegram-Bot-Api-Secret-Token vs env TELEGRAM_WEBHOOK_SECRET (main.py:529, webhook_telegram — non da confondere con la stessa header per ARGO_VOCE_WEBHOOK_SECRET su webhook_argo, main.py:512)"
       - "CANTIERE ARGO — IL PONTE, PASSO 1 (12/9/2026): webhook_argo (argo_voce) è cresciuto di 20 righe per il ramo /brief, spostando webhook_telegram da 507-523 a 527-543 — range aggiornato di conseguenza, stesso tipo di aggiustamento già fatto ai passi 6/8. connectors/telegram.py:35-209 → 35-254: _spezza_testo()/invia_lungo() (nuove, condiviso telegram_notifica) inserite in mezzo al file (114-156) hanno spostato chiedi_approvazione/chiedi_testo_corretto/rispondi_callback di 44 righe."
+      - "CANTIERE ARGO — IL PONTE, PASSO 4bis (18/9/2026): range in connectors/telegram.py ristretto da 35-263 alle sole parti dell'approvazione — _invia e costanti (99-120), riga_scadenza/chiedi_approvazione/chiedi_testo_corretto/rispondi_callback (168-263). I parser dei comandi del bot Argo (normalizza_comando, e_messaggio_libero, argomenti_comando, interpreta_instrada, 39-97) stanno nello stesso file solo per essere testabili da host: ora sono nella scheda argo_voce, così una modifica lì non risulta più trasversale su risposte_email/dm_instagram_facebook senza motivo. webhook_telegram 630-646→638-654 (righe aggiunte più in alto in _accoda_conversazione)."
       - "CANTIERE ARGO — IL PONTE, PASSO 2 (12/9/2026): webhook_argo (argo_voce) è cresciuto di altre 48 righe per il ramo /impatto (COMANDO_IMPATTO, _registra_mandato, il ramo stesso), spostando webhook_telegram da 527-543 a 575-591 — stesso tipo di aggiustamento dei passi precedenti, connectors/telegram.py non toccato in questo passo."
 
   - nome: mailer

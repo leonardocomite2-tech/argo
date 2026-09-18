@@ -36,6 +36,66 @@ caso(
 )
 
 
+# --- tetto giornaliero con contatore persistente (passo 4bis del ponte) ---
+import os  # noqa: E402
+
+_notifiche = []
+_notifica_vera = llm.notifica
+llm.notifica = lambda testo, token=None: _notifiche.append(testo)
+os.environ["LLM_TETTO_GIORNALIERO"] = "2"
+
+_riga = {"chiamate": 0}
+
+
+def _incrementa_finto(giorno):
+    _riga["chiamate"] += 1
+    return _riga["chiamate"]
+
+
+llm.usa_contatore_persistente(_incrementa_finto, "risposte di Argo sospese")
+_esiti = []
+for _ in range(4):
+    try:
+        llm._verifica_tetto()
+        _esiti.append("ok")
+    except llm.TettoLLMRaggiunto:
+        _esiti.append("tetto")
+caso("contatore persistente: tetto 2 -> ok, ok, tetto, tetto", ["ok", "ok", "tetto", "tetto"], _esiti)
+caso("contatore persistente: una sola notifica al superamento", 1, len(_notifiche))
+caso("notifica dice cosa si ferma per questo processo", True, "risposte di Argo sospese" in _notifiche[0])
+
+
+def _incrementa_rotto(giorno):
+    raise RuntimeError("psql fallito")
+
+
+llm.usa_contatore_persistente(_incrementa_rotto, "x")
+try:
+    llm._verifica_tetto()
+    _esito = "chiamata permessa"
+except llm.TettoLLMRaggiunto:
+    _esito = "tetto"
+except llm.LLMErrore:
+    _esito = "LLMErrore"
+caso("contatore persistente illeggibile -> LLMErrore, mai una chiamata alla cieca", "LLMErrore", _esito)
+
+# default invariato per il worker: senza contatore persistente, in-memory
+llm._contatore_persistente["incrementa"] = None
+llm._contatore_persistente["cosa_si_ferma"] = None
+llm._contatore["giorno"] = None
+_notifiche.clear()
+_esiti = []
+for _ in range(3):
+    try:
+        llm._verifica_tetto()
+        _esiti.append("ok")
+    except llm.TettoLLMRaggiunto:
+        _esiti.append("tetto")
+caso("contatore in-memory (worker) invariato", ["ok", "ok", "tetto"], _esiti)
+caso("notifica del worker col testo di sempre", True, "classificazione e bozze sospese" in _notifiche[0])
+llm.notifica = _notifica_vera
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:
