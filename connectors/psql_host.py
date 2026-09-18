@@ -41,3 +41,16 @@ def incrementa_chiamate_llm(giorno):
         "RETURNING chiamate"
     )
     return int(risultato.splitlines()[0])
+
+
+def incrementa_chiamate_openrouter(giorno):
+    """Quota gratuita OpenRouter del giorno (tabella openrouter_chiamate_giorno),
+    stesso UPSERT atomico di incrementa_chiamate_llm ma su una tabella sua:
+    spesa Anthropic e quota gratuita non si sommano mai."""
+    risultato = psql(
+        "INSERT INTO openrouter_chiamate_giorno (giorno, chiamate) "
+        f"VALUES ('{giorno.isoformat()}', 1) "
+        "ON CONFLICT (giorno) DO UPDATE SET chiamate = openrouter_chiamate_giorno.chiamate + 1 "
+        "RETURNING chiamate"
+    )
+    return int(risultato.splitlines()[0])

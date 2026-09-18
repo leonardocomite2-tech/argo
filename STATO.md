@@ -3321,3 +3321,68 @@ ti torna?" era finito su instrada (0.75). In eval ci sono tutti e quattro.
 - **Resta a Leonardo**: push, le quattro righe di crontab, ricollaudo dal
   telefono. Il consumer legge i file da disco: nessun rebuild.
 
+
+## Sessione 2026-09-18 (sera) — Gateway LLM: ramo gratuito OpenRouter per eval e prove di prompt
+
+Nessun cantiere della tabella `## CANTIERI` corrisponde a questo lavoro
+(infrastruttura del gateway, chiesta direttamente da Leonardo): nessuna riga
+nuova inventata, da assegnare se serve.
+
+Scopo: girare gli eval senza pensare alla spesa, non risparmiare in
+produzione. OpenRouter raggiungibile solo per compiti dichiarati non
+sensibili; classificatore e drafter restano su Anthropic per contratto.
+
+- **`connectors/llm.py:chiama`** guadagna tre parametri keyword:
+  `sensibile=True`, `modello=None`, `fallback=False`. Solo `sensibile is
+  False` (il False letterale) apre il ramo gratuito: 0, None, "False" o un
+  parametro dimenticato restano su Anthropic (fail closed). `modello`
+  obbligatorio con sensibile=False, vietato senza (ValueError, mai un
+  provider diverso). Il ramo Anthropic è il vecchio `chiama()` rinominato
+  `_chiama_anthropic`, identico: i 23 casi di `tests/test_tetto_llm.py`
+  passano senza modifiche.
+- **`connectors/openrouter.py`** (nuovo, importato solo quando serve: chi
+  non passa sensibile=False non lo carica e non ne legge le env, quindi le
+  schede di classificatore/drafter/argo_voce/memoria_sessioni restano
+  invariate). Vincolo di data policy su OGNI richiesta, nel codice:
+  `"provider": {"data_collection": "deny", "zdr": true}` — sintassi dalla
+  documentazione ufficiale (openrouter.ai/docs/features/provider-routing:
+  deny = "use only providers which do not collect user data", il default
+  "allow" include chi "may train on it"; openrouter.ai/docs/features/zdr:
+  zdr = "only routed to endpoints that have a Zero Data Retention policy",
+  in OR con l'impostazione di account). Entrambi, perché il requisito
+  esclude sia chi addestra sia chi conserva.
+- **Quota gratuita** in una tabella sua, `openrouter_chiamate_giorno`
+  (migrazione 010, applicata), non una colonna di `llm_chiamate_giorno`: due
+  limiti diversi non devono poter finire nella stessa somma. Incrementata
+  PRIMA della richiesta; tetto `OPENROUTER_TETTO_GIORNALIERO` (default 40).
+  Contatore illeggibile -> bloccata. Chiave mancante -> rifiutata prima di
+  contare (nessuna richiesta, niente da contare).
+- **Un solo tentativo per chiamata** (ogni tentativo brucia quota); su 429
+  l'errore porta `retry_after` dall'header Retry-After, nessun nuovo
+  tentativo automatico. `fallback=True` -> su qualunque errore di OpenRouter
+  passa ad Anthropic e logga "cambio provider openrouter -> anthropic";
+  default False.
+- **Due difetti trovati nella prova reale e corretti**: (1) un modello che
+  ragiona con max_tokens=20 ha restituito testo vuoto in silenzio -> ora
+  errore esplicito ("max_tokens esauriti prima del testo"); (2) il corpo
+  d'errore di OpenRouter porta lo user_id dell'account -> ora si tiene solo
+  error.message.
+- **Prova reale** (`python3 scripts/prova_openrouter.py <modello:free>`),
+  modello scelto `deepseek/deepseek-v4-flash-0731:free` (endpoint ZDR su
+  OpenInference, dall'elenco pubblico https://openrouter.ai/api/v1/endpoints/zdr:
+  8 endpoint ZDR gratuiti il 18/9): risposta "funziona", log
+  `provider=openrouter ... fornitore=OpenInference ... quota=2/40`. Modello
+  inesistente -> status 400 e quota 3/40: la quota sale anche sulla
+  richiesta fallita. Chiamata senza sensibile=False con la chiave
+  configurata -> Anthropic (llm_chiamate_giorno +1, openrouter invariato,
+  modulo OpenRouter mai importato).
+- **Test**: `tests/test_openrouter_llm.py` (nuovo, 53 casi, rete e
+  contatori finti); `test_tetto_llm.py` invariato e verde; suite verde.
+- **Mappa**: nuovo condiviso `llm_gratuito` (env OPENROUTER_API_KEY,
+  OPENROUTER_TETTO_GIORNALIERO; contratto CD07), nota su `psql_host`.
+  `verifica_mappa.py` 0 divergenze su 17 schede.
+- **Limiti noti**: `sensibile=False` è una dichiarazione del chiamante, il
+  codice non può verificare che un prompt non contenga dati di terzi (scritto
+  anche in CD07). `OPENROUTER_API_KEY` oggi è nell'ambiente della shell di
+  Leonardo, non in `.env`: script a mano sì, cron e hook no — voluto finché
+  il ramo serve solo agli eval.

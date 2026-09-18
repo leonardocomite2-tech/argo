@@ -17,7 +17,7 @@ def caso(descrizione, atteso, ottenuto):
     CASI.append((descrizione, atteso, ottenuto))
 
 
-TABELLE_NOTE = {"contacts", "identities", "events", "messages", "approvals", "jobs", "alert_inviati", "soppressioni", "osservazioni", "mandati", "conversazione_argo", "llm_chiamate_giorno", "sessioni"}
+TABELLE_NOTE = {"contacts", "identities", "events", "messages", "approvals", "jobs", "alert_inviati", "soppressioni", "osservazioni", "mandati", "conversazione_argo", "llm_chiamate_giorno", "sessioni", "openrouter_chiamate_giorno"}
 
 # --- parse_codice_entry ---
 caso("path nudo", ("worker/loop.py", None, None), lib.parse_codice_entry("worker/loop.py"))
@@ -137,7 +137,7 @@ caso("garantito_da 'nessuno' non produce riferimenti", [], lib.estrai_riferiment
 
 # --- nomi_tabelle_canoniche (integrazione leggera sul vero db/schema.sql) ---
 caso(
-    "le 13 tabelle note sono tutte in db/schema.sql",
+    "le 14 tabelle note sono tutte in db/schema.sql",
     TABELLE_NOTE,
     lib.nomi_tabelle_canoniche(REPO_ROOT / "db" / "schema.sql"),
 )

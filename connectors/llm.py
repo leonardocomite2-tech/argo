@@ -181,8 +181,9 @@ def _applica_marcatore_troncamento(testo, stop_reason, marcatore):
     return testo
 
 
-def chiama(system, prompt, max_tokens=500, temperature=0.0, marcatore_se_troncato=None):
-    """POST a /v1/messages. Ritenta (fino a MAX_TENTATIVI) SOLO su 5xx o
+def _chiama_anthropic(system, prompt, max_tokens=500, temperature=0.0, marcatore_se_troncato=None):
+    """Il ramo Anthropic, identico al chiama() di prima del 18/9/2026 (solo
+    rinominato). POST a /v1/messages. Ritenta (fino a MAX_TENTATIVI) SOLO su 5xx o
     errori di rete/timeout — mai su 429 o altri 4xx (richiesta esplicita:
     diverso da connectors/places.py). Logga sempre token in ingresso, in
     uscita e latenza ad ogni chiamata riuscita. Solleva TettoLLMRaggiunto se
@@ -248,3 +249,45 @@ def chiama(system, prompt, max_tokens=500, temperature=0.0, marcatore_se_troncat
             time.sleep(ATTESA_BASE_SEC * (2 ** (tentativo - 1)))
 
     raise LLMErrore(f"chiama fallita dopo {MAX_TENTATIVI} tentativi: {ultimo_errore}") from None
+
+
+def chiama(system, prompt, max_tokens=500, temperature=0.0, marcatore_se_troncato=None,
+           *, sensibile=True, modello=None, fallback=False):
+    """Gateway LLM. Per default (sensibile=True) è esattamente il ramo
+    Anthropic di sempre: classificatore, drafter, Argo e hook memoria non
+    passano nessuno dei tre parametri nuovi e non cambiano.
+
+    OpenRouter (connectors/openrouter.py, endpoint gratuiti) si raggiunge
+    SOLO con `sensibile is False` — il valore False letterale, passato di
+    proposito: 0, None, "no" o un parametro dimenticato restano su
+    Anthropic (fail closed, contratto CD07) — e con `modello` esplicito:
+    nessun modello cablato qui, il listino gratuito ruota. Solo per compiti
+    dichiarati non sensibili (eval, prove di prompt, testi senza dati di
+    terzi): mai email di prospect, contatti o contenuti ricevuti.
+
+    `fallback=True`: se OpenRouter fallisce (429, tetto gratuito, chiave
+    mancante, errore) la chiamata passa ad Anthropic e il cambio è loggato.
+    `fallback=False` (default): l'errore risale — un ripiego silenzioso su
+    un batch di eval trasformerebbe un esperimento gratuito in una spesa
+    che nessuno ha deciso."""
+    if sensibile is not False:
+        if modello is not None:
+            raise ValueError("modello vale solo con sensibile=False: il ramo Anthropic usa MODEL")
+        return _chiama_anthropic(system, prompt, max_tokens, temperature, marcatore_se_troncato)
+
+    if not isinstance(modello, str) or not modello.strip():
+        raise ValueError("con sensibile=False il modello è obbligatorio (il listino gratuito ruota)")
+
+    from connectors import openrouter
+
+    try:
+        return openrouter.chiama(system, prompt, modello.strip(), max_tokens, temperature, marcatore_se_troncato)
+    except LLMErrore as e:
+        if not fallback:
+            raise
+        logger.warning(
+            "chiama: cambio provider openrouter -> anthropic (fallback=True), motivo: %s",
+            type(e).__name__,
+        )
+        return _chiama_anthropic(system, prompt, max_tokens, temperature, marcatore_se_troncato)
+

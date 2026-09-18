@@ -145,3 +145,8 @@ CREATE TABLE IF NOT EXISTS sessioni (
   decisioni           TEXT,
   decisioni_stato     TEXT
 );
+
+CREATE TABLE IF NOT EXISTS openrouter_chiamate_giorno (
+  giorno    DATE PRIMARY KEY,
+  chiamate  INTEGER NOT NULL
+);

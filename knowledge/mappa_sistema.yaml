@@ -950,6 +950,7 @@ condivisi:
     usato_da: [argo_voce, memoria_sessioni]
     env: []
     evidenza:
+      - "QUOTA GRATUITA (18/9/2026): incrementa_chiamate_openrouter, stesso UPSERT atomico su una tabella sua (openrouter_chiamate_giorno), usata dal condiviso llm_gratuito — mai sommata a llm_chiamate_giorno."
       - "DEFAULT DEL TETTO (18/9/2026, sera): connectors/llm.py:_incrementa_default usa incrementa_chiamate_llm per QUALUNQUE chiamante del gateway che non abbia scelto usa_contatore_in_memoria() — script lanciati a mano, eval_*, hook, consumer. Prima andava agganciato a mano e ogni script nuovo nasceva scoperto (tests/eval_modi_argo.py chiamava l'API senza contare). Import tardivo: il worker Docker, che sceglie l'in-memory, non carica mai questo modulo per il tetto."
       - "Estratto al secondo uso (18/9/2026): scrittura/lettura del DB da host via docker exec psql, SQL su stdin. incrementa_chiamate_llm è il contatore persistente del tetto LLM (llm_chiamate_giorno) usato dal consumer di argo_voce e dall'hook di memoria_sessioni. Il _psql locale di scripts/argo/orienta_webhook.py resta com'è (non migrato, per non cambiare quel consumer)."
     contratti:
@@ -959,6 +960,23 @@ condivisi:
       - id: CD06
         enunciato: "Ogni chiamata al gateway LLM è contata in llm_chiamate_giorno, salvo nei processi che scelgono esplicitamente il contatore in-memory (oggi solo il worker Docker); se la tabella non è leggibile la chiamata è bloccata"
         garantito_da: "connectors/llm.py:_incrementa_contatore (persistente se _contatore_in_memoria non è attivo; eccezione del contatore -> LLMErrore prima della richiesta HTTP) + worker/loop.py:38 (usa_contatore_in_memoria()) + test:tests/test_tetto_llm.py (un caso per chiamante: script qualsiasi, worker, classificatore, drafter, Argo, hook memoria)"
+
+  - nome: llm_gratuito
+    codice: ["connectors/openrouter.py", "scripts/prova_openrouter.py"]
+    usato_da: []
+    env:
+      - OPENROUTER_API_KEY
+      - OPENROUTER_TETTO_GIORNALIERO
+    evidenza:
+      - "Ramo gratuito del gateway LLM (18/9/2026): OpenRouter, raggiunto solo da connectors/llm.py:chiama(sensibile=False, modello=...) e importato solo in quel caso — nessuna pipeline di produzione lo usa (usato_da vuoto): serve a eval e prove di prompt dichiarati non sensibili. Classificatore, drafter, argo_voce e memoria_sessioni non passano sensibile=False (verificato da tests/test_openrouter_llm.py) e non caricano nemmeno il modulo."
+      - "Vincolo di data policy su ogni richiesta, nel codice (VINCOLO_DATA_POLICY, non configurabile dal chiamante): provider.data_collection='deny' + provider.zdr=true — sintassi dalla documentazione ufficiale, openrouter.ai/docs/features/provider-routing e openrouter.ai/docs/features/zdr (18/9/2026). Il campo per richiesta vale in OR con l'impostazione di account."
+      - "Quota gratuita in una tabella sua (openrouter_chiamate_giorno, db/migrations/010), incrementata PRIMA della richiesta via connectors/psql_host.py:incrementa_chiamate_openrouter — le richieste fallite consumano la quota di OpenRouter. Tetto OPENROUTER_TETTO_GIORNALIERO (default 40, limite reale 50/giorno senza crediti). Separata dalla spesa Anthropic (llm_chiamate_giorno) e dall'in-memory del worker: tre quote, mai sommate."
+      - "Un solo tentativo per chiamata (ogni tentativo brucia quota); su 429 l'errore porta retry_after dall'header Retry-After. fallback=False di default: su errore risale; fallback=True passa ad Anthropic e logga il cambio di provider."
+      - "Modello mai cablato: parametro obbligatorio del chiamante (il listino gratuito ruota). Gli endpoint ZDR gratuiti sono elencati, senza chiave, da https://openrouter.ai/api/v1/endpoints/zdr (8 il 18/9/2026)."
+    contratti:
+      - id: CD07
+        enunciato: "Nessun prompt contenente dati di terzi (email di prospect, contatti, contenuti ricevuti) viene inviato a un endpoint gratuito o a un provider che può addestrare sugli input"
+        garantito_da: "default sensibile=True in connectors/llm.py:chiama (solo il False letterale apre il ramo gratuito; 0, None o un parametro dimenticato restano su Anthropic) + vincolo di data policy su ogni richiesta OpenRouter (connectors/openrouter.py:VINCOLO_DATA_POLICY in corpo_richiesta) + test:tests/test_openrouter_llm.py — limite: sensibile=False è una dichiarazione del chiamante, il codice non può verificare che il prompt non contenga dati di terzi"
 
 infrastruttura:
   env:
