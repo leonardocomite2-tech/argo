@@ -395,7 +395,7 @@ pipeline:
       generalizzato per reclamare job di entrambi i tipi (id,tipo,payload via
       json_agg, stesso stile di argo/stato.py:_query_db) e dirama alla
       funzione giusta — nome file invariato apposta: il crontab di Leonardo
-      lancia già questo script ogni minuto (confermato attivo,
+      lancia già questo script (ogni minuto, ogni 15 s dal passo 11 della voce; confermato attivo,
       orienta_webhook.log presente sul VPS), rinominarlo lo romperebbe in
       silenzio. worker/loop.py:claim_job esclude ora anche 'genera_instrada'
       dalla propria coda, stesso motivo di 'genera_orienta'. Nessuna nuova
@@ -526,7 +526,7 @@ pipeline:
       'genera_instrada'/'genera_brief'); avvisa (PASSO 8) non ha un trigger
       da Leonardo — worker/loop.py:garantisci_genera_avviso accoda da sé
       'genera_avviso' una volta al giorno (22:15). scripts/argo/orienta_webhook.py
-      (lanciato da cron host ogni minuto, non dal worker Docker) reclama il
+      (lanciato da cron host ogni 15 secondi dal passo 11 della voce, non dal worker Docker) reclama il
       più vecchio dei quattro tipi e manda la risposta (o tace, per avvisa,
       se non c'è nulla da dire; o l'elenco dei nomi validi, per brief, se il
       nome non risolve a un solo cantiere). Il modo orienta ha anche un
@@ -751,6 +751,7 @@ pipeline:
 
       - "PASSO 9 della voce (18/9/2026) — messaggi liberi instradati ai modi: il classificatore vive DENTRO il job genera_conversazione del passo 4 del ponte (scripts/argo/orienta_webhook.py:_instrada_messaggio_libero, primo passo di main()), che riassegna tipo/payload a genera_orienta/genera_instrada/genera_brief/genera_impatto e lascia al ramo esistente l'esecuzione identica — nessun tipo di job nuovo, backend/main.py e worker/loop.py invariati, nessuna tabella nuova (la finestra è conversazione_argo). main() ha ora un ramo esplicito per genera_avviso e solleva su un tipo sconosciuto (prima l'else assumeva genera_avviso per qualunque tipo). Prompt del classificatore senza SOUL/IDENTITY/USER né stato: ~1.2k token in ingresso, max 150 in uscita, conta nel tetto persistente come ogni chiamata del consumer."
       - "PASSO 10 della voce (18/9/2026) — tre difetti delle risposte dei modi, classificatore e comandi invariati: backtick tolti in Python (_senza_backtick) invece che solo vietati nel prompt; il totale dei contratti in impatto scritto dal codice e il modello limitato al rischio principale (con la sola regola nel prompt l'eval riproduceva 'sono quattro' seguito da otto ID); la regola anti-invenzione estesa alle azioni in SOUL.md e nelle istruzioni di orienta/instrada/conversazione. Buco dichiarato: nessun lettore di argo/stato.py dice cosa gira già (crontab, container) — la sola fonte su 'cosa resta da fare' sono le righe di ## CANTIERI in STATO.md."
+      - "PASSO 11 della voce (18/9/2026) — instradamento su brief, fatti negati, latenza. (1) Brief da messaggio libero solo se il messaggio dice 'brief' o 'Claude Code' (cancello in Python, _RICHIESTA_BRIEF_RE) e con confidenza >= SOGLIA_CONFIDENZA_BRIEF=0.9; con la parola ma sotto soglia una riga fissa rimanda a /brief; senza la parola è conversazione. genera_brief risponde con una riga fissa, zero LLM, per ogni cantiere con Stato diverso da 'aperto' (deciso da Leonardo: in eval il modello inventava lavoro di codice da 'resta a Leonardo il push e il ricollaudo', 3/3). Sui cantieri aperti i dati separano lavoro_gia_chiuso (sessioni + commit del cantiere da attivita_git) da da_fare_secondo_la_riga. (2) Orienta, instrada e conversazione senza consultazione finiscono con una riga 'Fatti' composta in Python (_riga_fatti: approvazioni in attesa con #id e giorno, tipi di job falliti negli ultimi 7 giorni, cantieri che aspettano Leonardo; copertura assente = 'non rilevabili', mai zero); _togli_fatti_del_modello toglie le frasi del modello che contano o negano quei fatti (lista nera, limite in STATO.md DECISIONI APERTE). Orienta/instrada ricevono ora la stessa vista della conversazione (_senza_campi_derivati). (3) scripts/argo/orienta_webhook.py lanciato da quattro righe di cron sfalsate di 15 s; _reclama_job controllava 'if not claimato' ma psql -t -A stampa 'UPDATE 0' con zero righe — la guardia non scattava mai: ora il claim vale solo se la prima riga è l'id. Nessuna tabella, env o confine di pipeline cambiato."
 
   - nome: memoria_sessioni
     stato: orienta

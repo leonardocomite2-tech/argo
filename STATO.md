@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 10: tre difetti delle risposte dei modi chiusi (backtick tolti in Python, totale dei contratti di impatto scritto dal codice, regola anti-invenzione estesa alle azioni); passo 9 già collaudato dal telefono; resta a Leonardo il push e il ricollaudo dal telefono delle tre frasi. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 11: brief solo se chiesto a parole e per cantieri "aperto", riga "Fatti" scritta dal codice in orienta/instrada/conversazione, claim del consumer corretto ("UPDATE 0"); resta a Leonardo il push, le quattro righe di crontab ogni 15 secondi e il ricollaudo dal telefono ("come collauderesti al meglio Argo voce", "come sta andando?"). Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host già in cron ogni minuto); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
@@ -714,12 +714,37 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   voce) impedisce di inventare azioni, non di proporre una voce scaduta.
   Trade-off scelto: niente lettore nuovo per ora, righe CANTIERI tenute
   aggiornate a fine sessione. Da rivalutare se succede di nuovo.
-- Invenzioni sui dati viste nel collaudo dal telefono del 18/09, non
+- (approvazioni e conteggi risolti al passo 11 della voce, 18/9/2026: riga
+  "Fatti" scritta dal codice, vedi sotto; "tre modi" di instrada no) Invenzioni sui dati viste nel collaudo dal telefono del 18/09, non
   corrette al passo 10 (fuori perimetro): la conversazione ha detto
   "nessuna approvazione in attesa" con la #10 in attesa, e l'ha ripetuto
   nel rilancio del passo 10, insieme a "sei cantieri che aspettano te"
   (sono di meno); instrada ha scritto "tre modi (orienta/instrada/avvisa)".
   Stessa classe anti-invenzione, sui dati invece che sulle azioni.
+- **Argo — la voce, passo 11 (18/9/2026): il filtro che toglie i fatti
+  scritti dal modello è una lista nera.** `_togli_fatti_del_modello` toglie
+  le frasi con un numero attaccato ad approvazioni/job/alert/cantieri ("sei
+  cantieri", "un solo job"), quelle che nominano uno di quei temi insieme a
+  una negazione ("nessuna approvazione"), una riga "Fatti" scritta dal
+  modello e, se qualcosa aspetta, "niente da fare"/"sei a posto". Prova che
+  le frasi già viste non tornano, non che ogni frase rimasta sia fedele; e
+  togliere una frase può lasciare orfana quella dopo ("Non bloccano niente
+  adesso" senza il soggetto). La riga "Fatti" in coda resta comunque giusta
+  perché è scritta dal codice. Trade-off scelto: niente seconda chiamata LLM
+  di verifica; nuove forme si aggiungono alla lista quando compaiono.
+- **Argo — la voce, passo 11: `/brief` solo per cantieri con Stato
+  "aperto"** (deciso da Leonardo). Per ogni altro stato una riga fissa, zero
+  LLM, che dice lo stato, chi aspetta e la cella della sessione. Un cantiere
+  in attesa che ha comunque lavoro di codice nuovo (es. il drafter DM del
+  Cantiere 3) va prima rimesso "aperto" nella sua riga CANTIERI.
+- **Argo — la voce, passo 11: consumer ogni 15 secondi, lanci sovrapposti.**
+  Il claim è atomico (verificato con due UPDATE concorrenti sullo stesso job:
+  la seconda aspetta il commit della prima e aggiorna 0 righe). Ma un brief
+  che dura più di 15 s si sovrappone al lancio successivo, che può reclamare
+  il job dopo: due risposte possono arrivare in ordine invertito, e due
+  messaggi liberi elaborati in parallelo non si vedono nella finestra (lo
+  stesso caso di `leonardo_non_processato`). Trade-off accettato per la
+  latenza.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -3227,4 +3252,72 @@ uno script nuovo non deve sapere di doverlo agganciare.
 - **Resta a Leonardo**: `docker compose up -d --build` del worker (fino ad
   allora gira il codice vecchio, equivalente: in-memory); resta aperta la
   decisione sui due contatori separati (DECISIONI APERTE).
+
+## Sessione 2026-09-18 (continua) — Cantiere Argo — la voce, passo 11: instradamento su brief, fatti negati, latenza
+
+Tre difetti dal collaudo dal telefono dei passi 9-10, riletti su
+`conversazione_argo` e `orienta_webhook.log`. La frase del brief ("come
+collauderesti al meglio Argo voce") era una parafrasi: i messaggi reali
+erano "Come mi diresti di fare il collaudo al meglio?" e "Sarebbe argo la
+voce che serve a comunicare, procedi quindi capendo per il collaudo", tutti
+e due su brief a 0.85; "Sto cercando di fare collaudo cantiere comunicatore,
+ti torna?" era finito su instrada (0.75). In eval ci sono tutti e quattro.
+
+- **Brief instradato per sbaglio.** Due cinture. Prompt del classificatore:
+  brief SOLO se chiesto esplicitamente, una domanda su un cantiere è
+  conversazione. Python (`_analizza_classificazione`): senza la parola
+  "brief" o "Claude Code" nel messaggio il modo diventa conversazione (la
+  domanda riceve risposta); con la parola ma confidenza sotto
+  `SOGLIA_CONFIDENZA_BRIEF=0.9` una riga fissa chiede conferma e rimanda a
+  `/brief <nome>`. Niente conferma per tutti i brief: il "sì" dopo andrebbe
+  interpretato dalla finestra, cioè proprio dalla parte fragile. Dopo la
+  modifica al prompt il modello da solo instrada bene tutti i casi nuovi: il
+  cancello resta come seconda cintura.
+- **Brief su lavoro già chiuso.** Prima provato nei dati: chiuso
+  (`lavoro_gia_chiuso`: sessioni + commit del cantiere, filtrati da
+  `attivita_git` per nome) separato da aperto (`da_fare_secondo_la_riga`),
+  più la regola "se resta solo lavoro di Leonardo, Da precisare". Non
+  bastava: in 3 giri di eval su 3 il brief per la voce inventava "tre frasi
+  da riscrivere" a partire da "resta il ricollaudo delle tre frasi". Deciso
+  con Leonardo: `/brief` genera solo per cantieri con Stato "aperto", per
+  gli altri una riga fissa senza LLM (vedi DECISIONI APERTE). I dati separati
+  restano per i cantieri aperti.
+- **Fatti negati.** La #10 era davvero nello stato ricevuto dal modello
+  (`approvazioni_in_attesa`: copertura completa, una riga). I conteggi ora li
+  scrive il codice: `_riga_fatti` mette in coda a orienta, instrada e
+  conversazione senza consultazione "Fatti: approvazioni in attesa: 1 (#10
+  dal 2026-09-03); job con fallimenti negli ultimi 7 giorni: nessuno;
+  cantieri che aspettano te: 6." (copertura assente = "non rilevabili", mai
+  zero). `_togli_fatti_del_modello` toglie le frasi che la contraddirebbero
+  (lista nera, in DECISIONI APERTE). Nell'eval il modello ha scritto di nuovo
+  "Nessuna approvazione in attesa, nessun job fallito" e in orienta una sua
+  riga "Fatti: ... 3 job falliti, 7 cantieri": tolte entrambe. Orienta e
+  instrada ricevono ora la stessa vista della conversazione
+  (`_senza_campi_derivati`): con lo storico intero orienta proponeva di
+  correggere il digest di agosto, già risolto. I cantieri che aspettano
+  Leonardo secondo la colonna Aspetta sono 6: la nota sopra ("sono di meno")
+  contava in un altro modo.
+- **Latenza.** Il claim del consumer aveva un bug: `_reclama_job` controllava
+  `if not claimato`, ma psql `-t -A` stampa "UPDATE 0" quando nessuna riga
+  cambia, quindi la guardia non scattava mai e due lanci sovrapposti
+  avrebbero elaborato lo stesso job. Ora il claim vale solo se la prima riga
+  è l'id restituito da RETURNING. Verificato: prima della correzione "UPDATE
+  0" risultava un claim riuscito, dopo no. Prova dal vivo su un job
+  fittizio (`prova_claim_passo11`, run_after fra un anno, cancellato
+  subito): la seconda UPDATE concorrente aspetta il commit della prima e
+  aggiorna 0 righe. Le altre letture di RETURNING via psql
+  (`psql_host.py`, `hook_sessione.py`, `_registra_mandato_impatto`) usavano
+  già `splitlines()[0]`.
+- **Crontab** (da incollare a mano al posto della riga attuale di
+  orienta_webhook.py):
+  `* * * * * cd /root/argo && /usr/bin/python3 scripts/argo/orienta_webhook.py >> /root/argo/orienta_webhook.log 2>&1`
+  più la stessa riga con `sleep 15; `, `sleep 30; ` e `sleep 45; ` davanti a `cd`.
+- **Verifiche**: `test_argo_voce` 337/337, suite intera verde,
+  `eval_classificatore_argo` 21/21 (tre giri), `eval_modi_argo` 24/24 su tre
+  giri (casi nuovi: conversazione "Come sta andando?", brief il ponte e la
+  voce), `verifica_mappa.py` 0 divergenze. Mappa: nota PASSO 11 su
+  argo_voce, frequenza del cron aggiornata; `worker/loop.py` non toccato (il
+  suo commento "già ogni minuto" resta indietro, è solo testo).
+- **Resta a Leonardo**: push, le quattro righe di crontab, ricollaudo dal
+  telefono. Il consumer legge i file da disco: nessun rebuild.
 

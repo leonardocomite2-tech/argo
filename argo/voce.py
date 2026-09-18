@@ -34,7 +34,11 @@ Dal passo 9 della voce, un messaggio libero passa prima dal classificatore
 (classifica_modo + risolvi_modo): sceglie il modo — orienta, instrada,
 impatto, brief, conversazione — ed estrae i parametri; chi risponde resta la
 funzione di quel modo, invariata. Parametro mancante o modo incerto: una
-riga che chiede, mai un valore dedotto.
+riga che chiede, mai un valore dedotto. Dal passo 11: brief da messaggio
+libero solo se il messaggio lo nomina (cancello in Python) e solo per
+cantieri "aperto"; orienta, instrada e conversazione senza consultazione
+finiscono con una riga "Fatti" scritta dal codice (_riga_fatti), mai dal
+modello.
 
 Sola lettura: questo modulo non scrive mai sul DB (vedi guardrail statico in
 tests/test_argo_voce.py, come già per argo/stato.py). genera_avviso()
@@ -138,6 +142,18 @@ DOCUMENTI_CANTIERE = {
     "argo": KNOWLEDGE_DIR / "IDENTITY.md",
 }
 
+# Una riga, non una quarta regola anti-invenzione: toglie al modello il
+# compito di riportare i conteggi (vedi _riga_fatti). Aggiunta a orienta,
+# instrada e alla prima chiamata della conversazione — le tre risposte
+# costruite sullo stato intero.
+REGOLA_FATTI = """
+- Non scrivere conteggi né assenze di approvazioni in attesa, job falliti,
+  alert o cantieri ("nessuna approvazione", "un solo job fallito", "cinque
+  cantieri"): li aggiunge il codice in una riga "Fatti" in coda alla tua
+  risposta. Puoi nominare una singola approvazione o un cantiere se è la
+  cosa da proporre, con il suo ID copiato dallo stato.
+""".strip()
+
 ISTRUZIONI_ORIENTA = """
 ## Modo "orienta" — istruzioni per questa risposta
 
@@ -187,7 +203,7 @@ queste regole, senza eccezioni:
 - Niente incoraggiamenti, niente riassunti di ciò che è stato fatto, niente
   percentuali di completamento.
 - Le cose ferme sono informazione, non rimprovero.
-""".strip()
+""".strip() + "\n" + REGOLA_FATTI
 
 ISTRUZIONI_INSTRADA = """
 ## Modo "instrada" — istruzioni per questa risposta
@@ -241,7 +257,7 @@ seguendo queste regole, senza eccezioni:
   (es. voce.py, non `voce.py`).
 - Niente incoraggiamenti, niente riassunti di ciò che è stato fatto, niente
   percentuali di completamento.
-""".strip()
+""".strip() + "\n" + REGOLA_FATTI
 
 ISTRUZIONI_AVVISA = """
 ## Modo "avvisa" — istruzioni per questa risposta
@@ -295,7 +311,7 @@ Rispondi seguendo queste regole, senza eccezioni:
 - "contesto": elenco puntato (righe che iniziano con "- ") dei file o delle
   sezioni da leggere prima di scrivere codice — SOLO percorsi, nomi di
   file, comandi o numeri che compaiono ALLA LETTERA nei dati qui sotto
-  (riga del cantiere, sessioni recenti, documento di knowledge). Anti-
+  (riga del cantiere, lavoro già chiuso, documento di knowledge). Anti-
   invenzione più forte che altrove: se un dettaglio non compare alla
   lettera nei dati, non scriverlo, nemmeno come esempio plausibile.
   ATTENZIONE PARTICOLARE ai percorsi di file: copia ogni percorso ESATTAMENTE
@@ -308,11 +324,15 @@ Rispondi seguendo queste regole, senza eccezioni:
   — scrivere "pagine/x/pavimento.mjs" sarebbe un percorso inventato, anche
   se sembra plausibile. Nel dubbio su un percorso, scrivi solo il nome del
   file senza cartella.
-- "obiettivo": uno o due paragrafi che sintetizzano il prossimo passo del
-  cantiere, basati SOLO su ciò che i dati dicono davvero. Se i dati non
-  bastano per un obiettivo chiaro, scrivi invece "Da precisare con
-  Leonardo: " seguito da cosa manca — mai un obiettivo plausibile
-  inventato per riempire il vuoto.
+- "obiettivo": uno o due paragrafi sul prossimo passo del cantiere. Nomina
+  SOLO ciò che "da_fare_secondo_la_riga" o le sessioni dichiarano ancora da
+  fare. Tutto ciò che sta in "lavoro_gia_chiuso" (sessioni e commit) è già
+  fatto e committato: mai riproporlo come obiettivo, nemmeno riformulato.
+  Se resta solo lavoro di Leonardo (push, collaudo dal telefono, una sua
+  verifica) o non resta niente, o se i dati non bastano per un obiettivo
+  chiaro, scrivi invece "Da precisare con Leonardo: " seguito da cosa manca
+  (es. "i dati non nominano lavoro di codice aperto per questo cantiere")
+  — mai un obiettivo plausibile inventato per riempire il vuoto.
 - "criterio_di_chiusura": uno o due paragrafi su come si riconosce che
   questo passo è concluso, basati sugli stessi dati. Stessa regola: se non
   è chiaro dai dati, dichiaralo invece di inventarlo.
@@ -324,6 +344,11 @@ Rispondi seguendo queste regole, senza eccezioni:
 """.strip()
 
 DOMANDA_BRIEF = "Scrivi il brief per il cantiere descritto nei dati qui sotto."
+TESTO_BRIEF_NON_APERTO = (
+    "{nome} è {stato} (aspetta {aspetta}): {sessione}.\n\n"
+    "Nessun lavoro di codice aperto da mettere in un brief. Se ce n'è di "
+    "nuovo, metti Stato: aperto nella sua riga CANTIERI di STATO.md."
+)
 
 ISTRUZIONI_IMPATTO = """
 ## Modo "impatto" — istruzioni per questa risposta
@@ -481,12 +506,155 @@ def costruisci_system_prompt(stato_dict, istruzioni):
     )
 
 
+# --- Riga dei fatti (passo 11 della voce) ---
+#
+# Collaudo del passo 10: alla domanda "come sta andando?" la conversazione
+# ha scritto "nessuna approvazione in attesa" con l'approvazione #10 ferma
+# da due settimane nei dati che aveva davanti, e "job fallito uno solo". Tre
+# regole anti-invenzione nel prompt non sono bastate: i conteggi li scrive il
+# codice, come il totale dei contratti di impatto (passo 10), e le frasi del
+# modello che conterebbero o negherebbero quegli stessi fatti si tolgono.
+
+_TEMA_FATTI_RE = re.compile(r"approvazion|\bjob\b|\balert\b|cantier|fallit|escalation", re.IGNORECASE)
+# ID, date, orari e "cantiere N" non sono conteggi: tolti prima del controllo,
+# così "chiudi l'approvazione #10 ferma dal 2026-09-03" resta.
+_NON_CONTEGGI_RE = re.compile(
+    r"#\d+|\b\d{4}-\d{2}-\d{2}\S*|\b\d{1,2}/\d{1,2}(/\d{2,4})?\b|\b\d{1,2}:\d{2}\b|\bcantiere \d+\b",
+    re.IGNORECASE,
+)
+_ASSENZA_RE = re.compile(
+    r"\b(nessun\w*|niente|nulla|zero|non (ci )?sono|non c'è|non ce n\w*|non risulta\w*)\b",
+    re.IGNORECASE,
+)
+# Un conteggio è un numero attaccato al sostantivo ("sei cantieri", "due
+# approvazioni", "un solo job", "job fallito uno solo"), non un numero
+# qualunque nella frase: "(cinque minuti) ... un'approvazione in attesa"
+# resta. Qui "sei" è un numero solo perché precede il sostantivo.
+_NUMERO = (r"\d+|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|"
+           r"un solo|una sola|un unico|un'unica")
+_SOSTANTIVO_FATTI = r"approvazion\w*|job|alert|cantier\w*|escalation"
+_CONTEGGIO_RE = re.compile(
+    rf"\b({_NUMERO})\s+(\w+\s+)?({_SOSTANTIVO_FATTI})\b"
+    rf"|\b({_SOSTANTIVO_FATTI})(\s+\w+)?\s+(uno solo|una sola|solo uno|solo una)\b",
+    re.IGNORECASE,
+)
+_NIENTE_DA_FARE_RE = re.compile(
+    r"\b(niente|nulla) (da fare|che (ti )?aspett\w*|di urgente|in sospeso)\b"
+    r"|\bnon c'è (niente|nulla)\b|\b(tutto|sei) (tranquillo|a posto|ok)\b",
+    re.IGNORECASE,
+)
+_FRASE_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _job_falliti_in_finestra(falliti, oggi, giorni):
+    """Pura: divide i gruppi di job falliti in (recenti, omessi) secondo
+    piu_recente rispetto a `oggi` meno `giorni`. Data illeggibile: recente —
+    meglio mostrarlo che nasconderlo."""
+    soglia = datetime.fromisoformat(oggi).toordinal() - giorni
+    recenti, omessi = [], 0
+    for riga in falliti:
+        giorno = str(riga.get("piu_recente") or "")[:10]
+        try:
+            recente = datetime.fromisoformat(giorno).toordinal() >= soglia
+        except ValueError:
+            recente = True
+        if recente:
+            recenti.append(riga)
+        else:
+            omessi += 1
+    return recenti, omessi
+
+
+def _riga_fatti(stato_dict):
+    """Pura: la riga dei fatti numerici, dallo stato di raccogli_stato().
+    Ritorna (riga, qualcosa_aspetta). Copertura assente = "non rilevabili",
+    mai zero; zero si scrive ("nessuna"), così la riga c'è sempre e la sua
+    assenza non si confonde con niente da fare. Nessuna durata calcolata: la
+    data dell'approvazione è il giorno di updated_at, copiato."""
+    qualcosa_aspetta = False
+
+    appr = stato_dict.get("approvazioni_in_attesa") or {}
+    if appr.get("copertura") == "assente" or "righe" not in appr:
+        voce_appr = "approvazioni in attesa: non rilevabili"
+    elif appr["righe"]:
+        qualcosa_aspetta = True
+        dettagli = ", ".join(f"#{r['id']} dal {str(r.get('updated_at') or '')[:10]}" for r in appr["righe"])
+        voce_appr = f"approvazioni in attesa: {len(appr['righe'])} ({dettagli})"
+    else:
+        voce_appr = "approvazioni in attesa: nessuna"
+
+    job = stato_dict.get("job_falliti") or {}
+    finestra = f"job con fallimenti negli ultimi {GIORNI_JOB_FALLITI_CONVERSAZIONE} giorni"
+    if job.get("copertura") == "assente" or "falliti" not in job or not stato_dict.get("oggi"):
+        voce_job = f"{finestra}: non rilevabili"
+    else:
+        recenti, _ = _job_falliti_in_finestra(job["falliti"], stato_dict["oggi"], GIORNI_JOB_FALLITI_CONVERSAZIONE)
+        tipi = sorted({str(r.get("tipo")) for r in recenti})
+        if tipi:
+            qualcosa_aspetta = True
+        voce_job = f"{finestra}: {', '.join(tipi) if tipi else 'nessuno'}"
+
+    cant = stato_dict.get("cantieri_aperti") or {}
+    if cant.get("copertura") == "assente" or cant.get("cantieri") is None:
+        voce_cant = "cantieri che aspettano te: non rilevabili"
+    else:
+        n = sum(
+            1 for c in cant["cantieri"]
+            if (c.get("aspetta") or "").strip().lower() == "leonardo"
+            and (c.get("stato") or "").strip().lower() != "chiuso"
+        )
+        voce_cant = f"cantieri che aspettano te: {n if n else 'nessuno'}"
+
+    return f"Fatti: {voce_appr}; {voce_job}; {voce_cant}.", qualcosa_aspetta
+
+
+def _togli_fatti_del_modello(testo, qualcosa_aspetta):
+    """Pura: toglie dal testo del modello le frasi che contano o negano
+    approvazioni, job, alert o cantieri — quei fatti li scrive _riga_fatti,
+    il modello non deve poterli contraddire. Con qualcosa in attesa toglie
+    anche "niente da fare" e simili. Lista nera (limite dichiarato in STATO.md,
+    DECISIONI APERTE): non prova che ogni frase rimasta sia fedele, prova che
+    quelle già viste non tornano."""
+    righe_tenute = []
+    for riga in (testo or "").splitlines():
+        # Una riga "Fatti" scritta dal modello (eval passo 11: la imitava con
+        # numeri suoi) si toglie intera: resta solo quella del codice.
+        if riga.strip().lower().startswith("fatti"):
+            continue
+        frasi = []
+        for frase in _FRASE_RE.split(riga):
+            ripulita = _NON_CONTEGGI_RE.sub(" ", frase)
+            if _CONTEGGIO_RE.search(ripulita):
+                continue
+            if _TEMA_FATTI_RE.search(ripulita) and _ASSENZA_RE.search(ripulita):
+                continue
+            if qualcosa_aspetta and _NIENTE_DA_FARE_RE.search(ripulita):
+                continue
+            frasi.append(frase)
+        if frasi or not riga.strip():
+            righe_tenute.append(" ".join(frasi))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(righe_tenute)).strip()
+
+
+def _con_riga_fatti(testo, stato_dict):
+    """Testo del modello ripulito dei fatti numerici, più la riga dei fatti in
+    coda. Se del testo non resta niente, resta solo la riga."""
+    riga, qualcosa_aspetta = _riga_fatti(stato_dict)
+    corpo = _togli_fatti_del_modello(testo, qualcosa_aspetta)
+    return f"{corpo}\n\n{riga}" if corpo else riga
+
+
 def genera_risposta():
     """Modo "orienta": raccoglie lo stato, costruisce il prompt, chiama l'LLM.
-    Ritorna il testo da mandare a Leonardo."""
+    Ritorna il testo da mandare a Leonardo. Dal passo 11 il prompt riceve la
+    stessa vista della conversazione (_senza_campi_derivati: job falliti solo
+    recenti, niente ore_ferma): con lo storico intero orienta proponeva di
+    correggere il digest di agosto, già risolto, contro la riga Fatti che
+    dice "nessuno negli ultimi 7 giorni"."""
     stato_dict = raccogli_stato()
-    system = costruisci_system_prompt(stato_dict, ISTRUZIONI_ORIENTA)
-    return _senza_backtick(chiama(system, DOMANDA_LEONARDO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
+    system = costruisci_system_prompt(_senza_campi_derivati(stato_dict), ISTRUZIONI_ORIENTA)
+    testo = _senza_backtick(chiama(system, DOMANDA_LEONARDO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
+    return _con_riga_fatti(testo, stato_dict)
 
 
 def genera_risposta_instrada(minuti, contesto):
@@ -494,9 +662,10 @@ def genera_risposta_instrada(minuti, contesto):
     domanda diverse. `minuti` intero positivo, `contesto` in {"telefono","computer"}
     — già validati da connectors.telegram.interpreta_instrada prima di arrivare qui."""
     stato_dict = raccogli_stato()
-    system = costruisci_system_prompt(stato_dict, ISTRUZIONI_INSTRADA)
+    system = costruisci_system_prompt(_senza_campi_derivati(stato_dict), ISTRUZIONI_INSTRADA)
     domanda = _domanda_instrada(minuti, contesto)
-    return _senza_backtick(chiama(system, domanda, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
+    testo = _senza_backtick(chiama(system, domanda, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
+    return _con_riga_fatti(testo, stato_dict)
 
 
 def _filtra_candidati_avviso(righe_approvazioni, righe_job_falliti, righe_osservazioni, chiavi_gia_avvisate):
@@ -804,6 +973,24 @@ def _verifica_impatti_brief(contesto):
     return avvertimento, "; ".join(righe_log)
 
 
+def _commit_del_cantiere(nome_cantiere, git):
+    """Pura: i commit recenti il cui oggetto nomina il cantiere (convenzione
+    dei messaggi: "cantiere <Nome>, passo N: ..."), solo data e oggetto. Git
+    illeggibile: lista vuota con la copertura dichiarata, mai silenzio."""
+    if git.get("copertura") != "completa":
+        return {"copertura": "assente", "motivo": git.get("motivo"), "righe": []}
+    nome = nome_cantiere.lower()
+    return {
+        "copertura": "completa",
+        "motivo": None,
+        "righe": [
+            {"data": c["data"][:10], "oggetto": c["oggetto"]}
+            for c in git.get("commits_recenti") or []
+            if nome in c["oggetto"].lower()
+        ],
+    }
+
+
 def genera_brief(nome_utente):
     """Modo "brief": risolve `nome_utente` contro il blocco '## CANTIERI' di
     STATO.md (match tollerante per sottostringa, vedi _risolvi_cantiere —
@@ -837,19 +1024,40 @@ def genera_brief(nome_utente):
         ), None
 
     cantiere = trovati[0]
+    # Solo un cantiere "aperto" ha lavoro di codice da mettere in un brief
+    # (deciso da Leonardo al passo 11 della voce). Con la riga "in attesa,
+    # resta a Leonardo il push e il ricollaudo delle tre frasi" il modello
+    # inventava "tre frasi da riscrivere" in 3 giri su 3 di eval, anche con
+    # chiuso e aperto separati nei dati: la regola è in Python, zero LLM.
+    # Per sbloccarlo si mette Stato: aperto nella riga CANTIERI di STATO.md.
+    if cantiere["stato"].strip().lower() != "aperto":
+        return TESTO_BRIEF_NON_APERTO.format(
+            nome=cantiere["nome"], stato=cantiere["stato"], aspetta=cantiere["aspetta"],
+            sessione=cantiere["sessione_riferimento"],
+        ), None
+
     sessioni = stato.sessioni_cantiere(cantiere["nome"], n=N_SESSIONI_BRIEF)
     nome_doc, testo_doc = _documento_cantiere(cantiere["nome"])
 
+    # Chiuso e aperto separati nei dati (collaudo passo 10: un brief su
+    # "Argo — la voce" riproponeva le tre correzioni del passo 10, già
+    # committate, perché le sessioni recenti arrivavano come contesto
+    # neutro). La riga CANTIERI dice cosa resta; sessioni e commit dicono
+    # cosa è già fatto.
     dati = {
         "oggi": _data_oggi(),
-        "cantiere": cantiere,
-        "sessioni_recenti": [
-            {
-                "titolo": s["titolo"],
-                "testo": _tronca(s["testo"], LIMITE_SESSIONI_CANTIERE_CARATTERI),
-            }
-            for s in sessioni["sezioni"]
-        ],
+        "da_fare_secondo_la_riga": cantiere,
+        "lavoro_gia_chiuso": {
+            "nota": "fatto e committato: mai da riproporre come obiettivo",
+            "sessioni": [
+                {
+                    "titolo": s["titolo"],
+                    "testo": _tronca(s["testo"], LIMITE_SESSIONI_CANTIERE_CARATTERI),
+                }
+                for s in sessioni["sezioni"]
+            ],
+            "commit": _commit_del_cantiere(cantiere["nome"], stato.attivita_git()),
+        },
         "documento_knowledge": {"file": nome_doc, "testo": testo_doc} if nome_doc else None,
     }
 
@@ -1058,7 +1266,7 @@ queste regole, senza eccezioni:
   niente percentuali di completamento.
 """.strip()
 
-ISTRUZIONI_CONVERSA_PRIMA = ISTRUZIONI_CONVERSA_BASE + """
+ISTRUZIONI_CONVERSA_PRIMA = ISTRUZIONI_CONVERSA_BASE + "\n" + REGOLA_FATTI + """
 
 ## Formato della risposta (obbligatorio)
 
@@ -1277,18 +1485,7 @@ def _senza_campi_derivati(stato_dict):
     job = copia.get("job_falliti") or {}
     oggi = copia.get("oggi")
     if job.get("falliti") and oggi:
-        soglia = datetime.fromisoformat(oggi).toordinal() - GIORNI_JOB_FALLITI_CONVERSAZIONE
-        recenti, omessi = [], 0
-        for riga in job["falliti"]:
-            giorno = str(riga.get("piu_recente") or "")[:10]
-            try:
-                recente = datetime.fromisoformat(giorno).toordinal() >= soglia
-            except ValueError:
-                recente = True  # data illeggibile: meglio mostrarlo che nasconderlo
-            if recente:
-                recenti.append(riga)
-            else:
-                omessi += 1
+        recenti, omessi = _job_falliti_in_finestra(job["falliti"], oggi, GIORNI_JOB_FALLITI_CONVERSAZIONE)
         job["falliti"] = recenti
         if omessi:
             job["falliti_piu_vecchi_omessi"] = (
@@ -1360,7 +1557,8 @@ def genera_conversazione(conversazione_id, messaggio):
     registrata."""
     storico = stato.conversazione_recente(conversazione_id, N_SCAMBI_CONVERSAZIONE)
     vocabolario = _vocabolario_mappa()
-    stato_dict = _senza_campi_derivati(raccogli_stato())
+    stato_completo = raccogli_stato()
+    stato_dict = _senza_campi_derivati(stato_completo)
     stato_dict["vocabolario_mappa"] = vocabolario
     if storico["copertura"] == "assente":
         stato_dict["conversazione_precedente"] = {"copertura": "assente", "motivo": storico["motivo"]}
@@ -1379,7 +1577,10 @@ def genera_conversazione(conversazione_id, messaggio):
 
     risposta, richiesta = _interpreta_prima_risposta(grezzo)
     if richiesta is None:
-        return (_senza_backtick(_togli_rilancio(risposta)) if risposta else TESTO_NON_SO), None
+        # Risposta costruita sullo stato: i fatti numerici li scrive il codice.
+        if not risposta:
+            return TESTO_NON_SO, None
+        return _con_riga_fatti(_senza_backtick(_togli_rilancio(risposta)), stato_completo), None
 
     risultato, esito = _esegui_consultazione(richiesta["tipo"], richiesta["argomento"], vocabolario)
     consultazione = {
@@ -1425,6 +1626,14 @@ def genera_conversazione(conversazione_id, messaggio):
 
 MODI_ARGO = ("orienta", "instrada", "impatto", "brief", "conversazione", "non_chiaro")
 SOGLIA_CONFIDENZA_MODO = 0.7  # stesso valore di SOGLIA_CONFIDENZA_BOZZA (worker/loop.py)
+# Brief è il modo più lungo e costoso: sbagliarlo lì fa il danno massimo
+# (collaudo passo 10: due domande sul collaudo instradate su brief a 0.85,
+# una ha prodotto un brief completo su lavoro già committato). Parte solo se
+# il messaggio nomina un brief o Claude Code — cancello in Python, non nel
+# prompt — e con confidenza >= SOGLIA_CONFIDENZA_BRIEF; con la parola ma
+# confidenza più bassa, una riga chiede conferma e rimanda a /brief.
+SOGLIA_CONFIDENZA_BRIEF = 0.9
+_RICHIESTA_BRIEF_RE = re.compile(r"\bbrief\b|claude\s*code", re.IGNORECASE)
 MAX_TOKENS_CLASSIFICATORE = 150
 N_SCAMBI_CLASSIFICATORE = 4
 LIMITE_SCAMBIO_CLASSIFICATORE_CARATTERI = 300
@@ -1434,6 +1643,9 @@ LIMITE_SCAMBIO_CLASSIFICATORE_CARATTERI = 300
 # importabile da host, dove gira questo.
 TESTO_CHIEDI_OGGETTO_IMPATTO = "Quale componente o file?"
 TESTO_CHIEDI_CANTIERE = "Quale cantiere?"
+# Conferma per un brief chiesto a parole ma sotto SOGLIA_CONFIDENZA_BRIEF:
+# rimanda al comando, deterministico, invece di interpretare un "sì" dopo.
+TESTO_CONFERMA_BRIEF = "Vuoi il brief per {nome}? Se sì, scrivi /brief {nome}."
 TESTO_NON_CHIARO = (
     "Non ho capito cosa ti serve: dimmelo con altre parole, oppure usa "
     "/orienta, /instrada, /impatto o /brief."
@@ -1448,7 +1660,7 @@ Rispondi SOLO con un oggetto JSON, senza testo attorno:
 - orienta: Leonardo è perso e chiede in generale dove si trova, cosa è aperto, qual è la prossima cosa ("sono perso", "dove ero rimasto?", "cosa faccio adesso?"), senza dire né quanto tempo ha né se è al telefono o al computer.
 - instrada: vuole sapere cosa fare e dice quanto tempo ha, oppure se è al telefono o al computer, oppure entrambi ("ho venti minuti in metro", "ho mezz'ora al computer", "sono al computer, cosa chiudo?"). Basta uno dei due dati: l'altro resta null.
 - impatto: chiede cosa rischia, cosa si rompe o cosa dipende toccando un componente, una tabella o un file ("cosa rischio se tocco mailer").
-- brief: chiede un brief, o un testo da dare a Claude Code, per un cantiere.
+- brief: SOLO se chiede esplicitamente un brief, o un testo da dare a Claude Code, per un cantiere. Una domanda su un cantiere, su un collaudo o su come fare qualcosa è conversazione, anche se nomina il cantiere ("come collauderesti argo voce?", "cosa manca per chiudere il designer?").
 - conversazione: qualunque altra cosa che si capisce: domande sullo stato ("come sta andando?", "è passato il digest ieri sera?"), chiarimenti, commenti, risposte a quello che Argo ha appena detto.
 - non_chiaro: solo se non si capisce cosa chiede.
 
@@ -1485,11 +1697,14 @@ def _testo_o_none(valore):
     return valore.strip() or None if isinstance(valore, str) else None
 
 
-def _analizza_classificazione(grezzo):
+def _analizza_classificazione(grezzo, messaggio=""):
     """Pura: valida il JSON del classificatore e normalizza i parametri.
     Sotto SOGLIA_CONFIDENZA_MODO il modo diventa non_chiaro — la soglia è in
     Python, non affidata al modello. Un parametro di tipo sbagliato diventa
-    None (poi risolvi_modo chiede), mai corretto per plausibilità."""
+    None (poi risolvi_modo chiede), mai corretto per plausibilità. Per brief
+    il cancello è più stretto (vedi SOGLIA_CONFIDENZA_BRIEF): senza la parola
+    brief o Claude Code nel messaggio diventa conversazione — la domanda
+    riceve una risposta —, con la parola ma sotto soglia va confermato."""
     try:
         risultato = json.loads(estrai_json(grezzo))
     except Exception:
@@ -1505,8 +1720,17 @@ def _analizza_classificazione(grezzo):
         raise ClassificatoreErrore("confidenza non valida")
 
     contesto = _testo_o_none(risultato.get("contesto"))
+    if confidenza < SOGLIA_CONFIDENZA_MODO:
+        modo = "non_chiaro"
+    brief_da_confermare = False
+    if modo == "brief":
+        if not _RICHIESTA_BRIEF_RE.search(messaggio or ""):
+            modo = "conversazione"
+        elif confidenza < SOGLIA_CONFIDENZA_BRIEF:
+            brief_da_confermare = True
     return {
-        "modo": modo if confidenza >= SOGLIA_CONFIDENZA_MODO else "non_chiaro",
+        "modo": modo,
+        "brief_da_confermare": brief_da_confermare,
         "confidenza": float(confidenza),
         "minuti": _intero_positivo(risultato.get("minuti")),
         "contesto": contesto.lower() if contesto else None,
@@ -1540,7 +1764,7 @@ def classifica_modo(conversazione_id, messaggio):
         raise
     except LLMErrore as e:
         raise ClassificatoreErrore("chiamata LLM fallita") from e
-    return _analizza_classificazione(grezzo)
+    return _analizza_classificazione(grezzo, messaggio)
 
 
 def risolvi_modo(decisione):
@@ -1570,6 +1794,8 @@ def risolvi_modo(decisione):
     if modo == "brief":
         if not decisione["nome_cantiere"]:
             return "chiedi", TESTO_CHIEDI_CANTIERE
+        if decisione.get("brief_da_confermare"):
+            return "chiedi", TESTO_CONFERMA_BRIEF.format(nome=decisione["nome_cantiere"])
         return "brief", {"nome": decisione["nome_cantiere"]}
     if modo == "conversazione":
         return "conversazione", {}

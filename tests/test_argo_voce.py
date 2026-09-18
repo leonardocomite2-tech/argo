@@ -620,6 +620,15 @@ try:
     )
     caso("genera_brief: nome ambiguo non registra nessuna consultazione impatti", None, _log_ambiguo)
 
+    _orig_chiama_brief = voce.chiama
+    voce.chiama = lambda *a, **k: (_ for _ in ()).throw(AssertionError("LLM chiamato"))
+    _esito_attesa, _log_attesa = voce.genera_brief("la voce")
+    voce.chiama = _orig_chiama_brief
+    caso("genera_brief: cantiere non 'aperto' -> riga fissa senza LLM, con stato, attesa e nota",
+         ("Argo — la voce è in attesa (aspetta calendario): nota.\n\nNessun lavoro di codice aperto "
+          "da mettere in un brief. Se ce n'è di nuovo, metti Stato: aperto nella sua riga CANTIERI di STATO.md.", None),
+         (_esito_attesa, _log_attesa))
+
     _esito_vuoto, _log_vuoto = voce.genera_brief("")
     caso("genera_brief: nome vuoto è trattato come non trovato, non come 'tutti'", True, "Nessun cantiere" in _esito_vuoto)
     caso("genera_brief: nome vuoto non registra nessuna consultazione impatti", None, _log_vuoto)
@@ -843,7 +852,9 @@ voce._esegui_consultazione = lambda t, a, v: (_eseguite.append((t, a)) or ("RISU
 
 _chiamate.clear(); _eseguite.clear()
 voce.chiama = _chiama_finta(['{"consultazione": null, "risposta": "Tutto fermo.\\nVuoi altro?"}'])
-caso("conversazione senza consultazione: una sola chiamata", ("Tutto fermo.", None), voce.genera_conversazione(1, "come va?"))
+_RIGA_NR = voce._riga_fatti({})[0]  # stato finto senza fonti: tutto "non rilevabili"
+caso("conversazione senza consultazione: una sola chiamata, riga Fatti in coda",
+     ("Tutto fermo.\n\n" + _RIGA_NR, None), voce.genera_conversazione(1, "come va?"))
 caso("conversazione senza consultazione: nessuna consultazione eseguita", [], list(_eseguite))
 
 _chiamate.clear(); _eseguite.clear()
@@ -1134,8 +1145,8 @@ caso("genera_impatto: nessun contratto -> nessuna riga del totale",
 
 voce.raccogli_stato = lambda: {"oggi": "2026-09-18"}
 voce.chiama = lambda system, prompt, **kw: "Fai `git push`."
-caso("genera_risposta_instrada: backtick tolti", "Fai git push.", voce.genera_risposta_instrada(30, "computer"))
-caso("genera_risposta: backtick tolti", "Fai git push.", voce.genera_risposta())
+caso("genera_risposta_instrada: backtick tolti", "Fai git push.\n\n" + _RIGA_NR, voce.genera_risposta_instrada(30, "computer"))
+caso("genera_risposta: backtick tolti", "Fai git push.\n\n" + _RIGA_NR, voce.genera_risposta())
 voce.chiama, voce._esegui_impatti, voce.raccogli_stato = _orig_chiama_p10, _orig_esegui_p10, _orig_stato_p10
 
 for _nome in ("ISTRUZIONI_ORIENTA", "ISTRUZIONI_INSTRADA", "ISTRUZIONI_CONVERSA_BASE"):
@@ -1144,6 +1155,162 @@ for _nome in ("ISTRUZIONI_ORIENTA", "ISTRUZIONI_INSTRADA", "ISTRUZIONI_CONVERSA_
 caso("ISTRUZIONI_IMPATTO: nomina, non contare", True, "Nomina, non contare" in voce.ISTRUZIONI_IMPATTO)
 caso("SOUL.md: la regola anti-invenzione vale per le azioni", True,
      "La stessa regola vale per le azioni" in (voce.KNOWLEDGE_DIR / "SOUL.md").read_text(encoding="utf-8"))
+
+
+# --- Passo 11 della voce: cancello sul brief ---
+
+caso("brief senza la parola brief/Claude Code -> conversazione (collaudo: #12)", "conversazione",
+     voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="argo voce", confidenza=0.95),
+                                    "Sarebbe argo la voce che serve a comunicare, procedi quindi capendo per il collaudo")["modo"])
+caso("brief: domanda che nomina il cantiere -> conversazione", "conversazione",
+     voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="Argo voce", confidenza=0.95),
+                                    "come collauderesti al meglio Argo voce")["modo"])
+_d = voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="designer", confidenza=0.95),
+                                    "preparami il brief per il designer")
+caso("brief esplicito sopra soglia -> brief, senza conferma", ("brief", False), (_d["modo"], _d["brief_da_confermare"]))
+caso("brief esplicito sopra soglia -> risolvi_modo genera", ("brief", {"nome": "designer"}), voce.risolvi_modo(_d))
+_d = voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="designer", confidenza=0.85),
+                                    "mi dai un testo per Claude Code sul designer")
+caso("brief esplicito (Claude Code) sotto 0.9 -> da confermare", ("brief", True), (_d["modo"], _d["brief_da_confermare"]))
+caso("brief da confermare -> una riga che rimanda a /brief",
+     ("chiedi", "Vuoi il brief per designer? Se sì, scrivi /brief designer."), voce.risolvi_modo(_d))
+_d = voce._analizza_classificazione(_cls(modo="brief", confidenza=0.8), "mi serve un brief per Claude Code")
+caso("brief da confermare senza nome -> chiede il cantiere, non conferma", ("chiedi", "Quale cantiere?"), voce.risolvi_modo(_d))
+caso("brief: parola 'Brief' maiuscola vale", "brief",
+     voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="x", confidenza=0.95), "Brief per x")["modo"])
+caso("brief: 'briefing' non vale come parola brief", "conversazione",
+     voce._analizza_classificazione(_cls(modo="brief", nome_cantiere="x", confidenza=0.95), "facciamo un briefing su x")["modo"])
+caso("altri modi: il messaggio non cambia niente", "orienta",
+     voce._analizza_classificazione(_cls(modo="orienta", confidenza=0.8), "boh")["modo"])
+caso("SISTEMA_CLASSIFICATORE: brief solo se chiesto esplicitamente", True,
+     "SOLO se chiede esplicitamente un brief" in voce.SISTEMA_CLASSIFICATORE)
+
+# --- Passo 11 della voce: il brief separa lavoro chiuso e aperto ---
+
+_git = {"copertura": "completa", "commits_recenti": [
+    {"hash": "a", "data": "2026-09-18T11:00:00+02:00", "autore": "L", "oggetto": "cantiere Argo — la voce, passo 10: backtick tolti"},
+    {"hash": "b", "data": "2026-09-18T10:00:00+02:00", "autore": "L", "oggetto": "cantiere Argo — il ponte, passo 4bis"},
+]}
+caso("_commit_del_cantiere: solo i commit che nominano il cantiere, data e oggetto",
+     {"copertura": "completa", "motivo": None,
+      "righe": [{"data": "2026-09-18", "oggetto": "cantiere Argo — la voce, passo 10: backtick tolti"}]},
+     voce._commit_del_cantiere("Argo — la voce", _git))
+caso("_commit_del_cantiere: git illeggibile -> copertura assente dichiarata", "assente",
+     voce._commit_del_cantiere("Argo — la voce", {"copertura": "assente", "motivo": "x"})["copertura"])
+caso("ISTRUZIONI_BRIEF: il lavoro già chiuso non si ripropone", True,
+     "mai riproporlo come obiettivo" in voce.ISTRUZIONI_BRIEF)
+
+# --- Passo 11 della voce: riga dei fatti scritta dal codice ---
+
+_STATO_FATTI = {
+    "oggi": "2026-09-18",
+    "approvazioni_in_attesa": {"copertura": "completa", "righe": [
+        {"id": 10, "updated_at": "2026-09-03T13:43:36+00:00", "ore_ferma": 355.9}]},
+    "job_falliti": {"copertura": "parziale", "falliti": [
+        {"tipo": "digest_serale", "piu_recente": "2026-08-29T21:59:51+00:00"},
+        {"tipo": "genera_brief", "piu_recente": "2026-09-17T10:00:00+00:00"},
+        {"tipo": "genera_brief", "piu_recente": "2026-09-16T10:00:00+00:00"}]},
+    "cantieri_aperti": {"copertura": "completa", "cantieri": [
+        {"nome": "A", "stato": "in attesa", "aspetta": "Leonardo"},
+        {"nome": "B", "stato": "aperto", "aspetta": "il sistema"},
+        {"nome": "C", "stato": "chiuso", "aspetta": "Leonardo"},
+        {"nome": "D", "stato": "aperto", "aspetta": "Leonardo"}]},
+}
+caso("_riga_fatti: approvazione con id e giorno, job recenti per tipo, cantieri su Leonardo non chiusi",
+     ("Fatti: approvazioni in attesa: 1 (#10 dal 2026-09-03); job con fallimenti negli ultimi 7 giorni: "
+      "genera_brief; cantieri che aspettano te: 2.", True),
+     voce._riga_fatti(_STATO_FATTI))
+_vuoto = copy.deepcopy(_STATO_FATTI)
+_vuoto["approvazioni_in_attesa"]["righe"] = []
+_vuoto["job_falliti"]["falliti"] = _vuoto["job_falliti"]["falliti"][:1]
+_vuoto["cantieri_aperti"]["cantieri"] = _vuoto["cantieri_aperti"]["cantieri"][1:3]
+caso("_riga_fatti: zero si scrive, niente in attesa",
+     ("Fatti: approvazioni in attesa: nessuna; job con fallimenti negli ultimi 7 giorni: nessuno; "
+      "cantieri che aspettano te: nessuno.", False),
+     voce._riga_fatti(_vuoto))
+_assente = copy.deepcopy(_STATO_FATTI)
+_assente["approvazioni_in_attesa"] = {"copertura": "assente", "motivo": "x", "righe": []}
+_zero_cant = copy.deepcopy(_STATO_FATTI)
+_zero_cant["cantieri_aperti"]["cantieri"] = []
+caso("_riga_fatti: lista cantieri vuota ma letta -> nessuno, non 'non rilevabili'", True,
+     "cantieri che aspettano te: nessuno" in voce._riga_fatti(_zero_cant)[0])
+caso("_riga_fatti: copertura assente -> non rilevabili, mai zero", True,
+     "approvazioni in attesa: non rilevabili" in voce._riga_fatti(_assente)[0])
+
+_TESTO_COLLAUDO = (
+    "Due cantieri bloccati su di te, uno aperto sul sistema. Argo — la voce aspetta il collaudo dal telefono. "
+    "Job fallito uno solo, fermo da stamattina alle 08:32 (genera_conversazione). "
+    "Nessuna approvazione in attesa, nessun alert nelle ultime 24 ore."
+)
+caso("_togli_fatti_del_modello: le frasi reali del collaudo (#3) che contano o negano vanno via",
+     "Argo — la voce aspetta il collaudo dal telefono.",
+     voce._togli_fatti_del_modello(_TESTO_COLLAUDO, True))
+caso("_togli_fatti_del_modello: nominare l'approvazione con ID e data resta",
+     "Chiudi l'approvazione #10 ferma dal 2026-09-03.",
+     voce._togli_fatti_del_modello("Chiudi l'approvazione #10 ferma dal 2026-09-03.", True))
+caso("_togli_fatti_del_modello: 'niente da fare' via se qualcosa aspetta", "Il ponte è collaudato.",
+     voce._togli_fatti_del_modello("Il ponte è collaudato.\nAdesso non c'è niente da fare.", True))
+caso("_togli_fatti_del_modello: 'niente da fare' resta se niente aspetta", "Adesso non c'è niente da fare.",
+     voce._togli_fatti_del_modello("Adesso non c'è niente da fare.", False))
+caso("_togli_fatti_del_modello: 'Cantiere 2' non è un conteggio", "Il Cantiere 2 — email aspetta il sistema.",
+     voce._togli_fatti_del_modello("Il Cantiere 2 — email aspetta il sistema.", True))
+caso("_togli_fatti_del_modello: 'sei cantieri' è un conteggio, 'Sei a posto' con qualcosa in attesa via", "",
+     voce._togli_fatti_del_modello("Sei a posto. Sei bloccato su sei cantieri che aspettano te.", True))
+caso("_togli_fatti_del_modello: un numero non attaccato al tema resta (falso positivo del primo giro)",
+     "Instrada con una finestra reale (cinque minuti), avvisa con un'approvazione in attesa.",
+     voce._togli_fatti_del_modello("Instrada con una finestra reale (cinque minuti), avvisa con un'approvazione in attesa.", True))
+caso("_togli_fatti_del_modello: 'un solo job fallito' via", "Resto.",
+     voce._togli_fatti_del_modello("C'è un solo job fallito. Resto.", True))
+caso("_togli_fatti_del_modello: una riga 'Fatti' del modello va via intera", "Prossima cosa: la #10.",
+     voce._togli_fatti_del_modello("Prossima cosa: la #10.\n\nFatti: 3 job falliti, 7 cantieri in attesa.", True))
+caso("_con_riga_fatti: se del testo non resta niente, resta solo la riga", voce._riga_fatti(_STATO_FATTI)[0],
+     voce._con_riga_fatti("Nessuna approvazione in attesa.", _STATO_FATTI))
+
+_orig_chiama_p11, _orig_stato_p11 = voce.chiama, voce.raccogli_stato
+_orig_conv_p11, _orig_voc_p11 = voce.stato.conversazione_recente, voce._vocabolario_mappa
+voce.raccogli_stato = lambda: copy.deepcopy(_STATO_FATTI)
+voce.stato.conversazione_recente = lambda *a, **k: {"copertura": "completa", "motivo": None, "righe": []}
+voce._vocabolario_mappa = lambda: {"copertura": "completa", "motivo": None, "pipeline": [], "condivisi": [], "tabelle": []}
+_RIGA = voce._riga_fatti(_STATO_FATTI)[0]
+voce.chiama = lambda system, prompt, **kw: "Chiudi l'approvazione #10. Non ci sono job falliti."
+caso("genera_risposta: frase negata via, riga Fatti in coda", f"Chiudi l'approvazione #10.\n\n{_RIGA}", voce.genera_risposta())
+caso("genera_risposta_instrada: riga Fatti in coda", f"Chiudi l'approvazione #10.\n\n{_RIGA}",
+     voce.genera_risposta_instrada(10, "telefono"))
+_prompts = []
+voce.chiama = lambda system, prompt, **kw: _prompts.append(system) or "Ok."
+voce.genera_risposta(); voce.genera_risposta_instrada(10, "telefono")
+caso("orienta/instrada: il prompt non contiene job falliti più vecchi della finestra", [False, False],
+     ["digest_serale" in _p for _p in _prompts])
+caso("orienta/instrada: il prompt non contiene ore_ferma", [False, False], ["ore_ferma" in _p for _p in _prompts])
+voce.chiama = lambda system, prompt, **kw: '{"consultazione": null, "risposta": "Tutto a posto: nessuna approvazione in attesa."}'
+caso("genera_conversazione senza consultazione: la negazione dell'approvazione non passa", (_RIGA, None),
+     voce.genera_conversazione(1, "come sta andando?"))
+for _nome in ("ISTRUZIONI_ORIENTA", "ISTRUZIONI_INSTRADA", "ISTRUZIONI_CONVERSA_PRIMA"):
+    caso(f"{_nome}: regola della riga Fatti", True, voce.REGOLA_FATTI in getattr(voce, _nome))
+caso("ISTRUZIONI_CONVERSA_SECONDA: niente regola Fatti (non vede lo stato)", False,
+     voce.REGOLA_FATTI in voce.ISTRUZIONI_CONVERSA_SECONDA)
+voce.chiama, voce.raccogli_stato = _orig_chiama_p11, _orig_stato_p11
+voce.stato.conversazione_recente, voce._vocabolario_mappa = _orig_conv_p11, _orig_voc_p11
+
+
+# --- Passo 11 della voce: il claim del consumer regge con lanci sovrapposti ---
+# psql -t -A stampa il tag "UPDATE 0" quando nessuna riga cambia: la guardia
+# deve guardare l'id restituito, non se stdout è vuoto.
+
+def _reclama_con(uscite):
+    risposte = iter(uscite)
+    orig = consumer._psql
+    consumer._psql = lambda sql, timeout=15: next(risposte)
+    try:
+        return consumer._reclama_job()
+    finally:
+        consumer._psql = orig
+
+_JOB_JSON = '[{"id": 42, "tipo": "genera_orienta", "payload": {}}]'
+caso("claim: RETURNING con l'id -> job reclamato", (42, "genera_orienta", {}), _reclama_con([_JOB_JSON, "42\nUPDATE 1"]))
+caso("claim: 'UPDATE 0' (già preso da un altro lancio) -> None", None, _reclama_con([_JOB_JSON, "UPDATE 0"]))
+caso("claim: stdout vuoto -> None", None, _reclama_con([_JOB_JSON, ""]))
+caso("claim: nessun pending -> None", None, _reclama_con(["null"]))
 
 
 def main():

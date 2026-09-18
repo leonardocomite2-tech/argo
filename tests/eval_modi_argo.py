@@ -14,6 +14,19 @@ Controlla i tre difetti del collaudo del passo 9 (passo 10 della voce):
 - in impatto, nessun totale di contratti scritto dal modello: il totale lo
   aggiunge il codice nell'ultima riga "Contratti in gioco (N)". Il numero di
   pipeline è ammesso: lo dà impatti.py stesso (riga TRASVERSALE).
+
+Passo 11 della voce, dal collaudo del passo 10:
+- orienta, instrada e conversazione finiscono con la riga "Fatti" scritta
+  dal codice, che nomina ogni approvazione in attesa per #id; nessuna frase
+  nega le approvazioni, e con qualcosa in attesa nessun "niente da fare"
+  (la conversazione "Come sta andando?" diceva "nessuna approvazione in
+  attesa" con la #10 ferma);
+- brief: un cantiere non "aperto" dà la riga fissa, mai un brief (la
+  voce); su un cantiere aperto (il ponte) l'obiettivo non ripropone un
+  passo già committato (euristica: un "passo N" dei commit del cantiere
+  nell'obiettivo è ammesso solo se detto già fatto/committato, o se
+  l'obiettivo è "Da precisare" — non prova che il lavoro chiuso non sia
+  descritto con altre parole).
 """
 import re
 import sys
@@ -42,19 +55,82 @@ TOTALE_DEL_MODELLO = re.compile(
 )
 RIGA_TOTALE = re.compile(r"\n\nContratti in gioco \(\d+\): [^\n]+\.$")
 
+NEGA_APPROVAZIONI = re.compile(
+    r"\b(nessun\w*|zero|non (ci )?sono|niente)\b[^.\n]{0,20}\bapprovazion", re.IGNORECASE
+)
+NIENTE_DA_FARE = re.compile(r"\b(niente|nulla) da fare\b|\bnon c'è (niente|nulla)\b", re.IGNORECASE)
+GIA_CHIUSO = re.compile(r"già (committat|fatt|chius|implementat)\w*|^\s*Da precisare con Leonardo", re.IGNORECASE | re.MULTILINE)
+
+
+def _conversazione(messaggio):
+    voce.stato.conversazione_recente = lambda prima_di_id, n: {"copertura": "completa", "motivo": None, "righe": []}
+    return voce.genera_conversazione(0, messaggio)[0]
+
+
 CASI = [
     ("instrada 30/computer", lambda: voce.genera_risposta_instrada(30, "computer"), "proposta"),
     ("instrada 10/telefono", lambda: voce.genera_risposta_instrada(10, "telefono"), "proposta"),
     ("orienta", lambda: voce.genera_risposta(), "proposta"),
+    ("conversazione come sta andando", lambda: _conversazione("Come sta andando?"), "conversazione"),
     ("impatto mailer", lambda: voce.genera_impatto("mailer")[0], "impatto"),
     ("impatto approvals", lambda: voce.genera_impatto("approvals")[0], "impatto"),
+    ("brief il ponte", lambda: ("il ponte", voce.genera_brief("il ponte")[0]), "brief"),
+    ("brief la voce", lambda: ("la voce", voce.genera_brief("la voce")[0]), "brief"),
 ]
+
+
+def _controlla_fatti(testo):
+    problemi = []
+    righe = testo.rstrip().splitlines()
+    if not righe or not righe[-1].startswith("Fatti: "):
+        return ["riga Fatti mancante in coda"]
+    appr = voce.stato.approvazioni_in_attesa()
+    if appr["copertura"] != "assente":
+        for r in appr["righe"]:
+            if f"#{r['id']}" not in righe[-1]:
+                problemi.append(f"approvazione #{r['id']} assente dalla riga Fatti")
+    corpo = "\n".join(righe[:-1])
+    m = NEGA_APPROVAZIONI.search(corpo)
+    if m:
+        problemi.append(f"approvazioni negate dal modello: {m.group(0)!r}")
+    if appr["righe"]:
+        m = NIENTE_DA_FARE.search(corpo)
+        if m:
+            problemi.append(f"'niente da fare' con approvazioni in attesa: {m.group(0)!r}")
+    return problemi
+
+
+def _controlla_brief(nome_utente, testo):
+    cantiere = voce._risolvi_cantiere(nome_utente, voce.stato.cantieri_aperti()["cantieri"])[0]
+    if cantiere["stato"].strip().lower() != "aperto":
+        # Cantiere non aperto: riga fissa, mai un brief generato.
+        return [] if "Nessun lavoro di codice aperto" in testo and "## Obiettivo" not in testo \
+            else [f"brief generato per un cantiere {cantiere['stato']}"]
+    parti = testo.split("## Obiettivo", 1)
+    if len(parti) < 2:
+        return ["brief senza Obiettivo per un cantiere aperto"]
+    obiettivo = parti[1].split("## Vincoli", 1)[0]
+    nome = cantiere["nome"]
+    commit = voce._commit_del_cantiere(nome, voce.stato.attivita_git())["righe"]
+    # Un passo che la riga CANTIERI nomina ancora (es. "passo 4 ... resta a
+    # Leonardo il collaudo reale") è in gioco, non chiuso: ammesso.
+    nella_riga = {m.group(0).lower() for m in re.finditer(r"passo \d+", cantiere["sessione_riferimento"], re.IGNORECASE)}
+    passi_chiusi = {m.group(0).lower() for c in commit for m in re.finditer(r"passo \d+", c["oggetto"], re.IGNORECASE)} - nella_riga
+    if GIA_CHIUSO.search(obiettivo):
+        return []  # lo cita come fatto, non come da fare
+    return [f"obiettivo ripropone {p!r}, già committato" for p in sorted(passi_chiusi)
+            if re.search(rf"\b{p}\b", obiettivo, re.IGNORECASE)]
 
 
 def controlla(testo, tipo):
     problemi = []
+    if tipo == "brief":
+        nome_utente, testo = testo
+        return _controlla_brief(nome_utente, testo)
     if "`" in testo:
         problemi.append("backtick")
+    if tipo in ("proposta", "conversazione"):
+        problemi += _controlla_fatti(testo)
     if tipo == "proposta":
         m = AZIONI_GIA_IN_FUNZIONE.search(testo)
         if m:

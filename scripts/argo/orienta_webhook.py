@@ -4,7 +4,8 @@
 Consumer host-side dei job 'genera_orienta', 'genera_instrada', (passo 8)
 'genera_avviso', (cantiere Argo — il ponte, passo 1) 'genera_brief' e (passo
 2) 'genera_impatto' — nome file invariato apposta: il crontab di Leonardo
-lancia già questo script ogni minuto, rinominarlo lo romperebbe in silenzio.
+lancia già questo script (ogni 15 secondi dal passo 11 della voce: quattro righe
+sfalsate con sleep), rinominarlo lo romperebbe in silenzio.
 Tutti tranne 'genera_avviso' sono accodati da backend/main.py (POST
 /webhook/argo) quando Leonardo scrive /orienta, /instrada, /brief o /impatto
 al bot Argo da Telegram; 'genera_avviso' è accodato una volta al giorno da
@@ -134,7 +135,11 @@ def _reclama_job():
         f"UPDATE jobs SET stato='running', tentativi=tentativi+1 "
         f"WHERE id={job_id} AND stato='pending' RETURNING id"
     )
-    if not claimato:
+    # psql -t -A stampa anche il tag del comando: 0 righe = "UPDATE 0", non
+    # stringa vuota. Fino al 18/9/2026 il controllo era `if not claimato`,
+    # sempre falso: due lanci sovrapposti avrebbero elaborato lo stesso job.
+    # Il claim vale solo se la prima riga è l'id restituito da RETURNING.
+    if claimato.splitlines()[:1] != [str(job_id)]:
         return None
     return job_id, job["tipo"], job.get("payload") or {}
 

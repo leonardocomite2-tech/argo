@@ -54,6 +54,29 @@ CASI = [
         ],
         "attesa": ("conversazione", {}),
     },
+    # --- passo 11: domande sul collaudo instradate su brief (collaudo passo 10) ---
+    {"testo": "come collauderesti al meglio Argo voce", "attesa": ("conversazione", {})},
+    {"testo": "cosa manca per chiudere il designer?", "attesa": ("conversazione", {})},
+    {"testo": "Sto cercando di fare collaudo cantiere comunicatore, ti torna?", "attesa": ("conversazione", {})},
+    {
+        "testo": "Come mi diresti di fare il collaudo al meglio?",
+        "storico": [
+            {"ruolo": "leonardo", "testo": "Sto cercando di fare collaudo cantiere comunicatore, ti torna?"},
+            {"ruolo": "argo", "testo": "Collaudo reale del ponte Argo: verifica che l'avviso parta alle 22:15 e che il ramo conversazionale funzioni da Telegram."},
+        ],
+        "attesa": ("conversazione", {}),
+    },
+    {
+        "testo": "Sarebbe argo la voce che serve a comunicare, procedi quindi capendo per il collaudo",
+        "storico": [
+            {"ruolo": "leonardo", "testo": "Sto cercando di fare collaudo cantiere comunicatore, ti torna?"},
+            {"ruolo": "argo", "testo": "Collaudo reale del ponte Argo: verifica che l'avviso parta alle 22:15 e che il ramo conversazionale funzioni da Telegram."},
+            {"ruolo": "leonardo", "testo": "Come mi diresti di fare il collaudo al meglio?"},
+            {"ruolo": "argo", "testo": 'Nessun cantiere corrisponde a "comunicatore". Cantieri validi: ...'},
+        ],
+        "attesa": ("conversazione", {}),
+    },
+    {"testo": "fammi il brief per argo voce", "attesa": ("brief", {"nome": "argo voce"})},
     # --- non chiaro ---
     {"testo": "boh", "attesa": ("chiedi", voce.TESTO_NON_CHIARO)},
 ]
