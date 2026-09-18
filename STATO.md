@@ -3123,7 +3123,18 @@ schema e crontab invariati; `orienta_webhook.py` non toccato.
   contratti garantiti dal codice + test; il resto è eval) e nota PASSO 10.
   `verifica_mappa.py` exit 0; `impatti.py --diff`: solo argo_voce, zero
   contratti.
-- **Verifiche**: `test_argo_voce` 296/296, `eval_classificatore_argo` 15/15.
+- **Passi in coda inventati.** Nel primo rilancio instrada chiudeva con
+  "Poi git push e il cantiere è fatto" con il repo già allineato a origin,
+  e trasformava i dettagli del collaudo della memoria ("due paralleli di
+  oggi, uno del 15/09") in istruzioni. Aggiunto a orienta/instrada: niente
+  passi in coda ("poi git push", "poi il deploy") che lo stato non nomina, i
+  dettagli di ciò che è stato fatto non diventano istruzioni. `git push`
+  entra nella lista nera dell'eval (nessun lettore riporta i push). Eval
+  15/15 su tre giri dopo la modifica. Rilancio finale: instrada 30/computer
+  → collaudo reale del ponte (dalla sua riga), impatto mailer invariato.
+- **Verifiche**: `test_argo_voce` 296/296, `eval_classificatore_argo` 15/15,
+  suite intera verde. Sub-agent `guardrail-review` sul commit del passo 10:
+  nessun blocco.
 - **Resta a Leonardo**: push e ricollaudo dal telefono delle tre frasi. Il
   consumer legge i file da disco: nessun rebuild.
 
