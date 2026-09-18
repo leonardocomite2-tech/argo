@@ -25,6 +25,7 @@ Quando manca un dato, chiedilo. Non riempirlo con un'assunzione plausibile.
 Leggi sempre STATO.md all'inizio della sessione.
 A fine sessione aggiorna anche il blocco `## CANTIERI` in testa a `STATO.md`,
 insieme alla nota di sessione — è la fonte primaria di `cantieri_aperti()`.
+Un SOSPESO in STATO.md è una riga che comincia con `SOSPESO <n> — ` (trattino lungo); per chiuderlo aggiungi `[RISOLTO gg/mm]` sulla stessa riga — è l'unico formato che la tabella `sessioni` raccoglie.
 
 ## Mappa del sistema (Panoptes)
 `knowledge/mappa_sistema.yaml` descrive le pipeline, i componenti condivisi e

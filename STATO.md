@@ -17,7 +17,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 9: messaggi liberi instradati ai modi da un classificatore Haiku (orienta/instrada/impatto/brief/conversazione, parametro mancante → una riga che chiede); collaudato da host sulle tre frasi del criterio, mai da Telegram; resta a Leonardo il collaudo dal telefono. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host, mai da Telegram; resta a Leonardo deploy, collaudo reale e la verifica che l'avviso parta alle 22:15 |
-| Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; collaudato a mano su tre transcript veri (due paralleli di oggi, uno del 15/09), mai su una chiusura vera; resta a Leonardo chiudere due sessioni di fila e verificare le righe |
+| Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -3061,4 +3061,29 @@ la tabella lo affianca.
   caricati (inclusa questa): il done-when si verifica su sessioni nuove.
 - **Resta a Leonardo**: aprire e chiudere due sessioni di fila e guardare
   `python3 scripts/memoria/leggi_sessioni.py --ultime -n 2`.
+
+## Sessione 2026-09-18 (continua) — Cantiere Memoria delle sessioni: SOSPESO da STATO.md per convenzione
+
+La prima prova reale ha mostrato che l'euristica su STATO.md (righe aggiunte
+che nominano SOSPESO/DA_VERIFICARE/RISOLTO) raccoglieva frammenti di testo
+che parlavano dei SOSPESO, non voci di SOSPESO: nella riga della sessione
+d2eb3ee8, 1 aperto e 2 chiusi, tutti presi dalla nota di sessione qui sopra.
+Rumore, non informazione.
+
+- **Convenzione di scrittura, decisa da Leonardo** (il rimedio già previsto):
+  in STATO.md un SOSPESO è una riga che comincia con `SOSPESO <n> — `
+  (trattino lungo); chiuso = stessa apertura più `[RISOLTO gg/mm]` sulla
+  stessa riga. Annotata in una riga di CLAUDE.md (sezione "Stato del
+  progetto"), così le sessioni future scrivono in quel formato.
+- `scripts/memoria/sessione.py:sospesi_da_stato_md` raccoglie solo quelle
+  righe (spazi iniziali tollerati, trattino corto o numero mancante no);
+  niente più ricerca della parola nel testo libero. La fonte resta dichiarata
+  come prima (`stato_md_euristica`). Le voci dal registro attriti sono
+  invariate.
+- Riga di d2eb3ee8 ripulita rilanciando l'hook (idempotente): sospesi ora
+  vuoti. Nessun'altra riga aveva voci da STATO.md.
+- Verifiche: `test_memoria_sessioni` 42/42 (casi nuovi: riga conforme
+  aperta/chiusa, frammenti che nominano SOSPESO scartati, trattino corto e
+  numero mancante scartati, `[RISOLTO` senza apertura non conta);
+  `verifica_mappa.py` 0 divergenze.
 

@@ -153,21 +153,25 @@ def sospesi_dal_registro(prima, dopo):
     return aperti, chiusi
 
 
+# Convenzione di scrittura (CLAUDE.md, 18/9/2026): in STATO.md un SOSPESO è
+# una riga che COMINCIA con "SOSPESO <n> —". Chiuso = stessa apertura più
+# "[RISOLTO" sulla stessa riga.
+_SOSPESO_STATO_MD_RE = re.compile(r"^SOSPESO (\d+) — ")
+
+
 def sospesi_da_stato_md(righe_aggiunte):
-    """Euristica testuale su STATO.md, marcata come tale e mai filtrata:
-    righe aggiunte che nominano SOSPESO/DA_VERIFICARE -> aperti, che
-    nominano RISOLTO -> chiusi. Meglio una riga incerta ma dichiarata che un
-    campo vuoto quando il SOSPESO c'era (decisione di Leonardo, 18/9)."""
+    """Solo le righe aggiunte che cominciano con "SOSPESO <n> —": aperte,
+    o chiuse se contengono "[RISOLTO". Niente ricerca della parola nel testo
+    libero: la prima prova reale (18/9) raccoglieva frammenti di righe che
+    PARLAVANO dei SOSPESO, non voci — rumore, non informazione. La fonte
+    resta dichiarata (FONTE_STATO_MD) accanto a quelle del registro."""
     aperti, chiusi = [], []
     for riga in righe_aggiunte:
         testo = riga.strip()
-        if not testo:
+        if not _SOSPESO_STATO_MD_RE.match(testo):
             continue
         voce = {"testo": testo[:300], "fonte": FONTE_STATO_MD}
-        if "RISOLTO" in testo:
-            chiusi.append(voce)
-        elif "SOSPESO" in testo or "DA_VERIFICARE" in testo:
-            aperti.append(voce)
+        (chiusi if "[RISOLTO" in testo else aperti).append(voce)
     return aperti, chiusi
 
 

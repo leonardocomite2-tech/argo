@@ -107,14 +107,25 @@ caso("registro: voce già risolta prima non conta come chiusa ora", 1, len(chius
 caso("registro assente -> niente", ([], []), S.sospesi_dal_registro("", ""))
 
 aperti, chiusi = S.sospesi_da_stato_md([
+    "SOSPESO 13 — il transcript ha lo stesso session_id dopo un resume?",
+    "SOSPESO 12 — [RISOLTO 18/09] fix il giorno del deploy: ricorre",
+    "  SOSPESO 14 — con spazi davanti, conta",
     "- DA_VERIFICARE: dedup_key su triggered_at",
-    "SOSPESO 7 ancora aperto",
+    '  ("SOSPESO n —"), non il taglio della fonte.',
+    "Le voci SOSPESO 7 ancora aperte non si toccano",
+    "SOSPESO 9 - trattino corto, fuori convenzione",
+    "SOSPESO — senza numero",
     "- [RISOLTO] il bug di run_after",
-    "riga qualunque",
     "",
 ])
-caso("STATO.md: due aperti, marcati come euristica", ["stato_md_euristica"] * 2, [v["fonte"] for v in aperti])
-caso("STATO.md: un chiuso, marcato come euristica", [{"testo": "- [RISOLTO] il bug di run_after", "fonte": "stato_md_euristica"}], chiusi)
+caso("STATO.md: solo le righe che cominciano con 'SOSPESO <n> —' sono aperte",
+     ["SOSPESO 13 — il transcript ha lo stesso session_id dopo un resume?",
+      "SOSPESO 14 — con spazi davanti, conta"], [v["testo"] for v in aperti])
+caso("STATO.md: chiusa = stessa apertura + [RISOLTO]",
+     ["SOSPESO 12 — [RISOLTO 18/09] fix il giorno del deploy: ricorre"], [v["testo"] for v in chiusi])
+caso("STATO.md: la fonte resta dichiarata", {"stato_md_euristica"}, {v["fonte"] for v in aperti + chiusi})
+caso("STATO.md: [RISOLTO] senza l'apertura convenzionale non conta", False,
+     any("run_after" in v["testo"] for v in chiusi))
 
 # Cantieri
 NOMI = ["Argo — la voce", "Argo — il ponte", "Designer (bonifica yourservice-it)"]
