@@ -15,8 +15,8 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 9: messaggi liberi instradati ai modi da un classificatore Haiku (orienta/instrada/impatto/brief/conversazione, parametro mancante → una riga che chiede); collaudato da host sulle tre frasi del criterio, mai da Telegram; resta a Leonardo il collaudo dal telefono. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host, mai da Telegram; resta a Leonardo deploy, collaudo reale e la verifica che l'avviso parta alle 22:15 |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 10: tre difetti delle risposte dei modi chiusi (backtick tolti in Python, totale dei contratti di impatto scritto dal codice, regola anti-invenzione estesa alle azioni); passo 9 già collaudato dal telefono; resta a Leonardo il push e il ricollaudo dal telefono delle tre frasi. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host già in cron ogni minuto); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
@@ -704,6 +704,20 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   scambio a cui risponde. Trade-off scelto per restare nel footprint del
   passo 4 (backend/main.py non toccato); estenderlo richiede di scrivere
   anche la riga dei comandi. Da conversazione Argo non esegue comunque nulla.
+- Argo non ha un lettore di cosa gira già (crontab, container): in
+  `argo/stato.py` l'unica fonte su "cosa resta da fare" è il testo libero
+  delle righe `## CANTIERI`. Se una riga resta indietro (come il "deploy"
+  del ponte, già fatto il 18/09), Argo vede come aperta una cosa chiusa. La
+  regola "si propone solo ciò che lo stato dice aperto" (passo 10 della
+  voce) impedisce di inventare azioni, non di proporre una voce scaduta.
+  Trade-off scelto: niente lettore nuovo per ora, righe CANTIERI tenute
+  aggiornate a fine sessione. Da rivalutare se succede di nuovo.
+- Invenzioni sui dati viste nel collaudo dal telefono del 18/09, non
+  corrette al passo 10 (fuori perimetro): la conversazione ha detto
+  "nessuna approvazione in attesa" con la #10 in attesa, e l'ha ripetuto
+  nel rilancio del passo 10, insieme a "sei cantieri che aspettano te"
+  (sono di meno); instrada ha scritto "tre modi (orienta/instrada/avvisa)".
+  Stessa classe anti-invenzione, sui dati invece che sulle azioni.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -3061,6 +3075,57 @@ la tabella lo affianca.
   caricati (inclusa questa): il done-when si verifica su sessioni nuove.
 - **Resta a Leonardo**: aprire e chiudere due sessioni di fila e guardare
   `python3 scripts/memoria/leggi_sessioni.py --ultime -n 2`.
+
+## Sessione 2026-09-18 (continua) — Cantiere Argo — la voce, passo 10: tre difetti nelle risposte dei modi
+
+Il collaudo del passo 9 ha mostrato tre difetti nelle risposte dei modi,
+non nel classificatore. Classificatore, comandi, bot meccanico, pipeline,
+schema e crontab invariati; `orienta_webhook.py` non toccato.
+
+- **Azioni inventate** (instrada: "avviare il consumer su host", che gira
+  da cron). SOUL.md estende l'anti-invenzione alle azioni: si propone solo
+  ciò che lo stato nomina come aperto o da fare, con le sue parole, mai il
+  passo logico successivo né una voce generica tradotta in un'azione più
+  specifica. Stessa regola operativa in `ISTRUZIONI_ORIENTA`,
+  `ISTRUZIONI_INSTRADA`, `ISTRUZIONI_CONVERSA_BASE`. **Buco nei lettori**:
+  lo stato non distingue "già in funzione" da "da avviare" — nessun lettore
+  guarda crontab o container, e la riga CANTIERI del ponte diceva ancora
+  "resta a Leonardo deploy" dopo il deploy. Il modello ha preso quel
+  "deploy" scaduto e l'ha specializzato. Riga aggiornata; lettore nuovo non
+  costruito, in DECISIONI APERTE.
+- **Backtick**: `_senza_backtick` in `argo/voce.py` toglie le righe ``` e
+  ogni backtick dal testo di orienta, instrada, avvisa, impatto (entrambi i
+  rami) e conversazione. Mai da brief (markdown voluto). Il filtro sta in
+  voce.py, quindi vale sia per il testo salvato in `conversazione_argo` sia
+  per quello inviato.
+- **Conteggio**: la sola regola "nomina, non contare" nel prompt non è
+  bastata — l'eval ha riprodotto il difetto identico ("i contratti in gioco
+  sono quattro", poi otto ID). Ora il modello spiega solo il rischio
+  principale (al massimo due contratti) e il codice aggiunge in coda
+  `Contratti in gioco (N): ...`, calcolato con `_contratti_in_gioco` sullo
+  stdout INTERO di impatti.py (quello passato al modello è troncato a 3000
+  caratteri: per mailer, 3125, RE04 era tagliato). Una riga omonima scritta
+  dal modello si toglie (nell'eval la copiava). Il numero di pipeline resta
+  ammesso: lo dà impatti.py stesso (riga TRASVERSALE).
+- **Eval** `tests/eval_modi_argo.py` (API vera, stato vero in sola lettura,
+  zero DB write, zero Telegram): instrada 30/computer e 10/telefono,
+  orienta, impatto mailer e approvals. Controlla backtick, una lista nera
+  euristica di azioni su cose già in funzione (consumer/cron/deploy/worker)
+  e i totali di contratti scritti dal modello. 15/15 su tre giri.
+- **Rilancio delle tre frasi** (classificatore vero + modo vero, finestra
+  stubbata): conversazione, instrada 30/computer (propone la chiusura della
+  memoria delle sessioni, presa dalla sua riga CANTIERI), impatto mailer
+  (RE01 come rischio principale, poi "Contratti in gioco (8)"). Nessun
+  backtick, nessuna azione inventata, nessun conteggio in contraddizione.
+  La conversazione ripete però "nessuna approvazione in attesa" (falso): in
+  DECISIONI APERTE, fuori perimetro.
+- **Mappa**: scheda `argo_voce`, contratto AV11 (backtick e totale dei
+  contratti garantiti dal codice + test; il resto è eval) e nota PASSO 10.
+  `verifica_mappa.py` exit 0; `impatti.py --diff`: solo argo_voce, zero
+  contratti.
+- **Verifiche**: `test_argo_voce` 296/296, `eval_classificatore_argo` 15/15.
+- **Resta a Leonardo**: push e ricollaudo dal telefono delle tre frasi. Il
+  consumer legge i file da disco: nessun rebuild.
 
 ## Sessione 2026-09-18 (continua) — Cantiere Memoria delle sessioni: SOSPESO da STATO.md per convenzione
 

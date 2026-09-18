@@ -152,6 +152,17 @@ queste regole, senza eccezioni:
   — non una lista di opzioni. Poi FERMATI: niente sezioni aggiuntive, niente
   elenco di "cos'altro aspetta", niente nota a parte sui job falliti o su
   altro rumore, a meno che sia proprio quella la prossima cosa da fare.
+- Una cosa si propone SOLO se lo stato qui sotto la nomina come aperta o
+  da fare (una riga di cantiere che dice cosa resta a Leonardo,
+  un'approvazione in attesa, un job fallito), con le parole dello stato.
+  Mai il "passo logico successivo" dedotto da te, mai tradurre una voce
+  generica in un'azione tecnica più specifica (es. "resta il deploy" non
+  diventa "avvia il consumer"): ciò che lo stato non dice da fare
+  potrebbe essere già in funzione. Vale anche per i passi in coda: niente
+  "poi git push", "poi il deploy", "e il cantiere è fatto" se lo stato non
+  li nomina. Dettagli come date e nomi di transcript descrivono ciò che è
+  stato fatto: non trasformarli in istruzioni. Se niente è dichiarato da
+  fare, la risposta è che adesso non c'è niente da fare.
 - Date, hash, numeri, nomi di file e ID: riportali SOLO se compaiono alla
   lettera nello stato qui sotto, copiati senza modifiche. Se un dettaglio
   non c'è (compresa la data di oggi, che trovi nel campo "oggi"), ometti la
@@ -187,6 +198,17 @@ seguendo queste regole, senza eccezioni:
 - Due o tre righe, non di più: la proposta si legge in un colpo d'occhio.
 - Una SOLA proposta: cosa fare adesso, e il perché di quella e non un'altra. Mai un
   elenco di opzioni tra cui scegliere — è lavoro che spetta a te, non a Leonardo.
+- Una cosa si propone SOLO se lo stato qui sotto la nomina come aperta o
+  da fare (una riga di cantiere che dice cosa resta a Leonardo,
+  un'approvazione in attesa, un job fallito), con le parole dello stato.
+  Mai il "passo logico successivo" dedotto da te, mai tradurre una voce
+  generica in un'azione tecnica più specifica (es. "resta il deploy" non
+  diventa "avvia il consumer"): ciò che lo stato non dice da fare
+  potrebbe essere già in funzione. Vale anche per i passi in coda: niente
+  "poi git push", "poi il deploy", "e il cantiere è fatto" se lo stato non
+  li nomina. Dettagli come date e nomi di transcript descrivono ciò che è
+  stato fatto: non trasformarli in istruzioni. Se niente è dichiarato da
+  fare, la risposta è che adesso non c'è niente da fare.
 - La proposta deve stare DENTRO la finestra dichiarata: mai qualcosa che richiede più
   tempo di quello che ha detto di avere.
 - La proposta deve rispettare il contesto fisico dichiarato: se è "telefono", niente
@@ -311,12 +333,19 @@ trovi l'output grezzo di scripts/panoptes/impatti.py su quella richiesta —
 è la mappa del sistema, la fonte, non un testo tuo da correggere. Rispondi
 seguendo queste regole, senza eccezioni:
 
-- Poche righe, leggibili dal telefono: quali pipeline e quali contratti sono
-  in gioco, e quindi cosa si rischia toccando quella cosa.
+- Poche righe, leggibili dal telefono: quali pipeline sono in gioco e il
+  rischio del contratto più importante (al massimo due), con il suo ID. NON
+  passare in rassegna gli altri contratti né raggrupparli: l'elenco completo
+  degli ID, con il totale, lo aggiunge il codice in coda alla tua risposta.
 - Nomi di pipeline, ID di contratti, nomi di file: riportali SOLO se
   compaiono alla lettera nell'output qui sotto, copiati senza modifiche. Mai
   aggiungere una pipeline, un contratto o un rischio che l'output non nomina
   — anche se ti sembra plausibile.
+- Nomina, non contare: nessun numero che conta i contratti, né in cifre né
+  in lettere ("sono quattro", "sette contratti", "gli altri tre"). Scrivi
+  gli ID, mai quanti sono. Non scrivere tu la riga "Contratti in gioco":
+  la aggiunge il codice. Il numero di pipeline si riporta solo se è
+  nell'output (riga TRASVERSALE), come ogni altro dato.
 - Se l'output dice che nessuna scheda è impattata, o che il file non è
   mappato, dillo chiaramente e fermati lì: non è un errore da correggere né
   un vuoto da riempire con un rischio inventato.
@@ -405,6 +434,20 @@ def _tronca(testo, limite, fonte="STATO.md"):
     return testo[:limite] + f"\n[TRONCATO — {totale} caratteri totali, testo completo in {fonte}]"
 
 
+_FENCE_RE = re.compile(r"^[ \t]*```[^\n]*\n?", re.MULTILINE)
+
+
+def _senza_backtick(testo):
+    """Deterministico: toglie le righe ``` dei blocchi di codice e ogni
+    backtick rimasto. La regola "niente backtick" è nei prompt dal passo 7,
+    ma nel collaudo del passo 9 instrada ha scritto comunque "`git push`":
+    Telegram lo mostra letterale. Vale per ogni testo dei modi diretto a
+    Leonardo, mai per genera_brief (lì il markdown è voluto)."""
+    if not testo:
+        return testo
+    return _FENCE_RE.sub("", testo).replace("`", "")
+
+
 def _stato_per_prompt(stato_dict):
     """Copia di stato_dict con decisioni_aperte_bloccano troncato oltre
     LIMITE_DECISIONI_APERTE_CARATTERI, nota di troncamento inclusa. Lavora
@@ -443,7 +486,7 @@ def genera_risposta():
     Ritorna il testo da mandare a Leonardo."""
     stato_dict = raccogli_stato()
     system = costruisci_system_prompt(stato_dict, ISTRUZIONI_ORIENTA)
-    return chiama(system, DOMANDA_LEONARDO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+    return _senza_backtick(chiama(system, DOMANDA_LEONARDO, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
 
 
 def genera_risposta_instrada(minuti, contesto):
@@ -453,7 +496,7 @@ def genera_risposta_instrada(minuti, contesto):
     stato_dict = raccogli_stato()
     system = costruisci_system_prompt(stato_dict, ISTRUZIONI_INSTRADA)
     domanda = _domanda_instrada(minuti, contesto)
-    return chiama(system, domanda, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
+    return _senza_backtick(chiama(system, domanda, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0))
 
 
 def _filtra_candidati_avviso(righe_approvazioni, righe_job_falliti, righe_osservazioni, chiavi_gia_avvisate):
@@ -550,7 +593,7 @@ def genera_avviso():
         return None, {}
     system = costruisci_system_prompt(candidati, ISTRUZIONI_AVVISA)
     testo = chiama(system, DOMANDA_AVVISA, max_tokens=MAX_TOKENS_RISPOSTA, temperature=0.0)
-    return testo, marcatori
+    return _senza_backtick(testo), marcatori
 
 
 class BriefErrore(Exception):
@@ -882,7 +925,7 @@ def genera_impatto(componente_o_file):
     if returncode != 0:
         messaggio = (stderr or stdout).strip() or "impatti.py non ha prodotto nessun messaggio di errore"
         esito = "fallito: " + _tronca(messaggio, LIMITE_ERRORE_IMPATTI_CARATTERI, fonte="impatti.py").splitlines()[0]
-        return messaggio, esito
+        return _senza_backtick(messaggio), esito
 
     dati = {
         "oggi": _data_oggi(),
@@ -900,6 +943,19 @@ def genera_impatto(componente_o_file):
     except LLMErrore as e:
         raise ImpattoErrore("chiamata LLM fallita") from e
 
+    # Il totale lo scrive il codice, non il modello (collaudo passo 9:
+    # "quattro contratti" e poi sette elencati). Gli ID vengono dall'output
+    # INTERO di impatti.py: quello passato al modello è troncato a
+    # LIMITE_OUTPUT_IMPATTI_CARATTERI e può tagliare gli ultimi contratti.
+    # Una riga "Contratti in gioco" scritta dal modello (collaudo passo 10:
+    # la copiava, col suo conteggio) si toglie: resta solo quella del codice.
+    testo = "\n".join(
+        r for r in _senza_backtick(testo).splitlines()
+        if not r.strip().lower().startswith("contratti in gioco")
+    ).strip()
+    contratti = _contratti_in_gioco(stdout.splitlines())
+    if contratti:
+        testo = f"{testo}\n\nContratti in gioco ({len(contratti)}): {', '.join(contratti)}."
     return testo, "riuscito"
 
 
@@ -982,6 +1038,10 @@ queste regole, senza eccezioni:
   in attesa" con il suo oggetto e mittente, non "un'approvazione su poster"
   se nessun campo lo dice). Per un cantiere, di' su cosa aspetta usando le
   parole della sua riga, non una tua sintesi.
+- Se parli di cosa resta da fare, nomina SOLO ciò che lo stato dice aperto
+  o da fare, con le parole dello stato: mai il "passo logico successivo"
+  dedotto da te, mai una voce generica tradotta in un'azione tecnica più
+  specifica (es. "resta il deploy" non diventa "avvia il consumer").
 - Se rispondi "non lo so", fermati lì: non elencare cosa vedi o quali
   tabelle leggi.
 - Se una fonte ha copertura "parziale" o "assente", dichiaralo invece di
@@ -1319,7 +1379,7 @@ def genera_conversazione(conversazione_id, messaggio):
 
     risposta, richiesta = _interpreta_prima_risposta(grezzo)
     if richiesta is None:
-        return (_togli_rilancio(risposta) if risposta else TESTO_NON_SO), None
+        return (_senza_backtick(_togli_rilancio(risposta)) if risposta else TESTO_NON_SO), None
 
     risultato, esito = _esegui_consultazione(richiesta["tipo"], richiesta["argomento"], vocabolario)
     consultazione = {
@@ -1350,7 +1410,7 @@ def genera_conversazione(conversazione_id, messaggio):
         return TESTO_TETTO_CONVERSAZIONE, consultazione
     except LLMErrore as e:
         raise ConversazioneErrore("chiamata LLM fallita") from e
-    return (_togli_rilancio(testo) or TESTO_NON_SO), consultazione
+    return (_senza_backtick(_togli_rilancio(testo)) or TESTO_NON_SO), consultazione
 
 
 # --- Classificatore dei messaggi liberi (cantiere Argo — la voce, passo 9) ---

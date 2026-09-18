@@ -1101,6 +1101,51 @@ caso("main(): un tipo sconosciuto solleva, non cade su genera_avviso", True,
      'raise RuntimeError(f"tipo di job sconosciuto' in _src_consumer)
 
 
+# --- passo 10 della voce: backtick tolti dal codice, totale dei contratti
+# calcolato dal codice, regola sulle azioni nei modi che propongono ---
+caso("_senza_backtick: inline", "fai git push adesso", voce._senza_backtick("fai `git push` adesso"))
+caso("_senza_backtick: blocco ```bash", "Lancia:\ngit push\nfatto",
+     voce._senza_backtick("Lancia:\n```bash\ngit push\n```\nfatto"))
+caso("_senza_backtick: testo senza backtick invariato", "voce.py resta com'è.",
+     voce._senza_backtick("voce.py resta com'è."))
+caso("_senza_backtick: None resta None", None, voce._senza_backtick(None))
+
+_orig_chiama_p10, _orig_esegui_p10, _orig_stato_p10 = voce.chiama, voce._esegui_impatti, voce.raccogli_stato
+_OUT_IMPATTI_FINTO = (
+    "componente: mailer\n  → mailer  [condiviso, usato_da: a, b]\n\n"
+    "CONTRATTI IN GIOCO\n"
+    "  PH01  Primo\n        garantito_da: x\n"
+    "  PH02  Secondo\n        garantito_da: y\n"
+    "  RE01  Terzo\n        garantito_da: z\n"
+)
+voce._esegui_impatti = lambda *a: (0, _OUT_IMPATTI_FINTO, "")
+voce.chiama = lambda system, prompt, **kw: "Toccare `mailer` rischia PH01."
+_testo_p10, _esito_p10 = voce.genera_impatto("mailer")
+caso("genera_impatto: backtick del modello tolti", False, "`" in _testo_p10)
+caso("genera_impatto: riga del totale composta dal codice, dall'output intero",
+     "Toccare mailer rischia PH01.\n\nContratti in gioco (3): PH01, PH02, RE01.", _testo_p10)
+voce.chiama = lambda system, prompt, **kw: "Rischio su PH01.\n\nContratti in gioco: PH01 (4 totali)."
+caso("genera_impatto: la riga 'Contratti in gioco' del modello è tolta, resta quella del codice",
+     "Rischio su PH01.\n\nContratti in gioco (3): PH01, PH02, RE01.", voce.genera_impatto("mailer")[0])
+voce.chiama = lambda system, prompt, **kw: "Toccare `mailer` rischia PH01."
+voce._esegui_impatti = lambda *a: (0, "componente: x\n\nCONTRATTI IN GIOCO\n  nessuno\n", "")
+caso("genera_impatto: nessun contratto -> nessuna riga del totale",
+     "Toccare mailer rischia PH01.", voce.genera_impatto("x")[0])
+
+voce.raccogli_stato = lambda: {"oggi": "2026-09-18"}
+voce.chiama = lambda system, prompt, **kw: "Fai `git push`."
+caso("genera_risposta_instrada: backtick tolti", "Fai git push.", voce.genera_risposta_instrada(30, "computer"))
+caso("genera_risposta: backtick tolti", "Fai git push.", voce.genera_risposta())
+voce.chiama, voce._esegui_impatti, voce.raccogli_stato = _orig_chiama_p10, _orig_esegui_p10, _orig_stato_p10
+
+for _nome in ("ISTRUZIONI_ORIENTA", "ISTRUZIONI_INSTRADA", "ISTRUZIONI_CONVERSA_BASE"):
+    caso(f"{_nome}: regola sulle azioni (solo ciò che lo stato dice aperto)", True,
+         '"passo logico successivo"' in getattr(voce, _nome))
+caso("ISTRUZIONI_IMPATTO: nomina, non contare", True, "Nomina, non contare" in voce.ISTRUZIONI_IMPATTO)
+caso("SOUL.md: la regola anti-invenzione vale per le azioni", True,
+     "La stessa regola vale per le azioni" in (voce.KNOWLEDGE_DIR / "SOUL.md").read_text(encoding="utf-8"))
+
+
 def main():
     falliti = 0
     for descrizione, atteso, ottenuto in CASI:
