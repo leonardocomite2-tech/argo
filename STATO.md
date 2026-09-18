@@ -13,7 +13,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Cantiere 2 — email | aperto | da confermare | il sistema | 03/09/2026 — nessuna intestazione `## ` dedicata; "cantiere risposte, secondo pezzo" (classificazione+bozze); dichiarato cantiere attivo in CLAUDE.md |
 | Cantiere 3 — DM Instagram/Facebook | in attesa | 26/08/2026 | Leonardo | 27/08/2026 — invio collegato; drafter DM non scritto |
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
-| Panoptes — Mappa | in attesa | 09/09/2026 | calendario | Sessione 10/9/2026, passo 4 — test accettazione esito pieno; chiusura prevista 17/09/2026 |
+| Panoptes — Mappa | chiuso | 09/09/2026 | — | Sessione 2026-09-18 — chiusura dopo la settimana d'uso: 3 correzioni di mappa, 13 lanci di impatti.py documentati (6 trasversali), 0 commit su tabelle/env senza mappa; in chiusura corretti i garantito_da sfasati (18 contratti su 28 con numeri di riga, RE01/DM04 compresi), corretti anche i range di codice (19 + 1 completato, 10 già giusti); backlog al Cantiere 2 (Custode), che NON è aperto |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 13: eval fuori dal tetto di produzione (OpenRouter di default, --anthropic esplicito con contatore in-memory), conteggio dei contratti di impatto tolto dal codice; resta a Leonardo il push, un giro di eval quando un endpoint gratuito risponde (oggi 429) o con --anthropic, e il ricollaudo dal telefono del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host in cron ogni 15 secondi, quattro righe sfalsate dal passo 11 della voce); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
@@ -775,6 +775,14 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   messaggi liberi elaborati in parallelo non si vedono nella finestra (lo
   stesso caso di `leonardo_non_processato`). Trade-off accettato per la
   latenza.
+
+- **Panoptes: helper del digest fuori da ogni scheda (trovato il 18/9).**
+  `_nome_da_mittente`, `_tronca` e `_lista_con_taglio` (`worker/loop.py:442-457`)
+  servono a `componi_digest_serale` e a due controlli periodici (righe 804 e
+  880), tutti di `manutenzione_sistema`, ma nessun range di `codice` li
+  copre, nemmeno il 10/9. Una modifica lì oggi risulta "non coperta dalla mappa".
+  Da decidere se allargare `manutenzione_sistema` a 442-765: non l'ho fatto,
+  perché sarebbe un'estensione della scheda, non una correzione.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -3541,3 +3549,256 @@ mezzanotte), e impatto mailer aveva scritto "Gli altri quattro contratti".
 - **Resta a Leonardo**: push; un giro di `eval_modi_argo.py` quando
   l'endpoint gratuito risponde, oppure `--anthropic` se vuole il modello
   vero; il ricollaudo dal telefono del passo 12.
+
+## Sessione 2026-09-18 — Cantiere Panoptes-Mappa: chiusura
+
+Chiuso il 18/9/2026 (scadenza prevista 17/9). Solo `STATO.md` toccato: mappa
+e codice invariati, nessun commit/push (li fa Leonardo).
+
+**Nota sulla finestra.** La settimana d'uso va dal 10/9 (dopo `53b53a4`) al
+17/9, ma tra il 13 e il 17/9 non c'è nessun commit: l'uso reale sta tutto il
+10-12/9 (12 commit) e il 18/9 (12 commit, dopo la scadenza). I numeri qui
+sotto riportano le due parti separate. Fonti: le note di sessione di questo
+file e `git log`. La tabella `sessioni` non serve per contare: esiste dal 15/9
+(righe con contenuto solo del 18/9) e non registra i comandi lanciati.
+
+**`verifica_mappa.py` oggi:** exit 0, 0 divergenze su 17 schede, 2
+indecidibili, 13 indecidibili attesi/dichiarati. Rilanciato anche su ognuno
+dei 32 commit da `ed2636a` a `d661742` (worktree temporaneo): exit 0 su tutti
+e 32.
+
+**1. Correzioni della mappa dopo che era risultata sbagliata: 3** (2 nel
+10-17/9, 1 il 18/9). Contati solo gli errori già committati e scoperti dopo;
+esclusi gli aggiornamenti per codice nuovo e i riallineamenti di riga fatti
+nello stesso commit dell'inserimento.
+- 11/9, voce passo 5: `claim_job` (`worker/loop.py:68-95`) mancava dal
+  `codice` di `manutenzione_sistema`, anche se l'`evidenza` la citava già.
+  Emerso da `impatti.py --file worker/loop.py:69`.
+- 12/9, ponte passo 3: un riferimento di riga stantio nel testo di RE01.
+  Emerso da un falso "tocca la guardia stessa" di `impatti.py --diff`.
+- 18/9, ponte passo 4bis: il range `connectors/telegram.py` di
+  `approvazione_telegram` (35-263) comprendeva i parser dei comandi di
+  argo_voce e dava una falsa trasversalità su 4 pipeline. Ristretto a
+  99-120 + 168-263.
+- In più, un **quarto errore trovato in chiusura** e corretto lo stesso
+  giorno: il `garantito_da` di RE01/DM04, che si portava dietro altri 16
+  contratti sfasati (vedi "Correzione dei riferimenti di riga" sotto). Non
+  è nel conteggio perché è emerso dal conteggio stesso, non dall'uso.
+- Non ricavabile: le divergenze prese da `verifica_mappa.py` a metà
+  sessione, prima del commit (es. `TELEGRAM_CHAT_ID` al passo 5). Il diario
+  le annota solo a volte.
+
+**2. Lanci di `impatti.py` documentati nel diario: 13, di cui 6
+trasversali.**
+- 10-12/9: 7 lanci, 4 trasversali. Voce passo 5 (`--file loop.py:69`, non
+  coperto), passo 6 (`--file loop.py:68`, solo manutenzione_sistema), passo
+  7 (`--diff`, solo argo_voce), passo 8 (`--diff`, 2 pipeline); ponte passo
+  1 (`--diff`, 6), passo 2 (`--diff`, 2), passo 3 (`--diff`, 4).
+- 18/9: 6 lanci, 2 trasversali. Ponte passo 4 (`--diff`, 4), passo 4bis
+  (`--file connectors/telegram.py:49-57`, solo argo_voce; `--diff`, 3); voce
+  passi 9, 10, 12 (`--diff`, solo argo_voce).
+- Non ricavabile: il primo lancio del ponte passo 3 (quello del falso
+  allarme su RE01), citato senza esito. E in generale i lanci non annotati.
+  Tre commit hanno toccato un condiviso o `worker/loop.py` senza nessun
+  lancio annotato: `a0e3ff0` (`worker/loop.py`, `garantisci_*`),
+  `0b7ef03` (`connectors/llm.py` e `worker/loop.py:38`), `d32c19e`
+  (`connectors/llm.py`, `connectors/psql_host.py`). A questi si aggiunge
+  `48aaa3b` per `connectors/telegram.py`. Dal diario non si capisce se
+  `impatti.py` non è stato lanciato o se il lancio non è stato scritto.
+- Fuori conteggio: l'uso da prodotto. Ci sono 3 consultazioni `/impatto`
+  in `mandati`, tutte su `mailer`, tutte di collaudo e tutte trasversali (2
+  pipeline), più 2 `/brief` che lanciano `--file` sui file citati. Fuori
+  anche i 5 comandi di collaudo e il primo test di accettazione del 10/9,
+  che sono precedenti alla settimana.
+
+**3. Modifiche a tabelle o env senza aggiornare la mappa nello stesso
+commit: 0.** Tutti i 13 commit della settimana che aggiungono SQL di
+scrittura su una tabella o una lettura di env toccano anche
+`knowledge/mappa_sistema.yaml`, e `verifica_mappa.py` esce 0 su ogni commit.
+Il limite: lo 0 vale per quello che il verificatore vede. Le scritture via
+`docker exec psql` (`argo/stato.py`, `orienta_webhook.py`, `psql_host.py`)
+sono dichiarate a mano: gli indecidibili attesi sono passati da 2 a 13 in
+una settimana. Una tabella non dichiarata su quei file oggi non verrebbe
+presa.
+
+**Correzioni ricorrenti osservate. Sono il backlog del Cantiere 2
+(Custode), insieme a RE02 e DM02:**
+- **Prima voce: controllo automatico dei range di `garantito_da` e di
+  `codice`.** I casi da prendere sono tre: blocco spostato, blocco cresciuto
+  dall'interno (`claim_job`), range scritto male fin dall'inizio
+  (`telegram_notifica`, LG01/LG02). `verifica_mappa.py` oggi controlla solo che un range stia
+  dentro il file. Deve controllare che punti ancora al codice che dichiara,
+  per esempio con un'ancora testuale o un nome di funzione. Senza questo
+  controllo, 18 dei 28 contratti con numeri di riga erano sfasati, e sono stati corretti il 18/9, senza che
+  niente se ne accorgesse. Non costruito in chiusura, per scelta: in chiusura
+  si è corretto il dato, non lo strumento.
+- **Numeri di riga che si spostano.** In 9 dei 19 commit di voce e ponte
+  (`a0e3ff0`, `9af2bc2`, `913b210`, `002ae85`, `93defa9`, `30bd11e`,
+  `c7c28a4`, `2cb54f7`, `e423d9b`) il diario annota il riallineamento a mano
+  dei range dopo un inserimento in `worker/loop.py` o `backend/main.py` (63
+  sostituzioni via script al passo 8). Da qui nascono il riferimento stantio
+  di RE01 del 12/9 e i `garantito_da` sfasati corretti il 18/9.
+- **Scritture via `docker exec psql` invisibili al verificatore.**
+  `psql_host` ora è un condiviso (CD05): `verifica_mappa.py` dovrebbe
+  riconoscere la SQL passata a `psql_host`/`_query_db` come riconosce
+  `cur.execute()`. Toglierebbe la maggior parte dei 13 indecidibili attesi.
+- **Range troppo larghi che creano falsa trasversalità** (`connectors/telegram.py`,
+  18/9). Quando un file condiviso ospita codice di più schede, i range vanno
+  tenuti per funzione.
+- **Riferimenti di riga dentro il testo libero** di `garantito_da` e
+  `evidenza` (RE01: 1088-1099, 1102). `impatti.py` li legge come guardie, lo
+  script di riallineamento non sempre li aggiorna.
+
+**Correzione dei riferimenti di riga (18/9, dopo la chiusura, su richiesta
+di Leonardo).** Toccata solo la riga `garantito_da` dei contratti in
+`knowledge/mappa_sistema.yaml`: `codice` ed `evidenza` sono invariati. Ogni
+riferimento del 10/9 (`53b53a4`, verificato a mano) è stato riportato a oggi
+con un diff riga per riga del file. Poi ogni destinazione è stata riletta sul
+codice.
+- **Spostamento non propagato, +7 su `worker/loop.py`** (+4 al passo 5 e +3
+  dopo, mai riportati): RE01, DM04 (1240-1244 → 1247-1251; nel testo di RE01
+  anche 1088-1099 → 1110-1115 e 1102 → 1121), PH03 (222-226 → 229-233,
+  88 → 94), PH04 (→ 205-212, 265-272, 313-320), RE03 (→ 368, 406-410), RE04
+  (→ 1330-1341), DM01 (→ 1253-1278), MS01 (→ 860-911, 914-932), MS02
+  (1595-1626 → 1602-1633), MS03 (→ 1682-1691), MS04 (→ 1683-1686), CD04
+  (→ 774-783).
+- **Spostamento non propagato, +7 su `backend/main.py`** (import aggiunti
+  in testa al passo 6, mai riportati sotto la riga 283): PH01 (→ 158-170),
+  PH02 (→ 85-148, 176-181), DM03 (→ 28-37, 238-241).
+- **Range incompleto:** il testo di RE01 citava `backend/main.py:283-386,638-654`
+  e lasciava fuori `_gestisci_modifica_telegram` (387-411), che scrive
+  `stato='modificata'`: uno dei due stati di cui la guardia si fida.
+  Mancava dal 12/9. Ora è `283-411,638-654`.
+- **Puntatore a una docstring:** AV04 citava 437-443, cioè la docstring di
+  `_accoda_job_argo`. Il lock e il check-poi-insert sono a 446-456, con la
+  chiave passata a 550. Aggiornato anche il testo, perché la chiave non è
+  più scritta nella SQL ma passata come parametro.
+- **Sbagliati fin dal 9/9, non da uno spostamento** (`scripts/risolvi.py`
+  non è mai cambiato): LG01 203-223 → 214-239 (il ramo "nessun match forte"
+  comincia a 214), LG02 186-189 → 190-194.
+- **Verificati e invariati:** RE03 (`imap_reader.py`), RE04 (`mailer.py`),
+  LG02 (`normalizza.py`), LG03, CD03, AV01, SE01, SE02, CD05, CD06.
+- **Verifica:** `verifica_mappa.py` exit 0 (0 divergenze su 17 schede);
+  `impatti.py --file worker/loop.py:1247` segnala RE01 e DM04 con "tocca la
+  guardia stessa". `impatti.py --file backend/main.py:402` (il ramo
+  modifica) ora segnala RE01. `test_panoptes_lib` 35/35.
+- **Non corretti:** i numeri di riga dentro `evidenza`, che non sono stati
+  riletti (es. "claim_job worker/loop.py:80-107" nell'evidenza di
+  `manutenzione_sistema`). I range di `codice` sono corretti nel blocco
+  sotto. DM04 non cita i range
+  di `approvazione_telegram`: una modifica al ramo modifica segnala RE01 ma
+  non DM04. È la catena non modellata descritta sotto, non un numero di riga
+  sbagliato.
+
+**Correzione dei range di `codice` (18/9, stesso giorno, su richiesta di
+Leonardo).** Toccate solo le voci di `codice` in
+`knowledge/mappa_sistema.yaml`. Metodo: nessuno scostamento fisso. Per ogni
+range ho ricostruito cosa copriva il 10/9 (`53b53a4`: funzioni intere, dal
+decoratore all'ultima riga), ho cercato gli stessi blocchi nel codice di oggi e
+ho riletto inizio e fine di ognuno.
+- **30 voci con un range: 19 corrette, 1 completata, 10 già giuste.**
+- **Già giuste (10):** tutte quelle scritte o riviste dopo il passo 8 da chi
+  toccava lo stesso codice. `argo_voce`: `backend/main.py:414-635`,
+  `connectors/telegram.py:39-97`, `worker/loop.py:60-70`, `1636-1669`.
+  `approvazione_telegram`: `backend/main.py:283-386`, `387-411`, `638-654`,
+  `connectors/telegram.py:99-120`, `168-263`. `telegram_notifica`:
+  `connectors/telegram.py:123-165`.
+- **Spostamento di +7 (15 voci).** In `backend/main.py` sono le route di
+  `poster_host` (47-177 → 54-184) e di `dm_instagram_facebook` (180-273 →
+  187-280). In `worker/loop.py`, per le voci sotto la riga 145:
+  - `poster_host` 170-330;
+  - `risposte_email` 333-432, 935-986, 1229-1407, 1410-1478;
+  - `dm_instagram_facebook` 1155-1213, 1229-1407, 1481-1550, 1553-1570;
+  - `manutenzione_sistema` 460-765, 768-932;
+  - `invia_risposta` 1229-1407;
+  - `alert_una_volta` 768-783.
+- **Dove lo sfasamento NON era +7** (è il dato che serve al Custode):
+  - `valuta_e_rispondi` 989-1146 → 996-1152: inizio +7, fine +6.
+  - `manutenzione_sistema` 1566-1706 → 1573-1715: inizio +7, fine +9. La
+    fine cadeva a metà di `main()`, sbagliata già al passo 8, e oggi arriva
+    a fine file come il 10/9.
+  - `manutenzione_sistema` 80-107 → 80-114 (`claim_job`): inizio giusto,
+    fine +7. La funzione è cresciuta dall'interno (docstring e `NOT IN`
+    allungati a ogni nuovo tipo `genera_*`) e nessuno ha spostato la fine.
+    Questo caso è diverso dallo spostamento: il testo si allunga dentro un
+    blocco il cui inizio non si muove.
+  - `telegram_notifica` 12-21 → 12-36: sbagliato fin dal 10/9, quando valeva
+    12-17. Copriva solo la testa di `notifica()` fino al `return` anticipato,
+    non l'invio. Scostamento +15, non da spostamento.
+  - `argo_voce` 83-88: giusto, ma copre solo la docstring di `claim_job`. La
+    clausola `NOT IN` che esclude i job di argo_voce è alla riga 95, fuori.
+    Aggiunta la voce `worker/loop.py:95`, senza allargare il range, per non
+    attribuire ad argo_voce il resto di `claim_job`.
+  - Sotto la riga 80 di `worker/loop.py` nessuno spostamento: le voci lì
+    sono di argo_voce, scritte dopo gli inserimenti.
+- **Origine:** i range erano già sfasati di 6 al passo 8 (`002ae85`). Quel
+  passo ha aggiunto +12 a valori già vecchi, lo stesso errore dei
+  `garantito_da`. Poi +1 dopo `30bd11e`.
+- **Effetto prima della correzione**, misurato con `impatti.py --file`
+  prima e dopo:
+  - `backend/main.py:182` (route del poster) → dm_instagram_facebook, ora
+    poster_host;
+  - `worker/loop.py:327` (`invia_depliant`) → risposte_email, ora
+    poster_host;
+  - `worker/loop.py:1212` (`notifica_dm`) → nessuna scheda, ora
+    dm_instagram_facebook;
+  - `worker/loop.py:781` (`_alert_una_volta`) → solo
+    manutenzione_sistema, ora anche il condiviso e le sue due pipeline;
+  - `connectors/telegram.py:30` (l'invio di `notifica`) → nessuna scheda,
+    ora telegram_notifica e le sue sei pipeline;
+  - `worker/loop.py:95` → solo manutenzione_sistema, ora anche argo_voce.
+- **Collaudo originale rilanciato dopo la correzione:**
+  - `verifica_mappa.py`: exit 0, 0 divergenze su 17 schede;
+  - `impatti.py --componente approvazione_telegram`: 2 pipeline;
+  - `impatti.py --tabella approvals`: 4 pipeline;
+  - `impatti.py --file worker/loop.py:1247`: RE01 e DM04 con "tocca la
+    guardia stessa";
+  - `impatti.py --file media/poster.py`: solo poster_host, granularità
+    intatta.
+
+  Esito identico al collaudo lanciato prima della correzione.
+- **Lasciati come il 10/9, per scelta:** il commento d'intestazione di
+  `invia_risposta` (1216-1228, stati di `approvals`) resta fuori dal range,
+  che parte dal decoratore. Le costanti prima di `_valuta_e_rispondi`
+  (989-993) restano fuori. `manutenzione_sistema` 1573-1715 e `argo_voce`
+  1636-1669 si sovrappongono su `garantisci_genera_avviso`: era già così e
+  riflette il codice, perché `main()` la chiama.
+
+**Dipendenze che la mappa non modella** (emerse nella settimana, nessuna
+aggiunta ora):
+- **Catena RE01/DM04 → `approvazione_telegram`:** esiste solo come testo
+  libero. `impatti.py` la vede solo perché legge i numeri di riga dentro
+  quel testo (il falso allarme del 12/9 è nato da lì), e DM04 non la vede
+  affatto.
+- **`claim_job` ↔ consumer su host:** i tipi `genera_*` di argo_voce devono
+  restare esclusi da `claim_job`, altrimenti il worker li reclama e genera
+  alert falsi. Anche il crontab host è una dipendenza fuori repo che non
+  compare in `fuori_repo`. Oggi è solo prosa nell'`evidenza`, senza un
+  contratto.
+- **STATO.md come dato:** il blocco `## CANTIERI` e il formato
+  `SOSPESO <n> —` sono letti dal codice (`cantieri_aperti()`, `sessioni`,
+  `/brief`). La mappa non lo modella, come ha scritto il `/brief` stesso in
+  `mandati` ("STATO.md: non mappato dalla mappa").
+- **Proposta, non fatta ora: una scheda condivisa `llm_gateway`**
+  (`connectors/llm.py`). Da questa settimana `connectors/llm.py` regge il
+  tetto LLM di classificatore, drafter, argo_voce e memoria_sessioni, e
+  sceglie fra contatore persistente e in-memory. Non ha una scheda sua: sta
+  nel `codice` di più schede ed è "condiviso a nudo". Il suo contratto, CD06
+  ("ogni chiamata al gateway è contata, salvo chi sceglie l'in-memory;
+  tabella illeggibile → bloccata"), oggi sta su `psql_host`, che è il posto
+  sbagliato: `psql_host` è solo il trasporto verso il DB, la regola la
+  decide `llm.py`. La scheda proposta:
+  - `codice: connectors/llm.py`, `usato_da: [classificatore, drafter,
+    argo_voce, memoria_sessioni]`;
+  - env `LLM_TETTO_GIORNALIERO` e `ANTHROPIC_API_KEY`;
+  - scrive `llm_chiamate_giorno` tramite `psql_host`;
+  - contratti: CD06 spostato qui, più la scelta obbligata del worker a
+    `worker/loop.py:38` (senza, il worker blocca ogni chiamata LLM, quindi
+    classificazione e bozze).
+
+  Da decidere anche il rapporto con `llm_gratuito`, che già vive come
+  condiviso separato.
+
+**Resta a Leonardo:** decidere sugli helper del digest non coperti
+(DECISIONI APERTE) e sulla scheda `llm_gateway`; commit e push di `STATO.md` e
+`knowledge/mappa_sistema.yaml`. Il Cantiere 2 (Custode) non è aperto.
