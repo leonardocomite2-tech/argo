@@ -689,10 +689,12 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   reincolla i blocchi corretti sulla pagina di prova, poi si ripete
   pavimento + anti-finestra-morta sull'anteprima reale (non solo locale).
 
-- **Tetto LLM: due contatori separati (dal 18/9/2026, passo 4bis del ponte).**
-  Il consumer host di Argo usa ora un contatore persistente
-  (`llm_chiamate_giorno`), il worker Docker (classificatore/drafter) resta
-  sul contatore in-memory descritto sopra. Entrambi confrontano con lo
+- **Tetto LLM: due contatori separati (dal 18/9/2026, passo 4bis del ponte;
+  aggiornato la sera stessa).** Il contatore persistente
+  (`llm_chiamate_giorno`) è il default di `connectors/llm.py` per QUALUNQUE
+  processo (consumer, hook, script a mano, eval_*); il worker Docker
+  (classificatore/drafter) sceglie esplicitamente il contatore in-memory
+  descritto sopra (`worker/loop.py:38`). Entrambi confrontano con lo
   stesso `LLM_TETTO_GIORNALIERO`: il tetto reale del giorno è quindi fino a
   2× il valore, uno per processo. Unificarli vorrebbe dire far passare
   anche il worker dalla tabella (psycopg, stessa UPSERT): non fatto per non
@@ -3162,4 +3164,67 @@ Rumore, non informazione.
   aperta/chiusa, frammenti che nominano SOSPESO scartati, trattino corto e
   numero mancante scartati, `[RISOLTO` senza apertura non conta);
   `verifica_mappa.py` 0 divergenze.
+
+## Sessione 2026-09-18 (sera) — Cantiere Memoria delle sessioni: il tetto LLM persistente diventa il default
+
+Il contatore persistente del tetto (`llm_chiamate_giorno`) andava agganciato
+a mano (`usa_contatore_persistente`): lo facevano il consumer di Argo e
+l'hook memoria, non gli script lanciati a mano. `tests/eval_modi_argo.py` e
+gli altri `eval_*` chiamavano l'API vera senza contare, e ogni script nuovo
+nasceva scoperto. Default invertito, su richiesta di Leonardo: chi scrive
+uno script nuovo non deve sapere di doverlo agganciare.
+
+- `connectors/llm.py`: persistente per default (`_incrementa_default` →
+  `connectors/psql_host.py:incrementa_chiamate_llm`, import tardivo);
+  in-memory solo dopo la nuova `usa_contatore_in_memoria()`. Tabella non
+  leggibile → `LLMErrore` prima di qualunque richiesta HTTP (regola già in
+  uso). Interfaccia esistente invariata: `usa_contatore_persistente(fn,
+  testo)` funziona come prima, `incrementa=None` ora riporta al
+  persistente di default. Notifica di superamento: testo di sempre per il
+  worker ("classificazione e bozze sospese"), testo del chiamante per
+  consumer e hook, generico per gli altri ("chiamate LLM dei processi host
+  sospese").
+- `worker/loop.py:38`: `usa_contatore_in_memoria()` a livello di modulo,
+  prima del registro degli handler, al posto di una riga vuota (nessuna
+  riga del file si sposta, i range della mappa restano validi). Necessaria:
+  dentro Docker non c'è il comando `docker`, e senza questa scelta ogni
+  chiamata del worker verrebbe bloccata (fail-closed, verificato).
+- File della sessione parallela sulla voce (`argo/voce.py`,
+  `orienta_webhook.py`, `tests/test_argo_voce.py`, `eval_*`) non toccati:
+  con il default invertito sono coperti da soli; il loro
+  `test_argo_voce.py` passa invariato.
+- **Test** (`tests/test_tetto_llm.py`, nuovo, 23 casi, HTTP e contatore
+  finti — nessun test tocca la tabella vera: contatore 19 prima e dopo la
+  suite): script qualsiasi → persistente, tabella rotta → bloccata senza
+  HTTP, tetto e notifica generica; worker → scelta a livello di modulo,
+  in-memory, persistente mai toccato, testo di sempre; classificatore e
+  drafter chiamati davvero con HTTP finto nel modo worker → risultati
+  invariati, in-memory, zero persistente; Argo e hook memoria → aggancio
+  col proprio testo invariato, persistente. `tests/test_llm.py` aggiornato
+  (l'in-memory ora va scelto).
+- **Prove dal vivo**, API vera, con una spia che conta le chiamate al
+  contatore persistente e le passa a quello vero (il consumer di Argo
+  rispondeva intanto a messaggi veri, quindi il confronto prima/dopo della
+  tabella da solo non bastava):
+  - host, script senza nessun aggancio → 1 incremento persistente, la
+    tabella restituisce il valore aggiornato;
+  - container worker con `worker/loop.py` e `connectors/` nuovi copiati in
+    `/tmp` (poi rimossi; il container gira il codice vecchio fino al
+    deploy) → classificatore vero: in-memory 1, persistente 0; controprova
+    nello stesso processo senza la scelta del worker → `LLMErrore`
+    (`FileNotFoundError`, niente docker CLI), nessuna chiamata partita.
+- **Mappa**: nuovo contratto CD06 su `psql_host` ("ogni chiamata al gateway
+  è contata, salvo chi sceglie l'in-memory; tabella illeggibile → bloccata"),
+  evidenze di classificatore/argo_voce/psql_host aggiornate.
+  `verifica_mappa.py` 0 divergenze.
+- **Limite noto (dalla review guardrail)**: gli script lanciati dentro il
+  container con `docker compose exec worker python -m scripts.<nome>`
+  (risolvi, export_*, estrai_*) sono processi separati che non importano
+  `worker/loop.py`: se uno di loro chiamasse l'LLM finirebbe sul default
+  persistente, irraggiungibile da Docker, e verrebbe bloccato (fail-closed).
+  Oggi nessuno chiama l'LLM (verificato); se servirà, quello script dovrà
+  chiamare `usa_contatore_in_memoria()` come il worker.
+- **Resta a Leonardo**: `docker compose up -d --build` del worker (fino ad
+  allora gira il codice vecchio, equivalente: in-memory); resta aperta la
+  decisione sui due contatori separati (DECISIONI APERTE).
 

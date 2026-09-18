@@ -14,7 +14,7 @@ from brain.classifier import classifica, ClassificazioneErrore
 from brain.drafter import redigi_bozza, DrafterErrore
 from connectors.ghl import invia_messaggio
 from connectors.imap_reader import leggi_nuove, password_per
-from connectors.llm import TettoLLMRaggiunto
+from connectors.llm import TettoLLMRaggiunto, usa_contatore_in_memoria
 from connectors.mailer import invia_email, invia_risposta_email, invia_email_reply_box
 from connectors.telegram import notifica, chiedi_approvazione, riga_scadenza
 from connectors.testi import (
@@ -35,7 +35,7 @@ ORA_AVVISO = dtime(22, 15)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("argo.worker")
-
+usa_contatore_in_memoria()  # tetto LLM: il worker non raggiunge llm_chiamate_giorno (niente docker CLI) — vedi connectors/llm.py
 HANDLERS = {}
 
 

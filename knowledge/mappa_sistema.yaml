@@ -682,7 +682,9 @@ pipeline:
             deviazione delle altre scritture di quel file), agganciato a
             connectors/llm.py con usa_contatore_persistente(). Il worker
             Docker (classificatore/drafter) non la usa: resta sul contatore
-            in-memory.
+            in-memory. Dal 18/9/2026 (sera) il persistente è il DEFAULT di
+            connectors/llm.py per qualunque processo: l'aggancio esplicito
+            del consumer resta solo per il testo della notifica.
     condivisi: [telegram_notifica, psql_host]
     env:
       - ANTHROPIC_API_KEY
@@ -854,7 +856,7 @@ condivisi:
     evidenza:
       - "brain/classifier.py:47-75, enum chiuso CATEGORIE di 7 valori (righe 5-13), ClassificazioneErrore su JSON non valido o categoria fuori enum (righe 42-44,64,71)"
       - "chiamato da _valuta_e_rispondi: worker/loop.py:1001 — condiviso fra email (via notifica_risposta) e DM (via notifica_dm)"
-      - "modello: connectors/llm.py:17 (claude-haiku-4-5-20251001), tetto giornaliero LLM_TETTO_GIORNALIERO con notifica Telegram al superamento (connectors/llm.py:66,72-75)"
+      - "modello: connectors/llm.py:17 (claude-haiku-4-5-20251001), tetto giornaliero LLM_TETTO_GIORNALIERO con notifica Telegram al superamento (connectors/llm.py:_verifica_tetto). Contatore in-memory scelto ESPLICITAMENTE dal processo worker (worker/loop.py:38, usa_contatore_in_memoria() a livello di modulo): dal 18/9/2026 il default del gateway è il contatore persistente, che dentro Docker non è raggiungibile (niente docker CLI) — senza quella riga ogni chiamata del worker verrebbe bloccata, mai partita al buio"
       - "errore di classificazione mai ritentato a livello job: guardia di idempotenza su messages scritta prima della classificazione (DECISIONI APERTE, STATO.md)"
     contratti:
       - id: CD03
@@ -947,11 +949,15 @@ condivisi:
     usato_da: [argo_voce, memoria_sessioni]
     env: []
     evidenza:
+      - "DEFAULT DEL TETTO (18/9/2026, sera): connectors/llm.py:_incrementa_default usa incrementa_chiamate_llm per QUALUNQUE chiamante del gateway che non abbia scelto usa_contatore_in_memoria() — script lanciati a mano, eval_*, hook, consumer. Prima andava agganciato a mano e ogni script nuovo nasceva scoperto (tests/eval_modi_argo.py chiamava l'API senza contare). Import tardivo: il worker Docker, che sceglie l'in-memory, non carica mai questo modulo per il tetto."
       - "Estratto al secondo uso (18/9/2026): scrittura/lettura del DB da host via docker exec psql, SQL su stdin. incrementa_chiamate_llm è il contatore persistente del tetto LLM (llm_chiamate_giorno) usato dal consumer di argo_voce e dall'hook di memoria_sessioni. Il _psql locale di scripts/argo/orienta_webhook.py resta com'è (non migrato, per non cambiare quel consumer)."
     contratti:
       - id: CD05
         enunciato: "Il contatore del tetto LLM conta ogni chiamata dei processi host in modo atomico, anche fra processi diversi"
         garantito_da: "connectors/psql_host.py:34-43 (INSERT ... ON CONFLICT (giorno) DO UPDATE SET chiamate = chiamate + 1 RETURNING chiamate, un solo statement) — verificato a mano il 18/9 con tre processi separati (1, 2, 3 sulla stessa riga); tests/test_llm.py copre solo il lato connectors/llm.py con un contatore finto"
+      - id: CD06
+        enunciato: "Ogni chiamata al gateway LLM è contata in llm_chiamate_giorno, salvo nei processi che scelgono esplicitamente il contatore in-memory (oggi solo il worker Docker); se la tabella non è leggibile la chiamata è bloccata"
+        garantito_da: "connectors/llm.py:_incrementa_contatore (persistente se _contatore_in_memoria non è attivo; eccezione del contatore -> LLMErrore prima della richiesta HTTP) + worker/loop.py:38 (usa_contatore_in_memoria()) + test:tests/test_tetto_llm.py (un caso per chiamante: script qualsiasi, worker, classificatore, drafter, Argo, hook memoria)"
 
 infrastruttura:
   env:

@@ -79,10 +79,11 @@ except llm.LLMErrore:
     _esito = "LLMErrore"
 caso("contatore persistente illeggibile -> LLMErrore, mai una chiamata alla cieca", "LLMErrore", _esito)
 
-# default invariato per il worker: senza contatore persistente, in-memory
+# in-memory solo se scelto esplicitamente (il worker Docker): invariato
 llm._contatore_persistente["incrementa"] = None
 llm._contatore_persistente["cosa_si_ferma"] = None
 llm._contatore["giorno"] = None
+llm.usa_contatore_in_memoria()
 _notifiche.clear()
 _esiti = []
 for _ in range(3):
@@ -93,6 +94,7 @@ for _ in range(3):
         _esiti.append("tetto")
 caso("contatore in-memory (worker) invariato", ["ok", "ok", "tetto"], _esiti)
 caso("notifica del worker col testo di sempre", True, "classificazione e bozze sospese" in _notifiche[0])
+llm._contatore_in_memoria["attivo"] = False
 llm.notifica = _notifica_vera
 
 

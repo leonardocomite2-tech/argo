@@ -51,49 +51,81 @@ def carica_env():
 
 _contatore = {"giorno": None, "chiamate": 0}
 _contatore_persistente = {"incrementa": None, "cosa_si_ferma": None}
+_contatore_in_memoria = {"attivo": False}
 
+# Testo della notifica di superamento per il contatore in-memory (worker
+# Docker: classificazione e bozze) — invariato.
 COSA_SI_FERMA_DEFAULT = "classificazione e bozze sospese"
+# Testo per il contatore persistente di default, quando il chiamante non ne
+# ha dato uno suo (script lanciati a mano, eval, qualunque processo nuovo).
+COSA_SI_FERMA_PERSISTENTE_DEFAULT = "chiamate LLM dei processi host sospese"
+
+
+def _incrementa_default(giorno):
+    """Contatore persistente di default: llm_chiamate_giorno via docker exec
+    psql (connectors/psql_host.py). Import tardivo: chi usa il contatore
+    in-memory (il worker Docker) non lo carica mai."""
+    from connectors.psql_host import incrementa_chiamate_llm
+    return incrementa_chiamate_llm(giorno)
 
 
 def usa_contatore_persistente(incrementa, cosa_si_ferma):
-    """Sostituisce il contatore in-memory per questo processo.
+    """Contatore persistente con una funzione e un testo di notifica propri.
+    Dal 18/9/2026 il persistente è già il DEFAULT per qualunque chiamante
+    (vedi _incrementa_contatore): questa funzione serve solo a personalizzare
+    il testo della notifica o a iniettare un contatore finto nei test.
     `incrementa(giorno)` deve incrementare in modo atomico il conteggio di
     `giorno` (date, fuso Europe/Rome) e ritornare il valore dopo
-    l'incremento. Serve a chi vive un processo per job (il consumer host di
-    Argo, lanciato da cron ogni minuto), dove il contatore in-memory
-    ripartirebbe da 0 a ogni lancio e il tetto non scatterebbe mai. Chi non
-    la chiama (il worker Docker: classificatore/drafter) resta sul
-    contatore in-memory, invariato. `cosa_si_ferma` finisce nella notifica
-    di superamento."""
+    l'incremento. `incrementa=None` torna al contatore persistente di
+    default (llm_chiamate_giorno), non a quello in-memory."""
     _contatore_persistente["incrementa"] = incrementa
     _contatore_persistente["cosa_si_ferma"] = cosa_si_ferma
+    _contatore_in_memoria["attivo"] = False
+
+
+def usa_contatore_in_memoria():
+    """Scelta ESPLICITA del contatore in-memory per questo processo: la fa
+    solo il worker Docker (worker/loop.py, a livello di modulo), che non ha
+    il comando docker per raggiungere llm_chiamate_giorno e che usava già
+    questo contatore — comportamento invariato, trade-off in STATO.md
+    (azzerato a ogni riavvio del worker). Chiunque altro è coperto dal
+    contatore persistente senza dover fare niente: uno script nuovo non
+    deve sapere di doverlo agganciare."""
+    _contatore_in_memoria["attivo"] = True
 
 
 def _incrementa_contatore(oggi):
-    """Ritorna il conteggio di oggi dopo l'incremento. Se il contatore
+    """Ritorna il conteggio di oggi dopo l'incremento. Persistente per
+    default; in-memory solo dopo usa_contatore_in_memoria(). Se il contatore
     persistente non è leggibile solleva LLMErrore: si chiude, non si chiama
     l'API senza sapere a che punto è il tetto."""
-    incrementa = _contatore_persistente["incrementa"]
-    if incrementa is not None:
-        try:
-            return int(incrementa(oggi))
-        except Exception as e:
-            logger.error("chiama: contatore persistente non leggibile (%s), chiamata bloccata", type(e).__name__)
-            raise LLMErrore(f"contatore del tetto non leggibile ({type(e).__name__})") from None
+    if _contatore_in_memoria["attivo"]:
+        if _contatore["giorno"] != oggi:
+            _contatore["giorno"] = oggi
+            _contatore["chiamate"] = 0
+        _contatore["chiamate"] += 1
+        return _contatore["chiamate"]
 
-    if _contatore["giorno"] != oggi:
-        _contatore["giorno"] = oggi
-        _contatore["chiamate"] = 0
-    _contatore["chiamate"] += 1
-    return _contatore["chiamate"]
+    incrementa = _contatore_persistente["incrementa"] or _incrementa_default
+    try:
+        return int(incrementa(oggi))
+    except Exception as e:
+        logger.error("chiama: contatore persistente non leggibile (%s), chiamata bloccata", type(e).__name__)
+        raise LLMErrore(f"contatore del tetto non leggibile ({type(e).__name__})") from None
+
+
+def _testo_cosa_si_ferma():
+    if _contatore_in_memoria["attivo"]:
+        return COSA_SI_FERMA_DEFAULT
+    return _contatore_persistente["cosa_si_ferma"] or COSA_SI_FERMA_PERSISTENTE_DEFAULT
 
 
 def _verifica_tetto():
     """Incrementa il contatore giornaliero e solleva TettoLLMRaggiunto PRIMA
     di qualunque chiamata HTTP se il tetto è superato, notificando una sola
-    volta per giorno. Contatore in-memory per default (azzerato ad ogni
-    riavvio del worker — trade-off documentato in STATO.md), persistente se
-    il processo ha chiamato usa_contatore_persistente()."""
+    volta per giorno. Contatore persistente (llm_chiamate_giorno) per
+    default; in-memory solo se il processo ha chiamato
+    usa_contatore_in_memoria() (il worker Docker)."""
     oggi = datetime.now(FUSO_ROMA).date()
     chiamate = _incrementa_contatore(oggi)
     tetto = int(os.environ["LLM_TETTO_GIORNALIERO"])
@@ -102,7 +134,7 @@ def _verifica_tetto():
         if chiamate == tetto + 1:
             # Notifica una volta sola al superamento, non ad ogni chiamata
             # successiva bloccata nello stesso giorno.
-            cosa_si_ferma = _contatore_persistente["cosa_si_ferma"] or COSA_SI_FERMA_DEFAULT
+            cosa_si_ferma = _testo_cosa_si_ferma()
             notifica(
                 f"🛑 Tetto giornaliero di chiamate LLM raggiunto ({tetto}/giorno) — "
                 f"{cosa_si_ferma} fino a domani, verificare il volume."
