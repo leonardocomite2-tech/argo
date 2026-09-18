@@ -79,6 +79,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from connectors.llm import carica_env, usa_contatore_persistente  # noqa: E402
+from connectors.psql_host import incrementa_chiamate_llm  # noqa: E402
 
 carica_env()
 
@@ -136,21 +137,6 @@ def _reclama_job():
     if not claimato:
         return None
     return job_id, job["tipo"], job.get("payload") or {}
-
-
-def _incrementa_chiamate_llm(giorno):
-    """Contatore persistente del tetto LLM per questo processo (vedi
-    connectors/llm.py:usa_contatore_persistente): un UPSERT atomico sulla
-    riga del giorno, che ritorna il conteggio dopo l'incremento. Ogni
-    chiamata di ogni job di questo consumer passa di qui, comprese le due
-    della conversazione. `giorno` è una date, mai testo dall'esterno."""
-    risultato = _psql(
-        "INSERT INTO llm_chiamate_giorno (giorno, chiamate) "
-        f"VALUES ('{giorno.isoformat()}', 1) "
-        "ON CONFLICT (giorno) DO UPDATE SET chiamate = llm_chiamate_giorno.chiamate + 1 "
-        "RETURNING chiamate"
-    )
-    return int(risultato.splitlines()[0])
 
 
 def _segna_done(job_id):
@@ -297,7 +283,7 @@ def main():
     if reclamato is None:
         return
     job_id, tipo, payload = reclamato
-    usa_contatore_persistente(_incrementa_chiamate_llm, "risposte di Argo sospese")
+    usa_contatore_persistente(incrementa_chiamate_llm, "risposte di Argo sospese")
 
     from argo.voce import (
         genera_risposta, genera_risposta_instrada, genera_avviso, genera_brief, genera_impatto,

@@ -123,3 +123,25 @@ CREATE TABLE IF NOT EXISTS llm_chiamate_giorno (
   giorno    DATE PRIMARY KEY,
   chiamate  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sessioni (
+  id                  SERIAL PRIMARY KEY,
+  created_at          TIMESTAMPTZ DEFAULT now(),
+  dedup_key           TEXT UNIQUE NOT NULL,
+  session_id          TEXT NOT NULL,
+  inizio              TIMESTAMPTZ,
+  fine                TIMESTAMPTZ,
+  head_iniziale       TEXT,
+  head_finale         TEXT,
+  motivo_fine         TEXT,
+  copertura           TEXT,
+  cantieri            TEXT[],
+  file_toccati        TEXT[],
+  commit              JSONB,
+  correzioni_manuali  TEXT[],
+  sospesi_aperti      JSONB,
+  sospesi_chiusi      JSONB,
+  sessioni_parallele  TEXT[],
+  decisioni           TEXT,
+  decisioni_stato     TEXT
+);

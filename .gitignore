@@ -6,3 +6,4 @@ out/
 backup/dumps/
 backup/dump.log
 orienta_webhook.log
+sessioni_hook.log

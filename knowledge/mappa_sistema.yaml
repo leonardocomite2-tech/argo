@@ -683,7 +683,7 @@ pipeline:
             connectors/llm.py con usa_contatore_persistente(). Il worker
             Docker (classificatore/drafter) non la usa: resta sul contatore
             in-memory.
-    condivisi: [telegram_notifica]
+    condivisi: [telegram_notifica, psql_host]
     env:
       - ANTHROPIC_API_KEY
       - LLM_TETTO_GIORNALIERO
@@ -745,6 +745,80 @@ pipeline:
       - "PASSO 3 (ponte, 12/9/2026) — fix troncamento /impatto + /brief consapevole degli impatti. (1) MAX_TOKENS_RISPOSTA (200) troncava a metà frase una consultazione con molti contratti (collaudo reale, /impatto mailer: 8 contratti, ~3085 caratteri di output grezzo) — nuova MAX_TOKENS_IMPATTO=700 dedicata al solo modo impatto, e connectors/llm.py:chiama() guadagna un parametro opt-in marcatore_se_troncato (default None, nessun altro chiamante toccato) che accoda un marcatore esplicito se stop_reason=='max_tokens' — mai un taglio silenzioso, stessa logica di _tronca() per il testo in ingresso. (2) genera_brief interroga ora impatti.py --file sui percorsi citati nel proprio campo 'contesto' che esistono davvero sul filesystem (stesso controllo deterministico di _risolvi_flag_impatti — un nome nudo indovinato male dal modello, es. pavimento.mjs, semplicemente non passa il controllo: nessun avviso, nessun errore), fino a LIMITE_FILE_IMPATTI_BRIEF=8 per contenere il costo. L'output di impatti.py (formato fisso, mai modificato) è analizzato a riga da _analizza_output_impatti_file/_contratti_in_gioco: un file che tocca un componente condiviso o almeno un contratto produce un avvertimento accodato ai Vincoli standard da _componi_brief (mai passato al modello, vedi AV07); nessun file con impatti -> nessun avvertimento, zero righe vuote, come per avvisa. Un solo mandato di consultazione per invocazione di /brief (non uno per file, per non far crescere la tabella quando un brief ne cita molti), registrato da scripts/argo/orienta_webhook.py:_registra_mandato_brief SOLO se almeno un file citato esisteva davvero (altrimenti nessuna consultazione, nessun mandato). backend/main.py guadagna origine_msg anche sul ramo /brief (stesso stile di /impatto), passato nel payload del job perché il mandato nasce solo dopo l'esecuzione, non alla ricezione del comando. Collaudato a mano su tre file reali: connectors/mailer.py (condiviso mailer + contratto RE04, genera avvertimento), argo/voce.py (mappato ma zero condivisi/contratti, nessun avvertimento), tests/test_argo_voce.py (non mappato, nessun avvertimento) — tests/test_argo_voce.py copre tutti e tre i casi con invocazioni reali di impatti.py, zero LLM. Range backend/main.py aggiornati: argo_voce 414-572→414-577 (+5, dal docstring esteso di _gestisci_messaggio_argo e dalla riga origine_msg nel ramo /brief), approvazione_telegram 575-591→580-596 (stesso +5, nessuna riga toccata dentro quella funzione)."
 
       - "PASSO 9 della voce (18/9/2026) — messaggi liberi instradati ai modi: il classificatore vive DENTRO il job genera_conversazione del passo 4 del ponte (scripts/argo/orienta_webhook.py:_instrada_messaggio_libero, primo passo di main()), che riassegna tipo/payload a genera_orienta/genera_instrada/genera_brief/genera_impatto e lascia al ramo esistente l'esecuzione identica — nessun tipo di job nuovo, backend/main.py e worker/loop.py invariati, nessuna tabella nuova (la finestra è conversazione_argo). main() ha ora un ramo esplicito per genera_avviso e solleva su un tipo sconosciuto (prima l'else assumeva genera_avviso per qualunque tipo). Prompt del classificatore senza SOUL/IDENTITY/USER né stato: ~1.2k token in ingresso, max 150 in uscita, conta nel tetto persistente come ogni chiamata del consumer."
+
+  - nome: memoria_sessioni
+    stato: orienta
+    nota_stato: >
+      Aperta il 18/9/2026. Memoria delle sessioni di Claude Code sul Postgres
+      esistente: una riga per sessione in `sessioni`, scritta dagli hook
+      SessionStart/SessionEnd, letta da scripts/memoria/leggi_sessioni.py.
+      Affianca STATO.md, non lo sostituisce.
+    sede: vps
+    attivazione: >
+      Hook di Claude Code configurati in .claude/settings.json (versione
+      installata 2.1.276, evento verificato su code.claude.com/docs/en/hooks):
+      SessionStart -> scripts/memoria/hook_sessione.py inizio (inizio e HEAD
+      di partenza); SessionEnd -> hook_sessione.py fine (timeout 30 s: il
+      budget di default di SessionEnd è 1,5 s, max 60 s, e non può bloccare la
+      chiusura). Gira da host, come il consumer di argo_voce. Il lettore si
+      lancia a mano: leggi_sessioni.py --file <percorso> | --cantiere <nome>.
+    produce:
+      - "una riga in sessioni per sessione (dedup_key claude-session:<id>): intervallo, cantieri, file toccati, commit, correzioni manuali (NULL = non rilevabili), SOSPESI aperti/chiusi con la loro fonte, sessioni parallele, due righe LLM su cosa si è deciso"
+      - "testo leggibile per percorso/cartella o per cantiere (leggi_sessioni.py)"
+    codice:
+      - "db/migrations/009_sessioni.sql"
+      - "scripts/memoria/hook_sessione.py"
+      - "scripts/memoria/sessione.py"
+      - "scripts/memoria/leggi_sessioni.py"
+      - ".claude/settings.json"
+      - "connectors/llm.py"
+    tabelle:
+      legge: [sessioni]
+      scrive: [sessioni, llm_chiamate_giorno]
+    verifica:
+      indecidibile:
+        - campo: tabelle.scrive
+          valore: sessioni
+          motivo: >
+            hook_sessione.py scrive via connectors/psql_host.py (docker exec
+            psql con la SQL su stdin), non cur.execute(): verifica_mappa.py non
+            lo vede. INSERT ... ON CONFLICT (dedup_key) DO NOTHING in inizio(),
+            INSERT ... ON CONFLICT (dedup_key) DO UPDATE in scrivi_riga(),
+            UPDATE del solo riassunto in scrivi_decisioni() e UPDATE simmetrica
+            di sessioni_parallele sulle righe sovrapposte.
+        - campo: tabelle.scrive
+          valore: llm_chiamate_giorno
+          motivo: >
+            contatore persistente del tetto LLM, agganciato in
+            scrivi_decisioni() con usa_contatore_persistente(
+            connectors/psql_host.py:incrementa_chiamate_llm) — stessa
+            deviazione docker exec, invisibile al grep.
+        - campo: tabelle.legge
+          valore: sessioni
+          motivo: >
+            letta da hook_sessione.py:_riga_esistente (psql_host) e da
+            leggi_sessioni.py via argo/stato.py:_query_db, entrambe docker
+            exec — invisibili al grep.
+    condivisi: [psql_host]
+    env:
+      - ANTHROPIC_API_KEY
+      - LLM_TETTO_GIORNALIERO
+    esterni: ["Anthropic API (Haiku, via connectors/llm.py) — una chiamata per sessione, opzionale"]
+    contratti:
+      - id: SE01
+        enunciato: "Ogni sessione lascia una riga in sessioni, anche quando l'LLM non è disponibile"
+        garantito_da: "scripts/memoria/hook_sessione.py:330-345 (fine(): scrivi_riga, UPSERT deterministico, PRIMA di scrivi_decisioni; la chiamata LLM parte solo dopo e un suo fallimento scrive solo decisioni_stato; se la raccolta deterministica stessa fallisce — git, STATO.md — scrive una riga minima con copertura 'errore raccolta: <categoria>' e campi NULL, senza sovrascrivere una riga già completa) + scripts/memoria/sessione.py:letterale_sql (tag di quoting casuale, nessun testo può far fallire l'UPSERT) + test:tests/test_memoria_sessioni.py (ordine sul sorgente e riga minima a runtime) — limite: dipende dal fatto che Claude Code lanci SessionEnd; con kill -9 o crash del processo l'hook non gira e la riga resta quella di SessionStart (fine NULL)"
+      - id: SE02
+        enunciato: "Lo stesso hook lanciato due volte sulla stessa sessione non crea una seconda riga"
+        garantito_da: "db/migrations/009_sessioni.sql (dedup_key UNIQUE NOT NULL) + scripts/memoria/hook_sessione.py:252 (ON CONFLICT (dedup_key) DO UPDATE)"
+      - id: SE03
+        enunciato: "Nessun valore di variabile d'ambiente, password o token finisce in sessioni (i nomi sì)"
+        garantito_da: "scripts/memoria/sessione.py:redigi (sostituisce i valori letti da .env e i formati sk-ant/Bearer, ricorsivo) applicata a riga e materiale in raccogli() e al riassunto in scrivi_decisioni() + divieto esplicito nel prompt (ISTRUZIONI_DECISIONI) + test:tests/test_memoria_sessioni.py"
+    evidenza:
+      - "Attribuzione per sessione, non per intervallo: un commit è della sessione solo se il suo oggetto compare alla lettera in un `git commit` del suo transcript (sessione.py:commit_della_sessione). Motivo misurato il 18/9: due sessioni parallele (d2eb3ee8, 7d7c2a15) con commit a 13 minuti — l'intervallo li avrebbe dati entrambi a entrambe. Senza transcript leggibile la riga dichiara copertura intervallo_git e correzioni_manuali NULL (non rilevabili, diverso da {} = nessuna)."
+      - "Il transcript è un formato interno non garantito dalla documentazione: letto riga per riga in modo tollerante (sessione.py:leggi_transcript)."
+      - "correzioni_manuali: file nei commit della sessione mai scritti da Claude, né via Edit/Write né nominati nell'input di un suo tool (i comandi `!` di Leonardo non contano come Claude). Conservativa: un file solo citato in un comando di Claude non è contato come manuale."
+      - "SOSPESI: dal registro attriti (fonte 'registro', confronto strutturato della sezione ## SOSPESI prima/dopo ogni commit) e da STATO.md (fonte 'stato_md_euristica', righe aggiunte con SOSPESO/DA_VERIFICARE/RISOLTO) — mai normalizzate né filtrate (decisione di Leonardo, 18/9)."
 
 condivisi:
   - nome: valuta_e_rispondi
@@ -863,6 +937,17 @@ condivisi:
       - id: CD04
         enunciato: "alert_una_volta non manda mai due volte lo stesso alert"
         garantito_da: "worker/loop.py:767-776 (INSERT INTO alert_inviati ON CONFLICT DO NOTHING RETURNING chiave, chiave PRIMARY KEY — notifica() chiamata solo se la INSERT ha inserito una riga nuova)"
+
+  - nome: psql_host
+    codice: ["connectors/psql_host.py"]
+    usato_da: [argo_voce, memoria_sessioni]
+    env: []
+    evidenza:
+      - "Estratto al secondo uso (18/9/2026): scrittura/lettura del DB da host via docker exec psql, SQL su stdin. incrementa_chiamate_llm è il contatore persistente del tetto LLM (llm_chiamate_giorno) usato dal consumer di argo_voce e dall'hook di memoria_sessioni. Il _psql locale di scripts/argo/orienta_webhook.py resta com'è (non migrato, per non cambiare quel consumer)."
+    contratti:
+      - id: CD05
+        enunciato: "Il contatore del tetto LLM conta ogni chiamata dei processi host in modo atomico, anche fra processi diversi"
+        garantito_da: "connectors/psql_host.py:34-43 (INSERT ... ON CONFLICT (giorno) DO UPDATE SET chiamate = chiamate + 1 RETURNING chiamate, un solo statement) — verificato a mano il 18/9 con tre processi separati (1, 2, 3 sulla stessa riga); tests/test_llm.py copre solo il lato connectors/llm.py con un contatore finto"
 
 infrastruttura:
   env:

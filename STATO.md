@@ -17,6 +17,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
 | Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 9: messaggi liberi instradati ai modi da un classificatore Haiku (orienta/instrada/impatto/brief/conversazione, parametro mancante → una riga che chiede); collaudato da host sulle tre frasi del criterio, mai da Telegram; resta a Leonardo il collaudo dal telefono. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host, mai da Telegram; resta a Leonardo deploy, collaudo reale e la verifica che l'avviso parta alle 22:15 |
+| Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; collaudato a mano su tre transcript veri (due paralleli di oggi, uno del 15/09), mai su una chiusura vera; resta a Leonardo chiudere due sessioni di fila e verificare le righe |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
 ## Fatto
@@ -2954,3 +2955,110 @@ invariata. I comandi /xxx restano identici e saltano il classificatore.
 - **Resta a Leonardo**: collaudo dal telefono delle tre frasi. Il consumer
   legge i file da disco: nessun rebuild per questo passo, basta il deploy
   del passo 4 (`docker compose up -d --build`) se non è già stato fatto.
+
+## Sessione 2026-09-18 — Cantiere Memoria delle sessioni: la tabella `sessioni`
+
+Ogni sessione di Claude Code ripartiva da zero; quello che si decideva
+viveva solo qui, in un file che cresce, non si interroga e che due sessioni
+parallele si contendono (10/9, e di nuovo oggi: d2eb3ee8 e 7d7c2a15 hanno
+lavorato insieme su argo/voce.py e orienta_webhook.py, commit a 13 minuti).
+Questo passo aggiunge la memoria sul Postgres esistente. STATO.md resta com'è:
+la tabella lo affianca.
+
+- **Evento hook, verificato sulla documentazione ufficiale**
+  (code.claude.com/docs/en/hooks, versione installata 2.1.276): `SessionEnd`,
+  non `Stop` (che scatta a ogni fine risposta). `reason` ∈ clear | resume |
+  logout | prompt_input_exit | other. Budget di **1,5 s** per tutti gli hook
+  SessionEnd, alzato dal `timeout` dell'hook fino a 60 s; non può bloccare la
+  chiusura. Aggiunto anche `SessionStart` (source startup/resume/clear/compact/
+  fork) per registrare inizio e HEAD di partenza. Configurati in
+  `.claude/settings.json` (nuovo, di progetto): timeout 10 s e 30 s.
+- **Tabella `sessioni`** (migrazione `009`, applicata). `dedup_key` UNIQUE =
+  `claude-session:<session_id>`. Campi: inizio, fine, head iniziale/finale,
+  motivo di fine, copertura, cantieri, file toccati, commit (hash+oggetto),
+  correzioni manuali, SOSPESI aperti/chiusi, sessioni parallele, decisioni
+  (LLM) e decisioni_stato.
+- **Lo scrittore** (`scripts/memoria/hook_sessione.py` + logica pura in
+  `scripts/memoria/sessione.py`) scrive in due fasi, per il budget:
+  1. UPSERT deterministico sulla dedup_key, PRIMA di ogni chiamata LLM
+     (contratto SE01);
+  2. UNA chiamata LLM per le due righe su cosa si è deciso, contata dal tetto
+     persistente. Se fallisce, la riga resta e `decisioni_stato` dice perché
+     ("llm non disponibile: chiamata fallita"/"tetto giornaliero"). Un
+     secondo lancio non richiama l'LLM se il riassunto c'è già; lo richiama
+     se mancava o se i commit sono cambiati (resume con lavoro nuovo).
+  Esce sempre 0, non stampa niente, errori per categoria in
+  `sessioni_hook.log` (ignorato da git).
+- **Attribuzione per sessione, non per intervallo.** Un commit è della
+  sessione solo se il suo oggetto compare alla lettera in un `git commit` del
+  suo transcript. Verificato sul caso vero di oggi: 7d7c2a15 riceve solo
+  3beb5b3, d2eb3ee8 solo 2cb54f7 ed e423d9b, anche se l'intervallo li
+  contiene tutti. Il transcript è un formato interno non garantito dalla
+  documentazione: letto riga per riga in modo tollerante; se illeggibile, la
+  riga ripiega sull'intervallo git e lo dichiara (`copertura =
+  intervallo_git`). Fine della sessione = ultimo evento del transcript (un
+  hook rilanciato a mano su una sessione vecchia la faceva sembrare parallela
+  a quelle di oggi: trovato e corretto nel collaudo). `sessioni_parallele` è
+  simmetrica: scrivere una riga aggiorna anche le righe sovrapposte.
+- **Decisioni di Leonardo sui due campi ambigui** (18/9):
+  - SOSPESI: dal registro attriti (fonte `registro`, confronto strutturato
+    della sezione `## SOSPESI` prima/dopo ogni commit: voce nuova = aperta,
+    voce che guadagna `[RISOLTO` = chiusa) **e** da STATO.md (fonte
+    `stato_md_euristica`, righe aggiunte con SOSPESO/DA_VERIFICARE/RISOLTO).
+    Ogni voce porta la sua fonte; mai normalizzate né filtrate. Se l'euristica
+    produrrà troppo rumore, la risposta sarà una convenzione di scrittura
+    ("SOSPESO n —"), non il taglio della fonte.
+  - Correzioni manuali: file nei commit della sessione che il transcript non
+    mostra scritti da Claude (né Edit/Write né nominati nell'input di un suo
+    tool; i comandi `!` di Leonardo contano come manuali). È il backlog delle
+    prossime automazioni, non un registro di errori. `{}` = nessuna
+    rilevata, `NULL` = non rilevabile (transcript illeggibile): mai
+    confusi. Il pattern "commit di fix" è un segnale diverso: lasciato fuori.
+- **Segreti**: nomi sì, valori mai. Garanzia in codice (`sessione.py:redigi`
+  sostituisce con `***` i valori letti da `.env` e i formati sk-ant/Bearer,
+  su tutti i campi e sul materiale mandato all'LLM) più il divieto nel
+  prompt (contratto SE03).
+- **Cantiere**: dalle righe di `## CANTIERI` modificate dai commit della
+  sessione, poi dal nome del cantiere nell'oggetto dei commit; NULL se niente
+  corrisponde, mai indovinato.
+- **Il lettore** (`scripts/memoria/leggi_sessioni.py`): `--file <percorso o
+  cartella>`, `--cantiere <nome>` (stessa risoluzione di /brief: ambiguo o non
+  trovato -> elenco ed exit 2), `--ultime`, `-n`, `--json`. Sola lettura.
+- **Estratto al secondo uso**: `connectors/psql_host.py` (psql da host con
+  SQL su stdin + contatore persistente del tetto), usato dall'hook e dal
+  consumer di argo_voce (che ha perso la sua copia di
+  `_incrementa_chiamate_llm`; il suo `_psql` locale è rimasto com'è).
+- **Collaudo reale** (hook lanciato a mano, psql/git/LLM veri):
+  7d7c2a15 → una riga, cantiere "Argo — la voce", solo 3beb5b3, riassunto
+  fedele; d2eb3ee8 lanciata due volte → una riga ("riassunto già presente"
+  al secondo lancio), cantiere "Argo — il ponte", parallela a 7d7c2a15;
+  f70de57d (15/9, due sole Read) con chiave API finta → riga scritta,
+  `decisioni_stato = llm non disponibile: chiamata fallita`; rilanciata con
+  la chiave vera → stessa riga, riassunto recuperato ("Nessuna decisione
+  registrata."). Sessione finta con transcript inesistente → `copertura =
+  intervallo_git`, correzioni `NULL`; cancellata dopo il collaudo. Un
+  difetto trovato e corretto: il materiale di STATO.md troncato a 4.000
+  caratteri dall'inizio faceva ignorare all'LLM l'ultimo commit (riassunto
+  con "questioni aperte" già chiuse) — ora il budget è diviso fra i commit.
+- **Mappa**: nuova scheda `memoria_sessioni` (contratti SE01 "ogni sessione
+  lascia una riga, anche quando l'LLM non è disponibile", SE02 dedup, SE03
+  segreti), nuovo condiviso `psql_host` (CD05). `verifica_mappa.py`: 0
+  divergenze su 16 schede.
+- **Verifiche**: suite verde (`test_memoria_sessioni` 33/33 nuovo,
+  `test_panoptes_lib` 35/35 con 13 tabelle, gli altri invariati).
+- **Due difetti trovati dalla review guardrail, corretti prima del
+  commit**: (1) un errore evitabile nella raccolta deterministica (git
+  bloccato, STATO.md illeggibile) faceva saltare l'intera scrittura — ora
+  `fine()` scrive comunque una riga minima (`copertura = "errore raccolta:
+  <categoria>"`, campi derivati NULL), senza sovrascrivere una riga già
+  completa di un lancio precedente; (2) il tag di dollar-quoting era fisso
+  (`$argo_mem$`) e un commit che lo citasse avrebbe fatto fallire l'UPSERT —
+  ora è casuale per ogni letterale (`sessione.py:letterale_sql`), usato
+  anche dal lettore. Entrambi coperti da test a runtime.
+- **Limiti noti**: SessionEnd non gira con kill -9 o crash del processo — la
+  riga resta quella di SessionStart (fine NULL) finché un resume non la
+  chiude. Le sessioni aperte PRIMA di questo commit non hanno gli hook
+  caricati (inclusa questa): il done-when si verifica su sessioni nuove.
+- **Resta a Leonardo**: aprire e chiudere due sessioni di fila e guardare
+  `python3 scripts/memoria/leggi_sessioni.py --ultime -n 2`.
+
