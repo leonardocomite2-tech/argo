@@ -67,6 +67,18 @@ esistente lo esegue identico (per impatto il mandato è registrato qui prima,
 come fa backend/main.py per /impatto); se manca un parametro o il modo non è
 chiaro, la risposta è una riga fissa senza altre chiamate LLM. In ogni caso
 la risposta entra nella finestra conversazione_argo.
+
+Passo 14 della voce, USER.md che si popola (logica in argo/impara.py, senza
+LLM): (1) PRIMA del classificatore, se la riga subito precedente il
+messaggio è una proposta (ruolo 'argo_proposta') e il messaggio è
+esattamente "sì" o "no", la risposta è decisa qui: col sì la riga proposta
+entra in USER.md (_scrivi_user_md, l'unico punto che scrive quel file), col
+no resta fuori; ogni altro messaggio lascia decadere la proposta e va al
+classificatore come sempre. (2) Dopo la risposta a un messaggio libero,
+_forse_proponi può mandare una proposta (al massimo una al giorno), scritta
+in conversazione_argo PRIMA dell'invio. (3) Un messaggio libero classificato
+come instrada lascia minuti e contesto nel payload del suo job
+(_registra_finestra): è il dato da cui si calcolano le finestre.
 """
 
 import json
@@ -74,6 +86,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -259,6 +272,107 @@ def _registra_risposta_conversazione(testo):
     _psql(f"INSERT INTO conversazione_argo (ruolo, testo) VALUES ('argo', '{testo_sql}')")
 
 
+def _registra_finestra(job_id, parametri):
+    """Passo 14: minuti e contesto di un messaggio libero instradato restano
+    nel payload del suo job genera_conversazione (chiavi aggiunte al JSONB,
+    schema invariato). Sono il dato di argo/impara.py:finestre_dichiarate.
+    Valori già validati da interpreta_instrada."""
+    aggiunta = json.dumps(
+        {"modo": "instrada", "minuti": int(parametri["minuti"]), "contesto": parametri["contesto"]}
+    ).replace("'", "''")
+    _psql(f"UPDATE jobs SET payload = payload || '{aggiunta}'::jsonb WHERE id={int(job_id)}")
+
+
+def _scrivi_user_md(riga):
+    """L'unico punto che scrive knowledge/argo/USER.md, chiamato solo dal
+    ramo del sì (_risposta_a_proposta). File temporaneo nella stessa
+    cartella + os.replace: mai un USER.md scritto a metà. Ritorna False se
+    la riga c'era già (idempotente: un job rilanciato non la duplica).
+    UserMdErrore passa a chi chiama."""
+    from argo import impara
+
+    percorso = impara.USER_MD_PATH
+    attuale = percorso.read_text(encoding="utf-8")
+    nuovo = impara.applica_riga(attuale, riga)
+    if nuovo == attuale:
+        return False
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=percorso.parent, prefix=".USER.md.", delete=False
+    ) as tmp:
+        tmp.write(nuovo)
+    os.replace(tmp.name, percorso)
+    return True
+
+
+def _risposta_a_proposta(payload):
+    """Passo 14: se la riga subito precedente il messaggio è una proposta
+    per USER.md e il messaggio è esattamente sì o no, ritorna la risposta
+    fissa (dopo aver scritto la riga, se sì). Altrimenti None: la proposta
+    decade e il messaggio segue la strada normale. Niente LLM: un sì che
+    scrive un file non passa da un modello."""
+    import argo.stato as stato
+    from argo import impara
+
+    precedente = stato.conversazione_recente(payload["conversazione_id"], 1)
+    righe = precedente["righe"]
+    if precedente["copertura"] != "completa" or not righe or righe[-1].get("ruolo") != impara.RUOLO_PROPOSTA:
+        return None
+    if impara.e_no(payload["testo"]):
+        logger.info("orienta_webhook: proposta per USER.md rifiutata (riga %s)", righe[-1].get("id"))
+        return impara.TESTO_LASCIATA
+    if not impara.e_si(payload["testo"]):
+        return None
+    riga = impara.estrai_riga_proposta(righe[-1].get("testo"))
+    if riga is None:
+        return impara.TESTO_NON_SCRITTA.format(motivo="la proposta non ha una riga valida")
+    try:
+        scritta = _scrivi_user_md(riga)
+    except impara.UserMdErrore as e:
+        return impara.TESTO_NON_SCRITTA.format(motivo=str(e))
+    logger.info("orienta_webhook: proposta per USER.md confermata (riga %s)", righe[-1].get("id"))
+    return impara.TESTO_SCRITTA if scritta else impara.TESTO_GIA_PRESENTE
+
+
+def _registra_proposta(testo):
+    """La proposta entra in conversazione_argo col suo ruolo PRIMA
+    dell'invio: è la riga che il sì successivo conferma."""
+    from argo.impara import RUOLO_PROPOSTA
+
+    testo_sql = testo.replace("'", "''")
+    _psql(f"INSERT INTO conversazione_argo (ruolo, testo) VALUES ('{RUOLO_PROPOSTA}', '{testo_sql}')")
+
+
+def invia_proposta(testo):
+    """Scrive e manda una proposta. Usata da _forse_proponi e dal collaudo a
+    mano (scripts/argo/proponi_user.py --collaudo)."""
+    from connectors.telegram import invia_lungo
+
+    _registra_proposta(testo)
+    invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
+
+
+# Modi dopo cui una proposta può seguire la risposta. Mai dopo un brief
+# (lungo, per Claude Code), mai dopo una riga che chiede qualcosa: il
+# messaggio seguente di Leonardo risponderebbe a due cose.
+TIPI_CON_PROPOSTA = ("genera_orienta", "genera_instrada", "genera_conversazione", "genera_impatto")
+
+
+def _forse_proponi(tipo, testo):
+    """Passo 14: al più una proposta al giorno, solo in coda a una risposta
+    a un messaggio libero. Decide argo/impara.py:prepara_proposta; qui solo
+    i casi in cui non si prova nemmeno."""
+    from argo.impara import prepara_proposta
+    from argo.voce import TESTO_TETTO_CONVERSAZIONE
+
+    if tipo not in TIPI_CON_PROPOSTA or "?" in testo or testo == TESTO_TETTO_CONVERSAZIONE:
+        return
+    proposta, motivo = prepara_proposta()
+    if proposta is None:
+        logger.info("orienta_webhook: nessuna proposta per USER.md (%s)", motivo)
+        return
+    invia_proposta(proposta)
+
+
 def _marca_avviso_inviato(marcatori):
     """Scrive PRIMA dell'invio, mai dopo — chiamata da main() prima di
     notifica(): stesso ordine "scritto prima dell'invio" usato ovunque nel
@@ -306,7 +420,14 @@ def main():
     testo_diretto = None
     try:
         if da_messaggio_libero:
+            testo_diretto = _risposta_a_proposta(payload)
+        if da_messaggio_libero and testo_diretto is None:
             tipo, payload, testo_diretto = _instrada_messaggio_libero(payload)
+            if tipo == "genera_instrada":
+                try:
+                    _registra_finestra(job_id, payload)
+                except Exception:
+                    logger.exception("orienta_webhook: finestra del job %s non registrata", job_id)
 
         if testo_diretto is not None:
             testo, marcatori = testo_diretto, None
@@ -362,6 +483,14 @@ def main():
 
     invia_lungo(testo, token=os.environ["ARGO_VOCE_BOT_TOKEN"])
     _segna_done(job_id)
+
+    # La proposta per USER.md è un di più: un suo errore non tocca il job,
+    # già riuscito e consegnato.
+    if da_messaggio_libero and testo_diretto is None:
+        try:
+            _forse_proponi(tipo, testo)
+        except Exception:
+            logger.exception("orienta_webhook: proposta per USER.md non mandata")
 
 
 if __name__ == "__main__":

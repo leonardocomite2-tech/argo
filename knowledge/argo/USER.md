@@ -9,7 +9,9 @@ lavora. Parte con ciò che è già noto; cresce con l'uso.
    "noto che X: lo scrivo in USER?". Scrive solo col sì di Leonardo.
 2. Ogni voce porta la data e, dove possibile, il fatto che l'ha suggerita.
 3. Le voci smentite dall'uso si correggono, non si accumulano. Se il file supera le due
-   pagine, qualcosa va tolto.
+   pagine, qualcosa va tolto. Le righe di Argo stanno solo sotto "Dai dati", una per tipo
+   di fatto: un valore nuovo sostituisce il vecchio. Oltre i 6000 caratteri Argo non
+   propone più finché qualcosa non viene tolto a mano.
 
 ## Come lavora
 
@@ -27,6 +29,9 @@ lavora. Parte con ciò che è già noto; cresce con l'uso.
 - Telefono nei ritagli: approvazioni, sì/no, revisioni brevi.
 - Computer nelle sessioni lunghe: Claude Code sui cantieri.
 - Da verificare: orari ricorrenti, giorni pieni vs vuoti, quando preferisce il silenzio.
+
+### Dai dati (ogni riga confermata da Leonardo)
+- 19/09 — Richieste ad Argo per fascia oraria: pomeriggio 9, mattina 8, notte 1, sera 1 su 19 (11/09–19/09, 5 giorni) [fascia_oraria:nessuna_prevalente]
 
 ## Cosa lo blocca di solito
 

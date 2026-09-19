@@ -15,7 +15,7 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | chiuso | 09/09/2026 | — | Sessione 2026-09-18 — chiusura dopo la settimana d'uso: 3 correzioni di mappa, 13 lanci di impatti.py documentati (6 trasversali), 0 commit su tabelle/env senza mappa; in chiusura corretti i garantito_da sfasati (18 contratti su 28 con numeri di riga, RE01/DM04 compresi), corretti anche i range di codice (19 + 1 completato, 10 già giusti); backlog al Cantiere 2 (Custode), che NON è aperto |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-19 — passo 14: USER.md che si popola (fatti calcolati in Python dai dati, proposta al massimo una al giorno, scrittura solo dopo un sì esatto alla riga argo_proposta precedente); proposta di collaudo mandata (conversazione_argo id 22); resta a Leonardo il sì dal telefono, il commit di USER.md scritto da Argo, il push, e dai passi precedenti il giro di eval e il ricollaudo del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-19 — passo 14: USER.md che si popola (fatti calcolati in Python dai dati, proposta al massimo una al giorno, scrittura solo dopo un sì esatto alla riga argo_proposta precedente); collaudo chiuso dal telefono (proposta id 22, "Si" id 23 alle 10:41, conferma id 24, riga in USER.md); resta a Leonardo il commit di USER.md scritto da Argo, il push, e dai passi precedenti il giro di eval e il ricollaudo del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
 | Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-19 — fix del riaccodo di genera_avviso (389 avvisi silenziosi fra le 22:15 e la mezzanotte del 18/9, non legato al deploy): il recupero scatta solo se per le 22:15 di oggi non c'è nessun job, in qualunque stato; niente ritentativo dopo un failed. Trovati e non toccati: digest serale inviato due volte ogni sera dal 30/8, recover_orphaned_jobs sui job del consumer host. Resta a Leonardo il deploy del worker prima delle 22:15, il push e la decisione sul tetto LLM |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
@@ -3969,8 +3969,22 @@ invariati. Nessuna chiamata LLM nuova, nessuna eval.
   telefono/computer.
 - **Mappa**: su argo_voce il codice nuovo, la voce in produce, il contratto
   AV13 e la nota PASSO 14.
-- **Working tree condiviso.** STATO.md, la mappa e `worker/loop.py` hanno
-  anche modifiche della sessione "FIX avvisa". Nessun commit fatto qui.
-- **Resta a Leonardo**: rispondere sì (o no) alla proposta dal telefono; il
-  commit di questo passo separato da quello del FIX avvisa; il push. Nessun
-  rebuild: il consumer legge i file da disco.
+- **Commit mescolato, già pubblicato.** La commit af7b040 della sessione
+  "FIX avvisa" (10:38, già su origin) ha portato con sé una parte del passo
+  14 che era nel working tree: in mappa AV13, la nota PASSO 14 e le voci di
+  codice `argo/impara.py` e `scripts/argo/proponi_user.py`; in STATO.md la
+  riga CANTIERI, le quattro DECISIONI APERTE e la prima versione di questa
+  nota. Non l'ho separata: riscrivere una commit pubblicata richiede un push
+  forzato. La commit del passo 14 porta il resto: codice, test, USER.md, il
+  collaudo. Fino al push di questa commit, origin ha una mappa che cita file
+  che non contiene.
+- **Collaudo dal telefono chiuso.** Leonardo ha risposto "Si" alle 10:41:16
+  (riga 23, job 30370 done). Il consumer ha scritto la riga alle 10:41:18
+  (log: "proposta per USER.md confermata (riga 22)"). La riga 24 "Scritta in
+  USER.md. Non è committata: resta nel working tree." è stata salvata prima
+  dell'invio. Nessuna nuova proposta in coda, come previsto dopo una
+  risposta a una proposta. `git diff knowledge/argo/USER.md`: la regola 3
+  estesa, il blocco "Dai dati" e la riga della fascia oraria.
+- **Resta a Leonardo**: il commit di questo passo (USER.md compreso),
+  separato da quello del FIX avvisa; il push. Nessun rebuild: il consumer
+  legge i file da disco.
