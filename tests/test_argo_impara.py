@@ -114,7 +114,14 @@ caso("e_no: 'No.'", True, impara.e_no("No."))
 caso("e_no: 'no, aspetta'", False, impara.e_no("no, aspetta"))
 
 # --- USER.md ---
-_USER = (REPO_ROOT / "knowledge" / "argo" / "USER.md").read_text(encoding="utf-8")
+# Base dei test: il vero USER.md senza le righe già scritte da Argo (dopo un
+# sì il file cambia; i test non devono dipendere da cosa è stato confermato).
+_USER_VERO = (REPO_ROOT / "knowledge" / "argo" / "USER.md").read_text(encoding="utf-8")
+_USER = "\n".join(r for r in _USER_VERO.split("\n") if not impara.analizza_riga(r))
+caso("USER.md vero: al massimo una riga di Argo per tipo", True,
+     len([r for r in _USER_VERO.split("\n") if impara.analizza_riga(r)])
+     == len({impara.analizza_riga(r)[0] for r in _USER_VERO.split("\n") if impara.analizza_riga(r)}))
+caso("USER.md vero: sta nel tetto", True, len(_USER_VERO) <= impara.LIMITE_USER_MD_CARATTERI)
 caso("USER.md: il blocco di Argo esiste", True, impara.INTESTAZIONE_BLOCCO in _USER.split("\n"))
 caso("USER.md: sta nel tetto", True, len(_USER) <= impara.LIMITE_USER_MD_CARATTERI)
 _u1 = impara.applica_riga(_USER, _RIGA)
@@ -174,14 +181,16 @@ caso("proposta_oggi: 23:30 UTC del 18 è il 19 a Roma", True,
 
 
 def _prepara(proposte, richieste, finestre, forza=False):
-    orig = impara.proposte_passate, impara.richieste_leonardo, impara.finestre_dichiarate
+    orig = impara.proposte_passate, impara.richieste_leonardo, impara.finestre_dichiarate, impara.USER_MD_PATH
+    impara.USER_MD_PATH = Path(tempfile.mkdtemp()) / "USER.md"
+    impara.USER_MD_PATH.write_text(_USER, encoding="utf-8")
     impara.proposte_passate = lambda: proposte
     impara.richieste_leonardo = lambda: richieste
     impara.finestre_dichiarate = lambda: finestre
     try:
         return impara.prepara_proposta(forza=forza, ora=datetime(2026, 9, 19, 12, 0, tzinfo=impara.FUSO_ROMA))
     finally:
-        impara.proposte_passate, impara.richieste_leonardo, impara.finestre_dichiarate = orig
+        impara.proposte_passate, impara.richieste_leonardo, impara.finestre_dichiarate, impara.USER_MD_PATH = orig
 
 
 caso("prepara: dati veri sotto soglia -> nessuna proposta", (None, "nessun fatto sopra soglia"), _prepara([], _VERE, []))

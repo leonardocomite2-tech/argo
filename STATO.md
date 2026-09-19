@@ -3958,7 +3958,7 @@ invariati. Nessuna chiamata LLM nuova, nessuna eval.
   "- 19/09 — Richieste ad Argo per fascia oraria: pomeriggio 9, mattina 8,
   notte 1, sera 1 su 19 (11/09–19/09, 5 giorni)
   [fascia_oraria:nessuna_prevalente]".
-- **Verifiche.** `tests/test_argo_impara.py` 90/90 (guardrail statici:
+- **Verifiche.** `tests/test_argo_impara.py` 92/92 (guardrail statici:
   impara.py senza LLM né scritture, `_scrivi_user_md` chiamata solo dal ramo
   del sì). Suite intera verde. `verifica_mappa.py` a 0. `impatti.py --diff`:
   argo_voce, zero contratti (`manutenzione_sistema` compare per le modifiche
@@ -3985,6 +3985,9 @@ invariati. Nessuna chiamata LLM nuova, nessuna eval.
   dell'invio. Nessuna nuova proposta in coda, come previsto dopo una
   risposta a una proposta. `git diff knowledge/argo/USER.md`: la regola 3
   estesa, il blocco "Dai dati" e la riga della fascia oraria.
-- **Resta a Leonardo**: il commit di questo passo (USER.md compreso),
-  separato da quello del FIX avvisa; il push. Nessun rebuild: il consumer
-  legge i file da disco.
+- **Test dopo il sì.** Il test leggeva il vero USER.md dando per scontato
+  il blocco "Dai dati" vuoto: dopo la riga confermata dava 84/90. Ora lavora
+  su USER.md senza le righe di Argo, e controlla a parte che il file vero
+  abbia al massimo una riga per tipo e stia nel tetto.
+- **Resta a Leonardo**: il push. Nessun rebuild: il consumer legge i file da
+  disco.
