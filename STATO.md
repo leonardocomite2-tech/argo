@@ -15,8 +15,8 @@ confermare}. Aggiornare insieme alla nota di sessione (vedi CLAUDE.md).
 | Lead-gen host (Roma) | chiuso | da confermare | — | 01/09/2026 — "Roma chiuso", stato finale |
 | Panoptes — Mappa | chiuso | 09/09/2026 | — | Sessione 2026-09-18 — chiusura dopo la settimana d'uso: 3 correzioni di mappa, 13 lanci di impatti.py documentati (6 trasversali), 0 commit su tabelle/env senza mappa; in chiusura corretti i garantito_da sfasati (18 contratti su 28 con numeri di riga, RE01/DM04 compresi), corretti anche i range di codice (19 + 1 completato, 10 già giusti); backlog al Cantiere 2 (Custode), che NON è aperto |
 | Designer (bonifica yourservice-it) | in attesa | da confermare | Leonardo | Sessione 2026-09-11 (continua) — Fase C, via libera Ipotesi 1; in attesa che Leonardo reincolli i blocchi |
-| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-18 — passo 13: eval fuori dal tetto di produzione (OpenRouter di default, --anthropic esplicito con contatore in-memory), conteggio dei contratti di impatto tolto dal codice; resta a Leonardo il push, un giro di eval quando un endpoint gratuito risponde (oggi 429) o con --anthropic, e il ricollaudo dal telefono del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
-| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-18 — passo 4 (ramo conversazionale) + 4bis (claim che rispetta run_after, tetto LLM persistente per il consumer host, messaggi 'in corso' salvati, range mappa ristretto); collaudato da host; deploy fatto (container api/worker ricreati il 18/09 alle 10:32, dopo 3beb5b3; consumer host in cron ogni 15 secondi, quattro righe sfalsate dal passo 11 della voce); resta a Leonardo il collaudo reale e la verifica che l'avviso parta alle 22:15 |
+| Argo — la voce | in attesa | 10/09/2026 | Leonardo | Sessione 2026-09-19 — passo 14: USER.md che si popola (fatti calcolati in Python dai dati, proposta al massimo una al giorno, scrittura solo dopo un sì esatto alla riga argo_proposta precedente); proposta di collaudo mandata (conversazione_argo id 22); resta a Leonardo il sì dal telefono, il commit di USER.md scritto da Argo, il push, e dai passi precedenti il giro di eval e il ricollaudo del passo 12. Il modo "avvisa" (passo 8) resta in validazione d'uso per 30 giorni |
+| Argo — il ponte | aperto | 12/09/2026 | Leonardo | Sessione 2026-09-19 — fix del riaccodo di genera_avviso (389 avvisi silenziosi fra le 22:15 e la mezzanotte del 18/9, non legato al deploy): il recupero scatta solo se per le 22:15 di oggi non c'è nessun job, in qualunque stato; niente ritentativo dopo un failed. Trovati e non toccati: digest serale inviato due volte ogni sera dal 30/8, recover_orphaned_jobs sui job del consumer host. Resta a Leonardo il deploy del worker prima delle 22:15, il push e la decisione sul tetto LLM |
 | Memoria delle sessioni | aperto | 18/09/2026 | Leonardo | Sessione 2026-09-18 — tabella sessioni + hook SessionStart/SessionEnd + lettore; SessionEnd scattato davvero su una chiusura (d2eb3ee8, 09:00, stesso session_id al resume); SOSPESO da STATO.md solo per convenzione 'SOSPESO <n> —' (CLAUDE.md); resta a Leonardo la verifica su due chiusure di fila |
 | Regista Sonora v10 | da confermare | da confermare | da confermare | n/d — fuori repo, citato solo come motivo di deroga |
 
@@ -783,6 +783,53 @@ DM di prova il 26/08): `message_body`, `reply_channel`, `triggered_at` dentro
   copre, nemmeno il 10/9. Una modifica lì oggi risulta "non coperta dalla mappa".
   Da decidere se allargare `manutenzione_sistema` a 442-765: non l'ho fatto,
   perché sarebbe un'estensione della scheda, non una correzione.
+
+- **recover_orphaned_jobs rimette a pending anche i job del consumer host
+  (trovato il 19/9, non risolto).** `worker/loop.py:recover_orphaned_jobs`
+  fa `UPDATE jobs SET stato='pending' WHERE stato='running'` su tutti i
+  tipi, quindi anche sui `genera_*` che non consuma il worker ma
+  `scripts/argo/orienta_webhook.py` da host. Se un deploy riavvia il worker
+  mentre il consumer sta elaborando un job, quel job torna `pending`, il
+  giro di cron successivo lo reclama di nuovo e il messaggio (risposta,
+  brief, avviso) può partire due volte. La probabilità è bassa (deploy e
+  elaborazione devono sovrapporsi), ma dipende proprio dai deploy.
+  L'assunzione "un solo worker" di MS04 non basta più: i consumer sono due.
+  Opzioni non valutate: escludere i tipi `genera_*` dal reset, oppure un
+  timeout sul `running`.
+- **Avviso serale: dopo un failed niente ritentativo in giornata (deciso
+  il 19/9).** `garantisci_genera_avviso` accoda il recupero solo se per le
+  22:15 di oggi non esiste nessun job `genera_avviso`, in qualunque stato.
+  Trade-off scelto: un errore sistemico (es. tetto LLM) non si ripete
+  centinaia di volte con un messaggio di errore a ogni giro, ma un errore
+  transitorio fa saltare l'avviso di quella sera. Il job fallito compare
+  comunque nell'avviso del giorno dopo.
+
+- **Argo — la voce, passo 14 (19/9/2026): la sorgente "conversazione" per
+  USER.md è rinviata.** Oggi le proposte nascono solo dai dati (fascia
+  oraria, finestre dichiarate). Una frase durevole come "la mattina non ho
+  mai più di dieci minuti" il classificatore la manda a instrada (10
+  minuti), non alla conversazione: per riconoscerla servirebbe toccare il
+  classificatore o una chiamata LLM in più su ogni messaggio. In più, il
+  testo libero di un modello scritto in un file letto da ogni system prompt
+  è il punto più esposto ai dati di terzi. Da riprendere se le righe dai dati
+  risultano troppo povere.
+- **Argo — la voce, passo 14: soglie delle proposte da ritarare dopo un
+  mese d'uso.** Fascia: 20 richieste in 7 giorni diversi, con una fascia al
+  50% o più. Finestra: 5 dichiarazioni per contesto in 3 giorni. Scelte a
+  priori, senza dati: il 19/9 c'erano 19 richieste in 5 giorni, quasi tutte
+  di collaudo, e solo 2 finestre salvate (i /instrada dell'11/9). Le finestre
+  dei messaggi liberi si salvano in `jobs.payload` solo dal passo 14.
+- **Argo — la voce, passo 14: la riga del collaudo viene da giorni di
+  collaudo.** La prima riga di USER.md (se confermata) conta le richieste
+  dell'11-19/9, in gran parte prove. Dichiara il campione, ma non è l'uso
+  normale. La sostituisce la prima proposta di produzione con una fascia
+  prevalente (chiave diversa da `fascia_oraria:nessuna_prevalente`).
+- **Argo — la voce, passo 14: un "sì" non vale se arriva mentre Argo sta
+  ancora rispondendo.** Il messaggio finisce come `leonardo_non_processato`,
+  senza job: la proposta resta senza risposta e non torna. È voluto (una
+  conferma che scrive un file non si recupera da una riga senza job). La
+  chiave resta proposta, quindi nemmeno `proponi_user.py --collaudo` la
+  ripropone: se capita, la riga la scrive Leonardo a mano.
 
 ## DATI MANCANTI
 - poster_con_codice.png (stesse dimensioni, con codice esempio) — solo per confronto
@@ -3802,3 +3849,128 @@ aggiunta ora):
 **Resta a Leonardo:** decidere sugli helper del digest non coperti
 (DECISIONI APERTE) e sulla scheda `llm_gateway`; commit e push di `STATO.md` e
 `knowledge/mappa_sistema.yaml`. Il Cantiere 2 (Custode) non è aperto.
+
+## Sessione 2026-09-19 — Cantiere Argo — il ponte: genera_avviso riaccodato fino a mezzanotte
+
+**Cosa è successo il 18/9.** Il job 29228 (run_after 22:15) è partito alle
+22:15 ed è finito `done` in silenzio. Da lì `garantisci_genera_avviso` ha
+trovato la coda senza pending/running e, essendo passate le 22:15, lo ha
+trattato come un avviso saltato: `run_after = now()`, preso dal consumer al
+giro dopo, `done`, di nuovo. 389 job fra le 22:15:07 e le 23:59:51 (Roma),
+più il 30037 della mezzanotte per il 19/9. Nessun riavvio del worker nella
+fascia, nessun inserimento concorrente (il SELECT include `running`, c'è il
+lock advisory). Tutti silenziosi: nessuna chiamata LLM nel log del consumer,
+nessuna chiave di avviso in `alert_inviati`, nessun messaggio Telegram. Non
+legato al deploy: si sarebbe ripetuto ogni sera. Prima del 18/9 era nascosto
+dal vecchio claim senza `run_after` (circa 1.400 job al giorno).
+
+- **Fix** (`worker/loop.py:garantisci_genera_avviso`): il recupero scatta
+  solo se non esiste nessun `genera_avviso` con `run_after` fra le 22:15 di
+  oggi e le 22:15 di domani (esclusa),
+  in qualunque stato; altrimenti si accoda per domani. Dopo un failed niente
+  ritentativo in giornata (deciso con Leonardo, trade-off in DECISIONI
+  APERTE). Verificato nel container worker contro il DB vero, ogni scenario
+  in una transazione annullata: 7 casi OK (done e failed stasera → domani
+  22:15; nessun job stasera → recupero subito; mattina → stasera 22:15;
+  pending già presente → nulla; replay del 18/9 alle 23:59 → 19/9 22:15). Lo
+  stesso script sul codice di HEAD fallisce proprio sui 4 casi del bug. Nessun
+  test nuovo nel repo: `worker/loop.py` importa psycopg, non gira da host.
+- **Altre garantisci_\*.** `leggi_email` e `controlli_periodici` si
+  riaccodano da sé a fine handler; `digest_serale` prima dell'invio. Il
+  recupero di `garantisci_*` scatta solo se la catena si è interrotta, cioè
+  dopo un failed (2 tentativi). Ma lo schema ha lo stesso difetto nel ramo di
+  errore: un fallimento sistemico si ripete a ogni giro, con la notifica
+  "Job fallito" di `fail_job` ogni volta. È già successo il 29/8: 108
+  `digest_serale` failed fra le 22:01 e le 23:59. Non toccato.
+- **Digest serale doppio (trovato, non toccato).** Dal 30/8 esistono due
+  catene `digest_serale` parallele: ogni sera due job, due invii a 5 secondi
+  di distanza (log del worker del 18/9: 20:00:02 e 20:00:07 UTC). Il lock
+  dell'11/9 impedisce di crearne di nuove ma non riassorbe quelle esistenti:
+  ognuna si riaccoda da sé. Oggi ci sono due pending per stasera (29588,
+  29589).
+- **Tetto LLM, consumo del 18/9 (153 in `llm_chiamate_giorno`).** Consumer
+  host 15 riuscite + 1 bloccata (21:56, un messaggio libero); hook memoria 8
+  + 1 bloccata (18:47); worker 0 (contatore in-memory, fuori tabella comunque).
+  Le altre 128 non sono nei log di produzione: per differenza sono le eval
+  del passo 12 della voce, che avevano portato il contatore a 151 (nota del
+  passo 13). Dal passo 13 le eval non contano più lì. 19/9 fino alle 10:30:
+  5 (consumer 2, hook 3), i conti tornano. Il contatore non registra il
+  chiamante: la ripartizione viene dai log. `LLM_TETTO_GIORNALIERO` non
+  toccato.
+- **Mappa**: range di `worker/loop.py` rivisti uno per uno ai confini
+  (1573-1729, MS03 1696-1705, MS04 1697-1700, `time.sleep` 1725 — era già
+  sfasato, 1702 invece di 1711 — e argo_voce 1636-1683), nota FIX in
+  argo_voce. `verifica_mappa.py` a 0, i 5 comandi del collaudo Panoptes
+  invariati. Suite verde (13 file).
+
+**Resta a Leonardo:** il deploy del worker (`docker compose up -d --build
+worker`) prima delle 22:15 di stasera, altrimenti la catena riparte; il push;
+la decisione sul tetto LLM; se e quando sistemare il digest doppio e il
+ramo di errore delle garantisci_\*.
+
+
+## Sessione 2026-09-19 — Cantiere Argo — la voce, passo 14: USER.md che si popola
+
+IDENTITY.md dice che Argo propone e Leonardo conferma, ma nessun codice lo
+faceva. Ora Argo calcola un fatto dai dati, propone la riga esatta e la
+scrive in `knowledge/argo/USER.md` solo dopo un sì. Bot meccanico,
+`backend/main.py`, classificatore, pipeline, schema, crontab e `argo/voce.py`
+invariati. Nessuna chiamata LLM nuova, nessuna eval.
+
+- **Premessa del brief corretta.** I parametri di instrada non stavano in
+  `conversazione_argo`: lì c'è solo il testo, e minuti/contesto del
+  classificatore finivano solo nel log. Restavano i due /instrada dell'11/9 in
+  `jobs.payload`. Da ora un messaggio libero instradato aggiunge
+  `modo/minuti/contesto` al payload JSONB del suo job genera_conversazione
+  (`_registra_finestra`). L'unico lettore di quel payload è il consumer
+  stesso.
+- **Solo dati, zero LLM** (`argo/impara.py`, sola lettura). Tre tipi di
+  fatto, insieme chiuso: `fascia_oraria` (messaggi liberi più comandi, fasce
+  di Roma), `finestra_telefono` e `finestra_computer` (mediana dei minuti).
+  Le righe sono un template di numeri e parole fisse, quindi niente dati di
+  terzi per costruzione, e vengono rivalidate prima di ogni scrittura (niente
+  `@` né URL, al massimo 200 caratteri). Sorgente "conversazione" rinviata
+  (DECISIONI APERTE).
+- **Conferma.** La proposta è una riga di `conversazione_argo` con un ruolo
+  nuovo, `argo_proposta` (TEXT senza CHECK, nessuna migrazione), scritta solo
+  dal codice PRIMA dell'invio. Prima del classificatore il consumer guarda la
+  riga subito precedente il messaggio: se è una proposta e il messaggio è
+  esattamente "sì" (o "no"), la risposta è fissa e il sì scrive il file
+  (`_scrivi_user_md`, l'unico punto che lo scrive: file temporaneo più
+  os.replace, idempotente). Qualunque altro messaggio lascia decadere la
+  proposta e va al classificatore. Traccia: proposta, sì di Leonardo, "Scritta
+  in USER.md".
+- **Cadenza.** Al massimo una proposta al giorno. Arriva solo in coda alla
+  risposta a un messaggio libero (orienta, instrada, conversazione, impatto),
+  mai dopo un brief, una domanda o il testo del tetto, mai nell'avviso. Una
+  chiave `tipo:valore` già proposta non torna, qualunque sia stato l'esito.
+  Soglie in DECISIONI APERTE.
+- **Limite.** Le righe di Argo stanno solo nel blocco `### Dai dati (ogni riga
+  confermata da Leonardo)`, una per tipo (quindi al massimo tre): un valore
+  nuovo sostituisce il vecchio e la proposta lo dice. Oltre i 6000 caratteri
+  Argo non propone più. La regola 3 di USER.md lo dice.
+- **Git.** Il consumer non committa: la riga resta nel working tree e il
+  messaggio di conferma lo dice. Va in un commit a sé.
+- **Collaudo.** `scripts/argo/proponi_user.py` a secco: 19 richieste, 2
+  finestre, nessun fatto sopra soglia, nessuna proposta. Con `--collaudo`
+  (salta le soglie di campione e il tetto giornaliero, non la chiave né la
+  lunghezza) la proposta è partita alle 10:36, riga `argo_proposta` id 22:
+  "- 19/09 — Richieste ad Argo per fascia oraria: pomeriggio 9, mattina 8,
+  notte 1, sera 1 su 19 (11/09–19/09, 5 giorni)
+  [fascia_oraria:nessuna_prevalente]".
+- **Verifiche.** `tests/test_argo_impara.py` 90/90 (guardrail statici:
+  impara.py senza LLM né scritture, `_scrivi_user_md` chiamata solo dal ramo
+  del sì). Suite intera verde. `verifica_mappa.py` a 0. `impatti.py --diff`:
+  argo_voce, zero contratti (`manutenzione_sistema` compare per le modifiche
+  non committate della sessione "FIX avvisa" a `worker/loop.py`, non per
+  questo passo). Guardrail-review: nessun bloccante. Una nota:
+  `_registra_finestra` si fida della validazione di `interpreta_instrada`;
+  in lettura `finestre_dichiarate` scarta comunque ogni contesto fuori da
+  telefono/computer.
+- **Mappa**: su argo_voce il codice nuovo, la voce in produce, il contratto
+  AV13 e la nota PASSO 14.
+- **Working tree condiviso.** STATO.md, la mappa e `worker/loop.py` hanno
+  anche modifiche della sessione "FIX avvisa". Nessun commit fatto qui.
+- **Resta a Leonardo**: rispondere sì (o no) alla proposta dal telefono; il
+  commit di questo passo separato da quello del FIX avvisa; il push. Nessun
+  rebuild: il consumer legge i file da disco.

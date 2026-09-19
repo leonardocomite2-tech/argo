@@ -1642,7 +1642,15 @@ def garantisci_genera_avviso():
     trova la coda vuota dopo che scripts/argo/orienta_webhook.py ha marcato
     il job precedente 'done' (silenzio o invio) e la ripopola per
     l'occorrenza successiva — zero righe di crontab nuove, riusa il cron
-    esistente di orienta_webhook.py (già ogni minuto)."""
+    esistente di orienta_webhook.py (già ogni minuto).
+
+    Il recupero scatta solo se l'occorrenza di stasera non ha ancora nessun
+    job, in qualunque stato: fino al 19/9/2026 bastava non trovarne uno
+    pending/running, così ogni avviso finito 'done' dopo le 22:15 ne
+    riaccodava subito un altro — 389 job la sera del 18/9, uno ogni 15
+    secondi fino a mezzanotte (STATO.md). Dopo un 'failed' si aspetta
+    domani, niente ritentativo: un errore sistemico (es. tetto LLM) si
+    ripeterebbe identico, con un messaggio di errore su Telegram a ogni giro."""
     with db_connect() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext('genera_avviso_schedule'))")
@@ -1651,7 +1659,13 @@ def garantisci_genera_avviso():
             )
             if cur.fetchone() is None:
                 adesso_roma = datetime.now(FUSO_ROMA)
-                if adesso_roma.time() >= ORA_AVVISO:
+                avviso_di_oggi = datetime.combine(adesso_roma.date(), ORA_AVVISO, tzinfo=FUSO_ROMA)
+                cur.execute(
+                    "SELECT 1 FROM jobs WHERE tipo = 'genera_avviso' AND run_after >= %s AND run_after < %s",
+                    (avviso_di_oggi, avviso_di_oggi + timedelta(days=1)),
+                )
+                gia_accodato_oggi = cur.fetchone() is not None
+                if adesso_roma.time() >= ORA_AVVISO and not gia_accodato_oggi:
                     run_after = adesso_roma
                     motivo = "recupero in ritardo (22:15 di oggi già passate)"
                 else:

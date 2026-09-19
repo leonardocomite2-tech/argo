@@ -207,7 +207,7 @@ pipeline:
       - "worker/loop.py:80-114"
       - "worker/loop.py:460-765"
       - "worker/loop.py:768-932"
-      - "worker/loop.py:1573-1715"
+      - "worker/loop.py:1573-1729"
     tabelle:
       legge: [jobs, events, messages, approvals, soppressioni, alert_inviati]
       scrive: [alert_inviati, approvals, jobs]
@@ -223,13 +223,13 @@ pipeline:
         garantito_da: "worker/loop.py:1602-1633 (garantisci_digest_serale, chiamata all'avvio e a ogni giro del loop; se le 22:00 di oggi sono già passate senza un job pending/running, lo riaccoda subito invece di aspettare il giorno dopo)"
       - id: MS03
         enunciato: "Nessun job resta in 'running' oltre un riavvio del worker"
-        garantito_da: "worker/loop.py:1682-1691 (recover_orphaned_jobs, UPDATE jobs SET stato='pending' WHERE stato='running', eseguito a ogni avvio) — vedi MS04 per il limite di questa garanzia"
+        garantito_da: "worker/loop.py:1696-1705 (recover_orphaned_jobs, UPDATE jobs SET stato='pending' WHERE stato='running', eseguito a ogni avvio) — vedi MS04 per il limite di questa garanzia"
       - id: MS04
         enunciato: "recover_orphaned_jobs è corretto solo con un worker unico: con due, un riavvio rimetterebbe a pending job ancora vivi dell'altro worker"
-        garantito_da: "docker-compose.yml, servizio worker senza deploy/replicas dichiarate (default: un solo container) — non è un guard nel codice, solo la topologia del compose; il commento a worker/loop.py:1683-1686 documenta l'assunzione ma non la impone"
+        garantito_da: "docker-compose.yml, servizio worker senza deploy/replicas dichiarate (default: un solo container) — non è un guard nel codice, solo la topologia del compose; il commento a worker/loop.py:1697-1700 documenta l'assunzione ma non la impone"
     evidenza:
       - "DA_VERIFICARE / SOSPESO: questo flusso non è uno dei quattro nominati all'apertura del cantiere — non è innescato da un evento di dominio (poster/email/DM), opera sul sistema stesso (job, alert, digest). Trattato come quinta scheda pipeline, non come componente condiviso: DECISIONE confermata con Leonardo il 9/9/2026 (STATO.md)"
-      - "loop principale ogni 5s: worker/loop.py:1702 (time.sleep(5)), claim_job worker/loop.py:80-107 (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE stato='running')"
+      - "loop principale ogni 5s: worker/loop.py:1725 (time.sleep(5)), claim_job worker/loop.py:80-107 (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE stato='running')"
       - "FIX (11/9/2026): le tre garantisci_* (leggi_email/controlli_periodici/digest_serale) facevano un check-poi-insert non atomico — due processi worker sovrapposti (es. durante un redeploy) potevano entrambi trovare 'nessun job' e inserirne due, osservato in produzione su digest_serale (due job, stesso run_after, creati a 6 secondi di distanza). Corretto con pg_advisory_xact_lock (chiave propria per funzione) in testa a ciascuna, prima della SELECT — nessuna migrazione, nessun rischio per il self-chaining esistente. Dettagli in STATO.md, sessione 2026-09-11."
       - "controlli_periodici ogni 15 min: worker/loop.py:907-925, orchestratore di _controllo_approvazioni_bloccate (767-789), _controllo_poster_mancante (792-813), _controllo_volume_anomalo (816-838), _controllo_scadenza_vicina (841-892)"
       - "digest_serale: worker/loop.py:631-758, legge approvals/jobs/events/messages/soppressioni/alert_inviati in sola lettura (622-724 — legge alert_inviati a 697-701, CORRETTO al passo 2: mancava in tabelle.legge), riaccoda sé stesso alle 22:00 (738-743, prossimo_orario_digest)"
@@ -541,6 +541,7 @@ pipeline:
       - "modo avvisa: digest serale su Telegram (stesso bot), UNA volta al giorno alle 22:15 — solo se almeno una approvazione ferma da più di 24h, un job fallito nelle ultime 24h o un'osservazione grave qualificano (mai già segnalati in passato); altrimenti nessun messaggio, il silenzio è l'esito normale"
       - "modo brief: testo pronto da incollare in Claude Code su Telegram (stesso bot, uno o più messaggi via invia_lungo se supera 4096 caratteri) — titolo/Plan mode obbligatorio/Vincoli standard/riga sul repo fissi, Contesto/Obiettivo/Criterio di chiusura sintetizzati dall'LLM solo da dati presenti alla lettera nel contesto raccolto; nome cantiere ambiguo o non trovato risponde con l'elenco dei nomi validi, zero LLM"
       - "messaggio libero (passo 9 della voce): prima un classificatore Haiku corto sceglie il modo (orienta, instrada, impatto, brief, conversazione) ed estrae i parametri; risponde la funzione del modo scelto, invariata. Parametro mancante o modo incerto (confidenza sotto 0.7): una riga che chiede, nessun'altra chiamata LLM"
+      - "proposta per USER.md (passo 14 della voce): al massimo una al giorno, solo in coda alla risposta a un messaggio libero, una riga calcolata in Python dai dati (fascia oraria delle richieste, finestre dichiarate al telefono e al computer) con il campione dichiarato; entra in knowledge/argo/USER.md solo se il messaggio seguente di Leonardo è esattamente sì. USER.md resta nel working tree, mai committato dal consumer"
     codice:
       - "db/migrations/006_osservazioni_mandati.sql"
       - "db/migrations/007_conversazione_argo.sql"
@@ -553,13 +554,15 @@ pipeline:
       - "argo/voce.py"
       - "scripts/argo/orienta.py"
       - "scripts/argo/orienta_webhook.py"
+      - "argo/impara.py"
+      - "scripts/argo/proponi_user.py"
       - "backend/main.py:414-635"
       - "connectors/telegram.py:39-97"
       - "connectors/llm.py"
       - "worker/loop.py:60-70"
       - "worker/loop.py:83-88"
       - "worker/loop.py:95"
-      - "worker/loop.py:1636-1669"
+      - "worker/loop.py:1636-1683"
     tabelle:
       legge: [approvals, messages, events, jobs, alert_inviati, osservazioni, conversazione_argo]
       scrive: [jobs, alert_inviati, osservazioni, mandati, conversazione_argo, llm_chiamate_giorno]
@@ -731,6 +734,9 @@ pipeline:
       - id: AV12
         enunciato: "Il testo della conversazione verso Telegram non contiene domande (salvo quella su un parametro mancante che comincia con Quale, o un testo fatto solo di domande), né frasi che citano un percorso assente dai dati ricevuti e dal repo, un comando di shell non copiato alla lettera dai dati o un comando Telegram fuori da quelli di backend/main.py: la frase intera si toglie, mai un pezzo."
         garantito_da: "argo/voce.py:_ripulisci_conversazione (_senza_backtick, poi _togli_domande, poi _togli_riferimenti_inventati, tutti su frasi intere via _togli_frasi; applicata a entrambe le chiamate di genera_conversazione, prima di _con_riga_fatti) + test:tests/test_argo_voce.py (catena sul testo reale del collaudo, COMANDI_TELEGRAM confrontati con i COMANDO_* di backend/main.py). Nomi di processo senza comando e brevità sono solo prompt, misurati in eval: tests/eval_modi_argo.py"
+      - id: AV13
+        enunciato: "Argo scrive in knowledge/argo/USER.md solo dopo un sì esplicito: il messaggio di Leonardo è esattamente sì e la riga di conversazione_argo che lo precede è una proposta (ruolo argo_proposta); la riga scritta è quella della proposta, rivalidata, nel blocco 'Dai dati', al massimo una per tipo, entro 6000 caratteri. I fatti proposti sono calcolati senza LLM; una chiave già proposta non torna"
+        garantito_da: "scripts/argo/orienta_webhook.py:_risposta_a_proposta (e_si prima di _scrivi_user_md; eseguita prima del classificatore, nessun LLM) + _scrivi_user_md (unico punto che scrive il file, os.replace) + _registra_proposta (ruolo scritto in chiaro dal codice, mai da un LLM) + argo/impara.py:analizza_riga/applica_riga/scegli_proposta/prepara_proposta + test:tests/test_argo_impara.py (guardrail statici: impara.py senza LLM né scritture, _scrivi_user_md chiamata solo dal ramo del sì)"
     evidenza:
       - "DEROGA alle sei tabelle base dello schema, motivata in STATO.md: osservazioni/mandati non si adattano alla semantica delle tabelle esistenti (events è per eventi di dominio con dedup_key da trigger esterni; messages traccia conversazioni host/prospect, non comunicazione interna tra sottosistemi)."
       - "DEROGA puntuale alla convenzione 'niente CHECK' del repo, anch'essa motivata in STATO.md: osservazioni.stato e mandati.tipo sono gli unici due CHECK nello schema — sono gli enum su cui poggia il guardrail 'Argo traduce, non origina', un valore fuori enum su tipo aprirebbe una terza categoria di mandato non prevista."
@@ -758,6 +764,8 @@ pipeline:
       - "PASSO 11 della voce (18/9/2026) — instradamento su brief, fatti negati, latenza. (1) Brief da messaggio libero solo se il messaggio dice 'brief' o 'Claude Code' (cancello in Python, _RICHIESTA_BRIEF_RE) e con confidenza >= SOGLIA_CONFIDENZA_BRIEF=0.9; con la parola ma sotto soglia una riga fissa rimanda a /brief; senza la parola è conversazione. genera_brief risponde con una riga fissa, zero LLM, per ogni cantiere con Stato diverso da 'aperto' (deciso da Leonardo: in eval il modello inventava lavoro di codice da 'resta a Leonardo il push e il ricollaudo', 3/3). Sui cantieri aperti i dati separano lavoro_gia_chiuso (sessioni + commit del cantiere da attivita_git) da da_fare_secondo_la_riga. (2) Orienta, instrada e conversazione senza consultazione finiscono con una riga 'Fatti' composta in Python (_riga_fatti: approvazioni in attesa con #id e giorno, tipi di job falliti negli ultimi 7 giorni, cantieri che aspettano Leonardo; copertura assente = 'non rilevabili', mai zero); _togli_fatti_del_modello toglie le frasi del modello che contano o negano quei fatti (lista nera, limite in STATO.md DECISIONI APERTE). Orienta/instrada ricevono ora la stessa vista della conversazione (_senza_campi_derivati). (3) scripts/argo/orienta_webhook.py lanciato da quattro righe di cron sfalsate di 15 s; _reclama_job controllava 'if not claimato' ma psql -t -A stampa 'UPDATE 0' con zero righe — la guardia non scattava mai: ora il claim vale solo se la prima riga è l'id. Nessuna tabella, env o confine di pipeline cambiato."
       - "PASSO 12 della voce (18/9/2026) — tre difetti del modo conversazione, classificatore e bot invariati. (1) Percorsi e comandi inventati in istruzioni di verifica (collaudo: argo/consumer_voce.log, ps aux | grep consumer): regola in SOUL.md e in ISTRUZIONI_CONVERSA_BASE, più _togli_riferimenti_inventati che toglie la frase intera se un percorso non è nei dati né sotto REPO_ROOT, se un comando di shell non è copiato dai dati, se un comando Telegram non è in COMANDI_TELEGRAM (il modello ha proposto /avvisa). (2) Conversazione in poche righe come orienta; max_tokens invariati (prima chiamata in JSON: un taglio la rompe; la riga Fatti è del codice). (3) _togli_domande sostituisce _togli_rilancio: ogni domanda, anche interna, salvo quella su un parametro. Contratto AV12. Nessuna tabella, env o confine di pipeline cambiato."
       - "PASSO 13 della voce (18/9/2026) — il conteggio dei contratti in impatto lo toglie il codice: la regola del prompt (passo 10) non era stata indebolita, il modello la ignorava ('Gli altri quattro contratti (PH01, ...)' con otto in gioco). genera_impatto toglie con _togli_frasi le frasi per cui _conta_contratti è vero (numero attaccato a contratti, i contratti sono N, gli altri N solo se la frase nomina un contratto o un ID). Nessuna tabella, env o confine di pipeline cambiato."
+      - "FIX avvisa (19/9/2026) — garantisci_genera_avviso (worker/loop.py:1636-1683) riaccodava subito un nuovo avviso ogni volta che il precedente finiva done/failed dopo le 22:15: il recupero guardava solo pending/running. La sera del 18/9 sono partiti 389 genera_avviso (uno ogni 15 secondi fino a mezzanotte), tutti silenziosi. Ora il recupero scatta solo se per le 22:15 di oggi non esiste nessun job genera_avviso in qualunque stato (run_after >= 22:15 di oggi); altrimenti si accoda per domani. Dopo un failed niente ritentativo in giornata (deciso con Leonardo). Nessuna tabella, env o confine di pipeline cambiato."
+      - "PASSO 14 della voce (19/9/2026) — USER.md che si popola. argo/impara.py (sola lettura, zero LLM) calcola tre tipi di fatto chiusi — fascia_oraria (conversazione_argo ruolo leonardo% + job dei quattro comandi, fasce di Roma), finestra_telefono e finestra_computer (mediana dei minuti da jobs.payload) — con soglie di produzione (fascia: 20 richieste, 7 giorni, una fascia al 50%; finestra: 5 dichiarazioni in 3 giorni) e compone la riga da un template di numeri e parole fisse. Il consumer: (1) prima del classificatore, sì/no esatto dopo una riga argo_proposta (ruolo nuovo in conversazione_argo, colonna TEXT senza CHECK, nessuna migrazione; ETICHETTE_RUOLO_CONVERSAZIONE invariato: il ruolo cade sull'etichetta di default Argo, il classificatore vede lo stesso input); (2) dopo una risposta a un messaggio libero di orienta/instrada/conversazione/impatto senza domande, al massimo una proposta al giorno; (3) un messaggio libero instradato aggiunge modo/minuti/contesto al payload JSONB del suo job genera_conversazione (_registra_finestra; unico lettore di quel payload è il consumer stesso). scripts/argo/proponi_user.py: a secco stampa i fatti, --collaudo salta le soglie di campione e il tetto giornaliero. Nessuna tabella, env, schema, crontab o classificatore cambiati; backend/main.py invariato. Contratto AV13."
 
   - nome: memoria_sessioni
     stato: orienta
